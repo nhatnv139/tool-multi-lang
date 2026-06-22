@@ -28,6 +28,10 @@ THEMES = {
     "sky":      dict(BG=(228,238,250), INK=(50,58,72),  PINYIN=(132,144,162),
                      VIET=(40,90,170),  HEADER=(74,88,112), LINE=(184,200,226),
                      BADGE=(86,140,220), GOLD=(60,120,200), SOFT=(116,128,148)),
+    # "none": khong phu mau len anh nen — giu nguyen anh, chu mau tuong phan de doc
+    "none":     dict(BG=(245,245,246), INK=(38,38,40),  PINYIN=(110,110,116),
+                     VIET=(178,45,62),  HEADER=(64,64,68), LINE=(182,182,186),
+                     BADGE=(240,150,90), GOLD=(214,120,88), SOFT=(118,118,122)),
 }
 # mau hien hanh (mac dinh hong) — apply_theme() doi bo nay
 BG, INK, PINYIN, VIET, HEADER, LINE, BADGE, GOLD, SOFT = (
@@ -35,35 +39,100 @@ BG, INK, PINYIN, VIET, HEADER, LINE, BADGE, GOLD, SOFT = (
     THEMES["pink"]["VIET"], THEMES["pink"]["HEADER"], THEMES["pink"]["LINE"],
     THEMES["pink"]["BADGE"], THEMES["pink"]["GOLD"], THEMES["pink"]["SOFT"])
 
+# Lop phu mo len anh nen (mau theme + do dam) — apply_theme() dat lai
+VEIL_RGBA = THEMES["pink"]["BG"] + (170,)
+
 def apply_theme(name):
-    global BG, INK, PINYIN, VIET, HEADER, LINE, BADGE, GOLD, SOFT
+    global BG, INK, PINYIN, VIET, HEADER, LINE, BADGE, GOLD, SOFT, VEIL_RGBA
     t = THEMES.get(name, THEMES["pink"])
     BG, INK, PINYIN, VIET = t["BG"], t["INK"], t["PINYIN"], t["VIET"]
     HEADER, LINE, BADGE = t["HEADER"], t["LINE"], t["BADGE"]
     GOLD, SOFT = t["GOLD"], t["SOFT"]
+    # "none": GIU NGUYEN anh, khong phu lop nao (alpha 0 -> _prep_bg tra ve anh goc)
+    VEIL_RGBA = (255, 255, 255, 0) if name == "none" else (BG + (170,))
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Kaiti (thu phap) duoc copy san vao assets/fonts; du phong STHeiti/Songti neu thieu
+_KAITI = os.path.join(_HERE, "assets", "fonts", "Kaiti.ttc")
+_AVENIR = "/System/Library/Fonts/Avenir Next.ttc"   # .ttc nhieu weight (xem index ben duoi)
+
+def _pick_font(*candidates):
+    """Tra ve font dau tien ton tai (cross-platform Windows/macOS/Linux)."""
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return candidates[-1]
+
+def _spec(win_path, mac_path, mac_index=0, *fallbacks):
+    """Tra ve (path, index). Uu tien Windows (index 0) -> macOS (index chi dinh) -> du phong."""
+    if os.path.exists(win_path):
+        return (win_path, 0)
+    if os.path.exists(mac_path):
+        return (mac_path, mac_index)
+    for fb in fallbacks:
+        if os.path.exists(fb):
+            return (fb, 0)
+    return (mac_path, mac_index)
+
+# Tieng Viet + Latin: Lexend (variable font) — chon weight bang ten instance.
+_LEXEND = os.path.join(_HERE, "assets", "fonts", "Lexend.ttf")
+_AV_IDX = {"Regular": 7, "Medium": 5, "SemiBold": 2, "Bold": 0}   # map khi du phong Avenir
+def _latin(weight):
+    """(path, None, weight) cho Lexend variable; du phong Avenir/Arial neu thieu Lexend."""
+    if os.path.exists(_LEXEND):
+        return (_LEXEND, None, weight)
+    if os.path.exists(_AVENIR):
+        return (_AVENIR, _AV_IDX.get(weight, 7))
+    win = "C:/Windows/Fonts/arialbd.ttf" if weight in ("Bold", "SemiBold") else "C:/Windows/Fonts/arial.ttf"
+    return (win, 0)
+
+# Avenir Next.ttc face index: 0=Bold 1=BoldItalic 2=DemiBold 3=DemiBoldItalic 5=Medium 7=Regular
 F = {
-    "zh":     "C:/Windows/Fonts/simsun.ttc",
-    "pinyin": "C:/Windows/Fonts/arial.ttf",
-    "viet":   "C:/Windows/Fonts/timesbi.ttf",
-    "head":   "C:/Windows/Fonts/timesbi.ttf",
-    "badge":  "C:/Windows/Fonts/arialbd.ttf",
-    "sans":   "C:/Windows/Fonts/arial.ttf",
-    "sansb":  "C:/Windows/Fonts/arialbd.ttf",
+    # chu Han: Kaiti (thu phap) tren macOS; SimSun tren Windows
+    "zh":     _spec("C:/Windows/Fonts/simsun.ttc", _KAITI, 0,
+                    "/System/Library/Fonts/STHeiti Medium.ttc",
+                    "/System/Library/Fonts/Supplemental/Songti.ttc",
+                    "/System/Library/Fonts/Hiragino Sans GB.ttc"),
+    "pinyin": _latin("Regular"),    # pinyin nhe, thanh
+    "viet":   _latin("SemiBold"),   # nghia Viet (nhan)
+    "head":   _latin("Medium"),     # header tren cung
+    "badge":  _latin("Bold"),       # badge HSK
+    "sans":   _latin("Regular"),    # van ban thuong
+    "sansb":  _latin("SemiBold"),   # van ban dam
 }
-EMOJI = "C:/Windows/Fonts/seguiemj.ttf"
+EMOJI = _pick_font("C:/Windows/Fonts/seguiemj.ttf",
+                   "/System/Library/Fonts/Apple Color Emoji.ttc")
+# Apple Color Emoji la font bitmap, chi nhan vai size co dinh -> nan ve gan nhat.
+_EMOJI_IS_BITMAP = EMOJI.endswith("Apple Color Emoji.ttc")
+_EMOJI_STRIKES = (20, 26, 32, 40, 48, 52, 64, 96, 160)
+def _emoji_size(s):
+    if not _EMOJI_IS_BITMAP:
+        return s
+    return min(_EMOJI_STRIKES, key=lambda k: abs(k - s))
+
 MASCOTS = ["🐼", "🐱", "🐰", "🐻", "🐯", "🐨", "🦊", "🐧"]
 _fc = {}
 def font(k, s):
     key = (k, s)
     if key not in _fc:
-        _fc[key] = ImageFont.truetype(F[k], s)
+        spec = F[k]
+        if isinstance(spec, tuple) and len(spec) == 3:   # (path, None, weight) - variable font
+            f = ImageFont.truetype(spec[0], s)
+            try:
+                f.set_variation_by_name(spec[2])
+            except Exception:
+                pass
+            _fc[key] = f
+        elif isinstance(spec, tuple):                    # (path, face_index) - .ttc
+            _fc[key] = ImageFont.truetype(spec[0], s, index=spec[1])
+        else:
+            _fc[key] = ImageFont.truetype(spec, s)
     return _fc[key]
 
 _ec = {}
 def emoji_font(s):
     if s not in _ec:
-        _ec[s] = ImageFont.truetype(EMOJI, s)
+        _ec[s] = ImageFont.truetype(EMOJI, _emoji_size(s))
     return _ec[s]
 
 _mascot_img_cache = {}
@@ -142,6 +211,49 @@ def py_hanzi(d, text, cx, top, zh_size=130, py_size=44,
         y += line_h
     return len(lines) * line_h
 
+def fit_zh_size(d, text, max_size, min_size=64, max_w=1640, char_gap=14):
+    """Tu chon co chu Han lon nhat (<=max_size) de ca cau vua 1 dong (<=max_w).
+       Cau ngan giu max_size; cau dai thu nho dan toi min_size."""
+    flat = flatten(text)
+    chars = [c for c, _, _ in flat]
+    if not chars:
+        return max_size
+    size = max_size
+    while size > min_size:
+        zf = font("zh", size)
+        total = sum(text_w(d, c, zf) + char_gap for c in chars) - char_gap
+        if total <= max_w:
+            break
+        size -= 4
+    return max(min_size, size)
+
+def wrap_text(d, text, fnt, max_w):
+    """Cat van ban (theo tu) thanh nhieu dong sao cho moi dong <= max_w."""
+    words = (text or "").split()
+    if not words:
+        return []
+    lines, cur = [], ""
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if not cur or text_w(d, trial, fnt) <= max_w:
+            cur = trial
+        else:
+            lines.append(cur); cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+def draw_viet(d, text, top, fnt, line_gap=10):
+    """Ve nghia Viet, canh giua, tu xuong dong neu dai > 90% chieu rong. Tra ve chieu cao."""
+    lines = wrap_text(d, text, fnt, int(W * 0.9))
+    lh = fnt.size + line_gap
+    y = top
+    for ln in lines:
+        tw = text_w(d, ln, fnt)
+        d.text(((W - tw) // 2, y), ln, font=fnt, fill=VIET)
+        y += lh
+    return max(1, len(lines)) * lh
+
 def char_reveal_times(text, win_start, win_end):
     """Tra ve mang reveal_t (theo flat) — rai deu cac chu Han tren [win_start,win_end].
        Dau cau hien cung chu Han ngay truoc no."""
@@ -160,7 +272,7 @@ _bg_cache = {}
 def _prep_bg(path):
     """Anh nguoi dung tai len -> phu kin 1920x1080 + phu mang mo mau theme
        de chu van doc ro. Co cache."""
-    k = (path, tuple(BG))
+    k = (path, tuple(VEIL_RGBA))
     if k in _bg_cache:
         return _bg_cache[k].copy()
     src = Image.open(path).convert("RGB")
@@ -171,8 +283,11 @@ def _prep_bg(path):
         src = src.resize((W, int(W / sr)))
     x, y = (src.width - W) // 2, (src.height - H) // 2
     src = src.crop((x, y, x + W, y + H))
-    veil = Image.new("RGBA", (W, H), BG + (170,))     # mang mo mau theme ~67%
-    out = Image.alpha_composite(src.convert("RGBA"), veil).convert("RGB")
+    if VEIL_RGBA[3] <= 0:                              # khong phu mau -> giu nguyen anh
+        out = src
+    else:
+        veil = Image.new("RGBA", (W, H), tuple(VEIL_RGBA))
+        out = Image.alpha_composite(src.convert("RGBA"), veil).convert("RGB")
     _bg_cache[k] = out
     return out.copy()
 
@@ -262,24 +377,27 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
         zh, py, vgap = 240, 66, 40
         h = py_hanzi(d, seg["hanzi"], W//2, 0, zh_size=zh, py_size=py, draw=False)
         vf = font("viet", 70)
-        top = (H - (h + vgap + 70))//2 - 20
+        vh = len(wrap_text(d, seg.get("viet", ""), vf, int(W*0.9))) * (vf.size+10) if show_viet else 0
+        top = (H - (h + vgap + vh))//2 - 20
         py_hanzi(d, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
                  reveal_t=reveal_t, t_now=t_now)
         if show_viet:
-            tw = text_w(d, seg["viet"], vf)
-            d.text(((W-tw)//2, top+h+vgap), seg["viet"], font=vf, fill=VIET)
+            draw_viet(d, seg["viet"], top+h+vgap, vf)
 
     elif t == "sentence":
         im, d = base_slide(ctx)
-        zh, py, vgap = 140, 48, 36
+        # co DONG NHAT toan bai (tinh san trong build) -> khong nhay chu;
+        # neu render le (khong qua build) thi tu co theo cau
+        zh = ctx.get("zh_size") or fit_zh_size(d, seg["hanzi"], 116)
+        py, vgap = max(34, int(zh * 0.38)), 34
         h = py_hanzi(d, seg["hanzi"], W//2, 0, zh_size=zh, py_size=py, draw=False)
         vf = font("viet", 60)
-        top = (H - (h + vgap + 60))//2 - 20
+        vh = len(wrap_text(d, seg.get("viet", ""), vf, int(W*0.9))) * (vf.size+10) if show_viet else 0
+        top = (H - (h + vgap + vh))//2 - 20
         py_hanzi(d, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
                  reveal_t=reveal_t, t_now=t_now)
         if show_viet:
-            tw = text_w(d, seg["viet"], vf)
-            d.text(((W-tw)//2, top+h+vgap), seg["viet"], font=vf, fill=VIET)
+            draw_viet(d, seg["viet"], top+h+vgap, vf)
 
     elif t == "dialogue":
         im, d = base_slide(ctx)

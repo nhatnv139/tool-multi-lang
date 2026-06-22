@@ -23,11 +23,25 @@ ANIM_TYPES = {"vocab", "sentence", "practice_a", "dialogue"}   # cac loai chu hi
 W, H = 1920, 1080
 FPS = 25
 PAD = 0.8                      # giay im lang them sau moi doan
+def _pick_font(*candidates):
+    """Tra ve font dau tien ton tai (cross-platform Windows/macOS/Linux)."""
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return candidates[-1]   # fallback: de Pillow bao loi ro rang
+
 FONTS = {
-    "zh_bold":   "C:/Windows/Fonts/msyhbd.ttc",
-    "zh":        "C:/Windows/Fonts/msyh.ttc",
-    "lat_bold":  "C:/Windows/Fonts/arialbd.ttf",
-    "lat":       "C:/Windows/Fonts/arial.ttf",
+    # zh dam / thuong: YaHei (Win) -> Hiragino Sans GB / PingFang (macOS)
+    "zh_bold":   _pick_font("C:/Windows/Fonts/msyhbd.ttc",
+                            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                            "/System/Library/Fonts/PingFang.ttc"),
+    "zh":        _pick_font("C:/Windows/Fonts/msyh.ttc",
+                            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                            "/System/Library/Fonts/PingFang.ttc"),
+    "lat_bold":  _pick_font("C:/Windows/Fonts/arialbd.ttf",
+                            "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+    "lat":       _pick_font("C:/Windows/Fonts/arial.ttf",
+                            "/System/Library/Fonts/Supplemental/Arial.ttf"),
 }
 VOICE_ZH = "zh-CN-XiaoxiaoNeural"
 VOICE_VI = "vi-VN-HoaiMyNeural"
@@ -259,7 +273,7 @@ def synth_azure(text, voice, path, key, region, rate="-8%"):
     """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path."""
     ssml = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
             f'xml:lang="zh-CN"><voice name="{voice}">'
-            f'<prosody rate="{rate}">{_ssml_escape(text)}</prosody></voice></speak>')
+            f'<prosody rate="{_norm_rate(rate)}">{_ssml_escape(text)}</prosody></voice></speak>')
     url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
     headers = {
         "Ocp-Apim-Subscription-Key": key,
@@ -281,23 +295,42 @@ def _rate_to_speed(rate):
         pct = -8
     return {-20: 2, -10: 3, -8: 3, 0: 5}.get(pct, max(0, min(9, 5 + pct // 10)))
 
+def _norm_rate(rate):
+    """edge-tts bat buoc rate co dau (+/-). '0%' -> '+0%', '8%' -> '+8%'."""
+    r = str(rate or "+0%").strip()
+    if not r:
+        return "+0%"
+    return r if r[0] in "+-" else "+" + r
+
+def _synth_edge(text, voice, path, rate="-8%"):
+    """Sinh giong bang edge-tts (mien phi, can internet)."""
+    cmd = [sys.executable, "-m", "edge_tts", "--voice", voice,
+           "--text", text, f"--rate={_norm_rate(rate)}", "--write-media", path]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+def _edge_voice(voice):
+    """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh."""
+    return voice if (voice and "-" in voice and "Neural" in voice) else VOICE_ZH
+
 def synth(text, voice, path, rate="-8%", azure=None, chattts=False):
     """Giong doc co cache. chattts -> ChatTTS local; azure=(key,region) -> Azure;
-       con lai -> edge-tts."""
+       con lai -> edge-tts. ChatTTS loi -> tu fallback edge-tts."""
     eng = ("ct-" + str(chattts)) if chattts else ("az" if azure else "ed")
     c = os.path.join(TTS_CACHE, _tts_key(eng + text, voice, rate) + ".mp3")
     if not os.path.exists(c):
         if chattts:
-            import chattts_engine
-            style = chattts if isinstance(chattts, str) else "warm"
-            p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
-            chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+            try:
+                import chattts_engine
+                style = chattts if isinstance(chattts, str) else "warm"
+                p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
+                chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+            except Exception as e:
+                print(f"[ChatTTS khong dung duoc -> chuyen sang edge-tts] {e}")
+                _synth_edge(text, _edge_voice(voice), c, rate)
         elif azure:
             synth_azure(text, voice, c, azure[0], azure[1], rate)
         else:
-            cmd = [sys.executable, "-m", "edge_tts", "--voice", voice,
-                   "--text", text, f"--rate={rate}", "--write-media", c]
-            subprocess.run(cmd, check=True, capture_output=True)
+            _synth_edge(text, voice, c, rate)
     shutil.copyfile(c, path)
 
 def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False):
@@ -313,30 +346,42 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False):
 
     if chattts or azure:            # khong co moc cau -> [] (rai deu chu)
         if chattts:
-            import chattts_engine
-            style = chattts if isinstance(chattts, str) else "warm"
-            p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
-            chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+            try:
+                import chattts_engine
+                style = chattts if isinstance(chattts, str) else "warm"
+                p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
+                chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+            except Exception as e:
+                print(f"[ChatTTS khong dung duoc -> chuyen sang edge-tts] {e}")
+                # edge co moc cau -> ghi binh thuong va tra ve moc that
+                sents = _synth_edge_timed(text, _edge_voice(voice), c, rate)
+                json.dump(sents, open(cj, "w", encoding="utf-8"))
+                shutil.copyfile(c, path)
+                return sents
         else:
             synth_azure(text, voice, c, azure[0], azure[1], rate)
         json.dump([], open(cj, "w", encoding="utf-8"))
         shutil.copyfile(c, path)
         return []
 
+    sents = _synth_edge_timed(text, voice, c, rate)
+    json.dump(sents, open(cj, "w", encoding="utf-8"))
+    shutil.copyfile(c, path)
+    return sents
+
+def _synth_edge_timed(text, voice, out_mp3, rate="-8%"):
+    """edge-tts -> ghi out_mp3 + tra ve list (start,end) cac cau/tu."""
     async def go():
-        comm = edge_tts.Communicate(text, voice, rate=rate)
+        comm = edge_tts.Communicate(text, voice, rate=_norm_rate(rate))
         sents = []
-        with open(c, "wb") as f:
+        with open(out_mp3, "wb") as f:
             async for ch in comm.stream():
                 if ch["type"] == "audio":
                     f.write(ch["data"])
                 elif ch["type"] in ("SentenceBoundary", "WordBoundary"):
                     sents.append([ch["offset"]/1e7, (ch["offset"]+ch["duration"])/1e7])
         return sents
-    sents = asyncio.run(go())
-    json.dump(sents, open(cj, "w", encoding="utf-8"))
-    shutil.copyfile(c, path)
-    return sents
+    return asyncio.run(go())
 
 def dur_of(path):
     out = subprocess.run(
@@ -426,11 +471,11 @@ def make_standalone_mascot(ctx):
                                                   % len(style_pastel.MASCOTS)]
     canvas = Image.new("RGBA", (330, 300), (0, 0, 0, 0))
     dd = ImageDraw.Draw(canvas)
-    ef = ImageFont.truetype(style_pastel.EMOJI, 150)
+    ef = style_pastel.emoji_font(150)
     dd.text((18, 95), e, font=ef, embedded_color=True)
-    dd.text((178, 58), "🎵", font=ImageFont.truetype(style_pastel.EMOJI, 54),
+    dd.text((178, 58), "🎵", font=style_pastel.emoji_font(54),
             embedded_color=True)
-    dd.text((168, 205), "🎧", font=ImageFont.truetype(style_pastel.EMOJI, 50),
+    dd.text((168, 205), "🎧", font=style_pastel.emoji_font(50),
             embedded_color=True)
     p = os.path.join(AI_CACHE, "_overlay_emoji.png")
     canvas.save(p)
@@ -495,7 +540,8 @@ def make_static_segment(seg, ctx, i):
         adur = dur_of(ap)
     else:
         ap, adur = None, 1.6
-    seg_total = adur + PAD
+    pad = ctx.get("pad", PAD)
+    seg_total = adur + pad
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     vf = (f"scale={W}:{H},format=yuv420p,"
           f"fade=t=in:st=0:d=0.35:c=0xFFEBED,"
@@ -503,7 +549,7 @@ def make_static_segment(seg, ctx, i):
     if ap:
         cmd = ["ffmpeg","-y","-loop","1","-i",sp,"-i",ap,
                "-t",f"{seg_total:.2f}","-vf",vf,
-               "-af",f"aresample=44100,apad=pad_dur={PAD}",
+               "-af",f"aresample=44100,apad=pad_dur={pad}",
                "-c:v","libx264","-r",str(FPS),"-pix_fmt","yuv420p",
                "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp]
     else:
@@ -515,7 +561,7 @@ def make_static_segment(seg, ctx, i):
     subprocess.run(cmd, check=True, capture_output=True)
     return vp, seg_total
 
-def _encode_states(states, ap, total, vp):
+def _encode_states(states, ap, total, vp, pad=PAD):
     """states = [(png, start_time)] tang dan (bat dau 0) -> video chu hien dan."""
     lst = os.path.join(AUDIO, "_states.txt")
     with open(lst, "w", encoding="utf-8") as f:
@@ -527,7 +573,7 @@ def _encode_states(states, ap, total, vp):
         f.write(f"file '{states[-1][0].replace(os.sep,'/')}'\n")   # lap file cuoi
     subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-i",ap,
                     "-t",f"{total:.2f}","-vf",f"scale={W}:{H},format=yuv420p",
-                    "-af",f"aresample=44100,apad=pad_dur={PAD}",
+                    "-af",f"aresample=44100,apad=pad_dur={pad}",
                     "-map","0:v","-map","1:a",
                     "-c:v","libx264","-r",str(FPS),"-pix_fmt","yuv420p",
                     "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp],
@@ -541,7 +587,8 @@ def make_anim_segment(seg, ctx, i):
     sents = synth_timed(text, voice, ap, rate=ctx.get("rate", "-8%"),
                         azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False))
     adur = dur_of(ap)
-    total = adur + PAD
+    pad = ctx.get("pad", PAD)
+    total = adur + pad
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     states = []
 
@@ -557,21 +604,13 @@ def make_anim_segment(seg, ctx, i):
             render_slide(seg, ctx, png, n_visible=k)
             states.append((png, times[k] if k < len(times) else times[-1]))
     else:
-        twice = t in ("vocab", "practice_a")     # tu vung doc 2 lan
-        if sents:
-            win = (sents[0][0], sents[0][1]) if twice else (sents[0][0], sents[-1][1])
-        else:
-            win = (0.0, adur * (0.45 if twice else 0.95))
-        ws, we = win
-        reveal_t = style_pastel.char_reveal_times(seg["hanzi"], ws, we)
-        times = sorted(set([0.0] + [round(x, 3) for x in reveal_t]))
-        for k, ts in enumerate(times):
-            png = os.path.join(SLIDES, f"s{i:02d}_{k:02d}.png")
-            # tieng Viet hien NGAY cung tieng Trung (show_viet=True moi state)
-            render_slide(seg, ctx, png, t_now=ts, reveal_t=reveal_t, show_viet=True)
-            states.append((png, ts))
+        # Hien CA CAU chu Trung NGAY tu dau (khong chay tung chu theo giong doc),
+        # giong nhu dong tieng Viet -> chi can 1 state tinh cho ca doan.
+        png = os.path.join(SLIDES, f"s{i:02d}_00.png")
+        render_slide(seg, ctx, png, reveal_t=None, show_viet=True)
+        states.append((png, 0.0))
 
-    _encode_states(states, ap, total, vp)
+    _encode_states(states, ap, total, vp, pad=pad)
     return vp, total
 
 # ---------- BUILD ----------
@@ -587,6 +626,17 @@ def build(lesson, progress=None):
     n = len(segs)
     print(f'>> Bai {ctx.get("id","?")}: {ctx.get("title","")} — {n} doan')
 
+    # Co chu Han DONG NHAT cho moi cau (theo cau DAI NHAT) -> khong nhay chu giua cac slide
+    _sent = [s.get("hanzi", "") for s in segs if s.get("type") == "sentence"]
+    if _sent and "zh_size" not in ctx:
+        _d = ImageDraw.Draw(Image.new("RGB", (W, H)))
+        _zf = style_pastel.font("zh", 116)
+        longest = max(_sent, key=lambda h: style_pastel.text_w(_d, h, _zf))
+        # kep [88,116]: giu chu du to & dong nhat; cau dai bat thuong se xuong dong (cung co)
+        fit = style_pastel.fit_zh_size(_d, longest, 116, min_size=88)
+        ctx["zh_size"] = max(88, min(116, fit))
+        print(f"   Co chu cau (dong nhat): {ctx['zh_size']}px")
+
     if ctx.get("ai_mascot"):
         if progress:
             progress(0, n + 1, "AI đang vẽ hình minh hoạ theo chủ đề...")
@@ -599,12 +649,22 @@ def build(lesson, progress=None):
             ctx["_skip_mascot_in_slide"] = True
 
     seg_videos = []
+    seg_meta = []          # [{index,type,dur,start,end,hanzi,viet,label}] cho timestamp YouTube
+    _clock = 0.0
     for i, seg in enumerate(segs):
         if seg["type"] in ANIM_TYPES:
             vp, seg_total = make_anim_segment(seg, ctx, i)
         else:
             vp, seg_total = make_static_segment(seg, ctx, i)
         seg_videos.append(vp)
+        seg_meta.append({
+            "index": i, "type": seg["type"],
+            "dur": round(seg_total, 3), "start": round(_clock, 3),
+            "end": round(_clock + seg_total, 3),
+            "hanzi": seg.get("hanzi", ""), "viet": seg.get("viet", ""),
+            "label": seg.get("label", ""),
+        })
+        _clock += seg_total
         print(f"  [{i+1:02d}/{n}] {seg['type']:11s} {seg_total:5.1f}s")
         if progress:
             progress(i + 1, n + 1, f"Dựng slide {i+1}/{n}")
@@ -627,7 +687,18 @@ def build(lesson, progress=None):
     if progress:
         progress(n + 1, n + 1, "Hoàn tất")
     print(f"\n✅ XONG: {final}")
-    print(f"   Thoi luong: {dur_of(final):.1f}s")
+    total_dur = dur_of(final)
+    print(f"   Thoi luong: {total_dur:.1f}s")
+    # ghi metadata segment (thoi luong that) de Buoc 2 sinh timestamp YouTube
+    ctx["_seg_meta"] = seg_meta
+    ctx["_total_dur"] = round(total_dur, 3)
+    try:
+        with open(final + ".meta.json", "w", encoding="utf-8") as f:
+            json.dump({"title": ctx.get("title", ""), "hsk": ctx.get("hsk", ""),
+                       "total_dur": round(total_dur, 3), "segments": seg_meta},
+                      f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("  [meta.json] khong ghi duoc:", e)
     return final
 
 if __name__ == "__main__":

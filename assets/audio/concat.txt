@@ -1,2 +1,0 @@
-file 'D:/dev/chinese-youtube/assets/audio/v00.mp4'
-file 'D:/dev/chinese-youtube/assets/audio/v01.mp4'

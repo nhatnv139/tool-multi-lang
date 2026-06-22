@@ -9,7 +9,7 @@ try:
 except Exception:
     pass
 from flask import Flask, request, jsonify, send_from_directory, render_template
-import generate, lesson_parser
+import generate, lesson_parser, seo
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "output")
@@ -20,11 +20,14 @@ _build_lock = threading.Lock()      # render tuan tu (ffmpeg nang)
 
 # Giong edge-tts (mien phi, khong can key) — value tien to "edge:"
 EDGE_VOICES = [
-    ("edge:zh-CN-XiaoxiaoNeural", "Hiểu Hiểu — Nữ, ấm (free)"),
+    ("edge:zh-CN-XiaoxiaoNeural", "Hiểu Hiểu — Nữ, ấm, kể chuyện ⭐ (free)"),
+    ("edge:zh-CN-YunjianNeural",  "Vân Kiện — Nam, kể chuyện biểu cảm ⭐ (free)"),
     ("edge:zh-CN-XiaoyiNeural",   "Hiểu Y — Nữ, trẻ (free)"),
     ("edge:zh-CN-YunxiNeural",    "Vân Hi — Nam, trẻ (free)"),
     ("edge:zh-CN-YunyangNeural",  "Vân Dương — Nam, tin tức (free)"),
     ("edge:zh-CN-YunxiaNeural",   "Vân Hạ — Nam, dễ thương (free)"),
+    ("edge:zh-CN-liaoning-XiaobeiNeural", "Hiểu Bối — Nữ, giọng Đông Bắc (free)"),
+    ("edge:zh-CN-shaanxi-XiaoniNeural",   "Hiểu Ni — Nữ, giọng Thiểm Tây (free)"),
 ]
 # Giong Azure (tu nhien hon, can key free) — value tien to "azure:"
 AZURE_VOICES = [
@@ -57,9 +60,10 @@ def save_azure(key, region):
     import json as _j
     _j.dump({"key": key, "region": region}, open(AZURE_CFG, "w", encoding="utf-8"))
 RATES = [("-20%", "Chậm (người mới)"), ("-10%", "Hơi chậm"),
-         ("-8%", "Vừa (khuyên)"), ("0%", "Bình thường")]
+         ("-8%", "Vừa (khuyên)"), ("+0%", "Bình thường")]
 THEMES = [("pink", "Hồng pastel"), ("mint", "Xanh mint"), ("sky", "Xanh da trời"),
-          ("cream", "Kem"), ("lavender", "Tím nhạt")]
+          ("cream", "Kem"), ("lavender", "Tím nhạt"),
+          ("none", "Không phủ màu (giữ nguyên ảnh nền)")]
 MOODS = [("calm", "Piano nhẹ nhàng / thư giãn"), ("hope", "Piano hy vọng / tích cực"),
          ("happy", "Piano vui tươi"), ("sad", "Piano trầm buồn"),
          ("box", "Hộp nhạc (music box) trong trẻo"), ("deep", "Trầm sâu lắng")]
@@ -131,6 +135,7 @@ def run_job(job_id, data):
                 "_chattts": (data.get("chattts_style", "warm")
                              if engine == "chattts" else None),
                 "rate":     data.get("rate", "-8%"),
+                "pad":      float(data.get("pad", 0.8)),
                 "theme":    data.get("theme", "pink"),
                 "music":    bool(data.get("music", True)),
                 "music_vol": float(data.get("music_vol", 0.5)),
@@ -158,8 +163,9 @@ def run_job(job_id, data):
             def prog(done, total, label):
                 jobs[job_id].update(done=done, total=total, label=label)
             final = generate.build(ctx, progress=prog)
+            seo_meta = seo.generate(ctx)        # Buoc 2: sinh thong tin YouTube
             jobs[job_id].update(status="done", video=os.path.basename(final),
-                                label="Hoàn tất!")
+                                seo=seo_meta, label="Hoàn tất!")
     except Exception as e:
         traceback.print_exc()
         jobs[job_id].update(status="error", error=str(e), label="Lỗi: " + str(e))
@@ -175,6 +181,90 @@ def video(fn):
 @app.route("/download/<path:fn>")
 def download(fn):
     return send_from_directory(OUT, fn, as_attachment=True)
+
+# ---------- BUOC 2: trang dang YouTube ----------
+@app.route("/youtube/<job_id>")
+def youtube_page(job_id):
+    job = jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return "Video chưa sẵn sàng. Hãy tạo video trước.", 404
+    return render_template("youtube.html", job_id=job_id,
+                           video=job["video"], seo=job.get("seo", {}))
+
+@app.route("/api/seo/<job_id>")
+def api_seo(job_id):
+    job = jobs.get(job_id, {})
+    return jsonify(video=job.get("video"), seo=job.get("seo", {}))
+
+# ---------- YouTube upload (OAuth) ----------
+import youtube_upload
+
+@app.route("/yt/channels")
+def yt_channels():
+    if not youtube_upload.is_configured():
+        return jsonify(channels=[], setup=youtube_upload.setup_hint())
+    try:
+        return jsonify(channels=youtube_upload.list_channels())
+    except Exception as e:
+        return jsonify(channels=[], error=str(e))
+
+@app.route("/yt/connect")
+def yt_connect():
+    if not youtube_upload.is_configured():
+        return ("Chưa có client_secret.json. " +
+                youtube_upload.setup_hint().replace("<code>", "").replace("</code>", "")), 400
+    try:
+        info = youtube_upload.connect()      # mo trinh duyet dang nhap (blocking)
+        return (f"<h2>✅ Đã kết nối kênh: {info['title']}</h2>"
+                "<p>Đóng tab này và quay lại trang đăng video, danh sách kênh sẽ tự cập nhật.</p>")
+    except Exception as e:
+        return f"<h2>❌ Lỗi kết nối</h2><pre>{e}</pre>", 500
+
+@app.route("/yt/upload", methods=["POST"])
+def yt_upload():
+    d = request.get_json(force=True)
+    job = jobs.get(d.get("job_id"))
+    if not job or not job.get("video"):
+        return jsonify(error="Không tìm thấy video của phiên này."), 400
+    video_path = os.path.join(OUT, job["video"])
+    if not os.path.exists(video_path):
+        return jsonify(error="File video không tồn tại."), 400
+    try:
+        res = youtube_upload.upload(
+            d["channel"], video_path,
+            title=d.get("title", ""), description=d.get("description", ""),
+            tags=d.get("tags", ""), privacy=d.get("privacy", "public"),
+            category=d.get("category", "27"))
+        # tu dong upload phu de (CC): chu Han / pinyin / tieng Viet
+        captions = {"caption_ok": [], "caption_err": []}
+        if d.get("captions", True):
+            seo_data = job.get("seo", {})
+            tracks = [("zh-Hans", "中文 (Chữ Hán)", seo_data.get("srt_hanzi")),
+                      ("zh-Latn", "Pinyin", seo_data.get("srt_pinyin")),
+                      ("vi", "Tiếng Việt", seo_data.get("srt_viet"))]
+            for lang, name, srt in tracks:
+                if not srt:
+                    continue
+                try:
+                    youtube_upload.upload_caption(d["channel"], res["id"], srt, lang, name)
+                    captions["caption_ok"].append(name)
+                except Exception as ce:
+                    captions["caption_err"].append(f"{name}: {ce}")
+        res.update(captions)
+        return jsonify(res)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify(error=str(e)), 500
+
+@app.route("/srt/<job_id>/<kind>")
+def srt_download(job_id, kind):
+    """Tai phu de .srt: kind = hanzi | pinyin | viet."""
+    seo_data = jobs.get(job_id, {}).get("seo", {})
+    text = seo_data.get("srt_" + kind, "")
+    from flask import Response
+    fn = f"{job_id}_{kind}.srt"
+    return Response(text, mimetype="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 if __name__ == "__main__":
     print("\n  ✅ Mở trình duyệt: http://127.0.0.1:5000\n")

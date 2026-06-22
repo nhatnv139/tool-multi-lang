@@ -16,6 +16,8 @@
           padding:20px; box-shadow:0 4px 18px rgba(200,120,140,.07); margin-bottom:18px; }
   label { display:block; font-weight:600; margin:0 0 7px; font-size:15px; }
   .hint { font-weight:400; color:var(--soft); font-size:13px; }
+  .ends { display:flex; justify-content:space-between; font-size:12px; color:var(--soft); margin-top:3px; }
+  input[type=range] { accent-color:var(--pink); }
   textarea { width:100%; min-height:280px; border:1.5px solid #ecd4da; border-radius:12px;
              padding:14px; font-family:"Cascadia Code",Consolas,monospace; font-size:14px;
              line-height:1.6; resize:vertical; }
@@ -84,10 +86,16 @@
         </select>
       </div>
       <div>
-        <label>🐢 Tốc độ đọc</label>
-        <select id="rate">
-          {% for v,lbl in rates %}<option value="{{v}}" {% if v=='-8%' %}selected{% endif %}>{{lbl}}</option>{% endfor %}
-        </select>
+        <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
+        <input type="range" id="rate" min="-50" max="30" step="1" value="-8" style="width:100%"
+               oninput="rateLabel(this.value)">
+        <div class="ends"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
+      </div>
+      <div>
+        <label>⏸️ Khoảng ngắt giữa câu: <span id="pad_lbl" class="hint">0.8s</span></label>
+        <input type="range" id="pad" min="0" max="25" step="1" value="8" style="width:100%"
+               oninput="document.getElementById('pad_lbl').textContent=(this.value/10).toFixed(1)+'s'">
+        <div class="ends"><span>Liền mạch</span><span>Nghỉ lâu</span></div>
       </div>
       <div>
         <label>🎹 Nhạc nền (tâm trạng)</label>
@@ -160,6 +168,7 @@
         <label>🔊 Âm lượng nhạc nền: <span id="vol_lbl">50%</span></label>
         <input type="range" id="music_vol" min="0" max="100" value="50" style="width:100%"
                oninput="document.getElementById('vol_lbl').textContent=this.value+'%'">
+        <div class="ends"><span>🔈 Nhỏ</span><span>To 🔊</span></div>
       </div>
       <div class="mt" style="background:#f0f7ff;border:1px solid #d6e6fb;border-radius:10px;padding:14px">
         <label>⚡ Giọng tự nhiên (Azure) — nhập 1 lần, tự lưu
@@ -232,13 +241,22 @@ function toggleChar(){
   document.getElementById('mascot').disabled = !on;
 }
 
+function rateValue(){ const v=parseInt(document.getElementById('rate').value,10);
+  return (v>=0?'+':'')+v+'%'; }
+function rateLabel(v){ v=parseInt(v,10);
+  let t = v<=-30?'Rất chậm' : v<=-15?'Chậm (người mới)' : v<=-3?'Vừa (khuyên)'
+        : v<=3?'Bình thường' : 'Nhanh';
+  document.getElementById('rate_lbl').textContent = t+' ('+(v>=0?'+':'')+v+'%)'; }
+rateLabel(document.getElementById('rate').value);
+
 async function generate(){
   const content = document.getElementById('content').value.trim();
   if(!content){ alert('Bạn chưa nhập nội dung.'); return; }
   const body = {
     content,
     voice:  document.getElementById('voice').value,
-    rate:   document.getElementById('rate').value,
+    rate:   rateValue(),
+    pad:    document.getElementById('pad').value/10,
     theme:  document.getElementById('theme').value,
     mascot: document.getElementById('mascot').value,
     channel:document.getElementById('channel').value,
@@ -289,7 +307,10 @@ async function poll(id){
       document.getElementById('plabel').textContent = '✅ Hoàn tất!';
       document.getElementById('result').innerHTML =
         '<video controls autoplay src="/video/'+s.video+'"></video>' +
-        '<a class="dl" href="/download/'+s.video+'">⬇️ Tải video về</a>';
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">' +
+          '<a class="dl" href="/download/'+s.video+'">⬇️ Tải video về</a>' +
+          '<a class="dl" style="background:#e63462;color:#fff" href="/youtube/'+id+'">🚀 Next → Đăng YouTube</a>' +
+        '</div>';
       const go = document.getElementById('go');
       go.disabled = false; go.textContent = '🎬 Tạo video mới';
       return;
