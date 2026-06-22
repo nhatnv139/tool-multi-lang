@@ -1,0 +1,635 @@
+# -*- coding: utf-8 -*-
+"""
+Tu dong tao video bai hoc tieng Trung (HSK) tu file JSON.
+- Tu sinh background gradient (PIL)
+- Render slide chu Han + Pinyin + nghia tieng Viet
+- Giong doc AI (edge-tts) - tieng Trung + tieng Viet
+- Ghep slide + audio dong bo bang FFmpeg
+Cach dung:  python generate.py data/lesson01.json
+"""
+import os, sys, json, subprocess, shutil, asyncio
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+import edge_tts
+from PIL import Image, ImageDraw, ImageFont
+import style_pastel                       # bo render kieu pastel (pinyin tren chu)
+render_slide = style_pastel.render_slide  # dung render moi thay cho ban do cu
+
+ANIM_TYPES = {"vocab", "sentence", "practice_a", "dialogue"}   # cac loai chu hien dan
+
+# ---------- CAU HINH ----------
+W, H = 1920, 1080
+FPS = 25
+PAD = 0.8                      # giay im lang them sau moi doan
+FONTS = {
+    "zh_bold":   "C:/Windows/Fonts/msyhbd.ttc",
+    "zh":        "C:/Windows/Fonts/msyh.ttc",
+    "lat_bold":  "C:/Windows/Fonts/arialbd.ttf",
+    "lat":       "C:/Windows/Fonts/arial.ttf",
+}
+VOICE_ZH = "zh-CN-XiaoxiaoNeural"
+VOICE_VI = "vi-VN-HoaiMyNeural"
+# Mau (theme do - vang Trung Hoa)
+C_TOP    = (138, 16, 16)       # do dam
+C_BOT    = (58, 5, 5)          # do tham
+C_GOLD   = (255, 209, 102)
+C_WHITE  = (255, 255, 255)
+C_PINYIN = (255, 224, 130)
+C_VIET   = (180, 220, 255)
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+TMP  = os.path.join(ROOT, "assets")
+SLIDES = os.path.join(TMP, "slides")
+AUDIO  = os.path.join(TMP, "audio")
+OUT    = os.path.join(ROOT, "output")
+for d in (SLIDES, AUDIO, OUT):
+    os.makedirs(d, exist_ok=True)
+
+_font_cache = {}
+def font(key, size):
+    k = (key, size)
+    if k not in _font_cache:
+        _font_cache[k] = ImageFont.truetype(FONTS[key], size)
+    return _font_cache[k]
+
+# ---------- BACKGROUND ----------
+_base_bg = None
+def make_bg(hanzi_watermark=""):
+    """Gradient doc + thanh vang (cache 1 lan vi moi slide giong nhau)."""
+    global _base_bg
+    if _base_bg is None:
+        # gradient doc: tao cot 1px roi keo gian ra full width
+        col = Image.new("RGB", (1, H))
+        cpx = col.load()
+        for y in range(H):
+            t = y / H
+            cpx[0, y] = (int(C_TOP[0]+(C_BOT[0]-C_TOP[0])*t),
+                         int(C_TOP[1]+(C_BOT[1]-C_TOP[1])*t),
+                         int(C_TOP[2]+(C_BOT[2]-C_TOP[2])*t))
+        base = col.resize((W, H))
+        dd = ImageDraw.Draw(base, "RGBA")
+        dd.rectangle([0, 96, W, 100], fill=C_GOLD + (180,))
+        dd.rectangle([0, H-100, W, H-96], fill=C_GOLD + (180,))
+        _base_bg = base
+    bg = _base_bg.copy()
+    return bg, ImageDraw.Draw(bg, "RGBA")
+
+def draw_chrome(d, header, footer):
+    d.text((70, 48), header, font=font("lat_bold", 34), fill=C_GOLD)
+    fb = font("lat", 30)
+    bb = d.textbbox((0,0), footer, font=fb)
+    d.text((W - (bb[2]-bb[0]) - 70, H-72), footer, font=fb, fill=(255,255,255,160))
+
+def center_blocks(d, blocks, gap=26, top=None):
+    """blocks = [(text, font_key, size, color), ...] xep doc, can giua."""
+    sizes = []
+    for text, fk, sz, col in blocks:
+        bb = d.textbbox((0,0), text, font=font(fk, sz))
+        sizes.append((bb[2]-bb[0], bb[3]-bb[1], bb[1]))
+    total_h = sum(s[1] for s in sizes) + gap*(len(blocks)-1)
+    y = (H - total_h)//2 if top is None else top
+    for (text, fk, sz, col), (tw, th, oy) in zip(blocks, sizes):
+        d.text(((W-tw)//2, y - oy), text, font=font(fk, sz), fill=col)
+        y += th + gap
+
+# ---------- RENDER TUNG LOAI SLIDE ----------
+def _old_render_slide_RED(seg, ctx, path):   # GIU LAI THAM KHAO, khong dung nua
+    bg, d = make_bg("")
+    header = f'{ctx["hsk"]} · BÀI {int(ctx["id"])} — {ctx["title"]}'
+    draw_chrome(d, header, "Tự học tiếng Trung mỗi ngày")
+    t = seg["type"]
+
+    if t == "title":
+        center_blocks(d, [
+            (f'{ctx["hsk"]}  ·  BÀI {int(ctx["id"])}', "lat_bold", 70, C_GOLD),
+            (ctx["title"], "lat_bold", 96, C_WHITE),
+            (ctx["hanzi_title"], "zh_bold", 300, C_GOLD),
+        ], gap=40)
+
+    elif t == "objectives":
+        blocks = [("HÔM NAY BẠN SẼ HỌC", "lat_bold", 78, C_GOLD)]
+        for ln in seg["lines"]:
+            blocks.append(("•  " + ln, "lat_bold", 64, C_WHITE))
+        center_blocks(d, blocks, gap=34)
+
+    elif t == "section":
+        lbl, fk, sz = seg["label"], "lat_bold", 130
+        bb = d.textbbox((0,0), lbl, font=font(fk, sz))
+        tw = bb[2]-bb[0]
+        d.text(((W-tw)//2 - bb[0], (H-sz)//2), lbl, font=font(fk, sz), fill=C_WHITE)
+        cx = W//2
+        d.rectangle([cx-tw//2, (H+sz)//2 + 36, cx+tw//2, (H+sz)//2 + 46], fill=C_GOLD)
+
+    elif t in ("vocab", "practice_a"):
+        center_blocks(d, [
+            (seg["hanzi"],  "zh_bold",  300, C_WHITE),
+            (seg["pinyin"], "lat_bold", 92,  C_PINYIN),
+            (seg["viet"],   "lat",      78,  C_VIET),
+        ], gap=44)
+
+    elif t == "sentence":
+        center_blocks(d, [
+            (seg["hanzi"],  "zh_bold",  170, C_WHITE),
+            (seg["pinyin"], "lat_bold", 80,  C_PINYIN),
+            ("→ " + seg["viet"], "lat", 70,  C_VIET),
+        ], gap=40)
+
+    elif t == "dialogue":
+        rows = seg["rows"]
+        # tinh chieu cao: moi luot = 2 dong
+        line_zh, line_lat = 66, 46
+        gap_turn = 30
+        total = len(rows)*(line_zh+line_lat+8) + gap_turn*(len(rows)-1)
+        y = (H - total)//2 + 40
+        for r in rows:
+            zh = f'{r["sp"]}：{r["hanzi"]}'
+            d.text((230, y), zh, font=font("zh_bold", line_zh), fill=C_WHITE)
+            y += line_zh + 8
+            sub = f'{r["pinyin"]}   ({r["viet"]})'
+            d.text((300, y), sub, font=font("lat", line_lat), fill=C_PINYIN)
+            y += line_lat + gap_turn
+
+    elif t == "practice_q":
+        center_blocks(d, [
+            ("LUYỆN TẬP", "lat_bold", 80, C_GOLD),
+            (seg["question"], "lat_bold", 70, C_WHITE),
+            ("Bạn thử trả lời nhé...", "lat", 56, C_VIET),
+        ], gap=46)
+
+    elif t == "outro":
+        n = int(ctx["id"])
+        center_blocks(d, [
+            (f"Hôm nay bạn đã học xong Bài {n}!", "lat_bold", 76, C_WHITE),
+            (f"LIKE và SUBSCRIBE để học tiếp Bài {n+1}", "lat_bold", 60, C_GOLD),
+            ("再见!", "zh_bold", 160, C_WHITE),
+        ], gap=44)
+
+    bg.save(path)
+
+# ---------- TTS ----------
+def tts_for(seg, ctx):
+    """Tra ve (text, voice). None neu khong can doc.
+       Giong tieng Trung lay tu ctx['voice_zh'], tieng Viet ctx['voice_vi']."""
+    vz = ctx.get("voice_zh", VOICE_ZH)
+    vv = ctx.get("voice_vi", VOICE_VI)
+    t = seg["type"]
+    if t == "title":
+        topic = ctx.get("topic", ctx["title"].lower())
+        return (f'Chào mừng bạn đến với bài {int(ctx["id"])}, tự học tiếng Trung cho người mới. '
+                f'Hôm nay chúng ta học {topic}.', vv)
+    if t == "objectives":
+        return ("Hôm nay bạn sẽ học: " + "; ".join(seg["lines"]), vv)
+    if t == "section":
+        return (None, None)
+    if t in ("vocab", "practice_a"):
+        return (f'{seg["hanzi"]}。{seg["hanzi"]}。', vz)
+    if t == "sentence":
+        return (seg["hanzi"], vz)
+    if t == "dialogue":
+        return ("。".join(r["hanzi"] for r in seg["rows"]), vz)
+    if t == "practice_q":
+        return (seg["question"], vv)
+    if t == "outro":
+        num = {1:"một",2:"hai",3:"ba",4:"bốn",5:"năm",6:"sáu",7:"bảy",8:"tám"}
+        n = int(ctx["id"])
+        return (f'Hôm nay bạn đã học xong bài {num.get(n,n)}! '
+                f'Nhớ đăng ký kênh để học tiếp bài {num.get(n+1,n+1)}. Tạm biệt!', vv)
+    return (None, None)
+
+import hashlib, urllib.request, urllib.parse
+TTS_CACHE = os.path.join(TMP, "tts_cache")
+os.makedirs(TTS_CACHE, exist_ok=True)
+
+# ---------- AI MASCOT (Pollinations.ai - mien phi, khong can key) ----------
+AI_CACHE = os.path.join(TMP, "ai_img")
+os.makedirs(AI_CACHE, exist_ok=True)
+
+def ai_mascot_image(prompt):
+    """Tao hinh hoat hinh de thuong theo chu de, tach nen trang. Tra ve path PNG.
+       Co cache theo prompt. Nem loi neu khong tai duoc (de fallback emoji)."""
+    key = hashlib.md5(prompt.encode("utf-8")).hexdigest()
+    out = os.path.join(AI_CACHE, key + ".png")
+    if os.path.exists(out):
+        return out
+    url = ("https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt)
+           + "?width=512&height=512&nologo=true")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    data = urllib.request.urlopen(req, timeout=120).read()
+    raw = os.path.join(AI_CACHE, key + ".jpg")
+    with open(raw, "wb") as f:
+        f.write(data)
+    # tach nen: flood-fill tu 4 goc (xu ly ca nen hoi am/gradient, khong thung nhan vat)
+    from PIL import ImageDraw
+    rgb = Image.open(raw).convert("RGB")
+    w, h = rgb.size
+    KEY = (255, 0, 255)
+    for corner in [(0, 0), (w-1, 0), (0, h-1), (w-1, h-1)]:
+        ImageDraw.floodfill(rgb, corner, KEY, thresh=42)
+    out_data = [(r, g, b, 0) if (r, g, b) == KEY else (r, g, b, 255)
+                for (r, g, b) in rgb.getdata()]
+    im = Image.new("RGBA", rgb.size)
+    im.putdata(out_data)
+    im.save(out)
+    return out
+
+def setup_mascot(ctx):
+    """Neu bat AI mascot: tao hinh theo chu de, gan vao ctx['_mascot_img']."""
+    if not ctx.get("ai_mascot"):
+        return
+    base = ctx.get("image_prompt") or (
+        f"adorable cute cartoon character mascot representing '{ctx.get('title','')}', "
+        f"dynamic lively expressive pose, full body")
+    prompt = (base + ", kawaii chibi style, soft pastel colors, clean modern flat "
+              "illustration, cute big eyes, die-cut sticker, centered, "
+              "plain solid pure white background, no shadow, high quality, detailed")
+    try:
+        ctx["_mascot_img"] = ai_mascot_image(prompt)
+    except Exception as e:
+        print("  (AI mascot loi, dung emoji thay the):", e)
+        ctx["_mascot_img"] = None
+def _tts_key(text, voice, rate):
+    return hashlib.md5(f"{voice}|{rate}|{text}".encode("utf-8")).hexdigest()
+
+def _ssml_escape(t):
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+def synth_azure(text, voice, path, key, region, rate="-8%"):
+    """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path."""
+    ssml = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+            f'xml:lang="zh-CN"><voice name="{voice}">'
+            f'<prosody rate="{rate}">{_ssml_escape(text)}</prosody></voice></speak>')
+    url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+    headers = {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+        "User-Agent": "chinese-youtube",
+    }
+    req = urllib.request.Request(url, data=ssml.encode("utf-8"),
+                                 headers=headers, method="POST")
+    data = urllib.request.urlopen(req, timeout=60).read()
+    with open(path, "wb") as f:
+        f.write(data)
+
+def _rate_to_speed(rate):
+    """edge rate (vd -10%) -> ChatTTS speed token 0-9 (cang nho cang cham)."""
+    try:
+        pct = int(str(rate).replace("%", ""))
+    except ValueError:
+        pct = -8
+    return {-20: 2, -10: 3, -8: 3, 0: 5}.get(pct, max(0, min(9, 5 + pct // 10)))
+
+def synth(text, voice, path, rate="-8%", azure=None, chattts=False):
+    """Giong doc co cache. chattts -> ChatTTS local; azure=(key,region) -> Azure;
+       con lai -> edge-tts."""
+    eng = ("ct-" + str(chattts)) if chattts else ("az" if azure else "ed")
+    c = os.path.join(TTS_CACHE, _tts_key(eng + text, voice, rate) + ".mp3")
+    if not os.path.exists(c):
+        if chattts:
+            import chattts_engine
+            style = chattts if isinstance(chattts, str) else "warm"
+            p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
+            chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+        elif azure:
+            synth_azure(text, voice, c, azure[0], azure[1], rate)
+        else:
+            cmd = [sys.executable, "-m", "edge_tts", "--voice", voice,
+                   "--text", text, f"--rate={rate}", "--write-media", c]
+            subprocess.run(cmd, check=True, capture_output=True)
+    shutil.copyfile(c, path)
+
+def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False):
+    """Ghi mp3 + tra ve list (start,end) cac cau. Co cache.
+       chattts/azure: khong co moc cau -> [] (fallback rai deu chu)."""
+    eng = ("ct-" + str(chattts)) if chattts else ("az" if azure else "ed")
+    key = _tts_key(eng + text, voice, rate)
+    c = os.path.join(TTS_CACHE, key + ".mp3")
+    cj = os.path.join(TTS_CACHE, key + ".sents.json")
+    if os.path.exists(c) and os.path.exists(cj):
+        shutil.copyfile(c, path)
+        return json.load(open(cj, encoding="utf-8"))
+
+    if chattts or azure:            # khong co moc cau -> [] (rai deu chu)
+        if chattts:
+            import chattts_engine
+            style = chattts if isinstance(chattts, str) else "warm"
+            p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
+            chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+        else:
+            synth_azure(text, voice, c, azure[0], azure[1], rate)
+        json.dump([], open(cj, "w", encoding="utf-8"))
+        shutil.copyfile(c, path)
+        return []
+
+    async def go():
+        comm = edge_tts.Communicate(text, voice, rate=rate)
+        sents = []
+        with open(c, "wb") as f:
+            async for ch in comm.stream():
+                if ch["type"] == "audio":
+                    f.write(ch["data"])
+                elif ch["type"] in ("SentenceBoundary", "WordBoundary"):
+                    sents.append([ch["offset"]/1e7, (ch["offset"]+ch["duration"])/1e7])
+        return sents
+    sents = asyncio.run(go())
+    json.dump(sents, open(cj, "w", encoding="utf-8"))
+    shutil.copyfile(c, path)
+    return sents
+
+def dur_of(path):
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", path],
+        capture_output=True, text=True, check=True)
+    return float(out.stdout.strip())
+
+# ---------- NHAC NEN ----------
+MUSIC_DIR = os.path.join(TMP, "music")
+os.makedirs(MUSIC_DIR, exist_ok=True)
+MUSIC_VOL = 0.5           # am luong nhac nen (0-1), nho de khong at giong doc
+
+# Cac mau arpeggio piano theo tam trang (tan so notes, Hz)
+MOODS = {
+    "calm":  [261.63, 329.63, 392.00, 493.88, 392.00, 329.63,   # C E G B (Do truong)
+              293.66, 392.00, 440.00, 392.00],
+    "happy": [392.00, 493.88, 587.33, 783.99, 587.33, 493.88,   # G B D G (Sol truong)
+              440.00, 587.33, 659.25, 587.33],
+    "sad":   [220.00, 261.63, 329.63, 440.00, 329.63, 261.63,   # A C E A (La thu)
+              246.94, 329.63, 392.00, 329.63],
+    "hope":  [293.66, 369.99, 440.00, 587.33, 440.00, 369.99,   # D F# A D (Re truong)
+              329.63, 440.00, 493.88, 440.00],
+    "box":   [523.25, 659.25, 783.99, 1046.50, 783.99, 659.25,  # hop am cao - music box
+              587.33, 783.99, 880.00, 783.99],
+    "deep":  [130.81, 164.81, 196.00, 261.63, 196.00, 164.81,   # tram, sau lang
+              146.83, 196.00, 220.00, 196.00],
+}
+
+def get_music(mood="calm"):
+    """Uu tien file mp3 nguoi dung bo vao assets/music/; neu khong co thi
+       tu sinh nhac piano-ish (arpeggio not gay tieng buong) theo tam trang."""
+    user = [f for f in glob_mp3(MUSIC_DIR) if not os.path.basename(f).startswith("_")]
+    if user:
+        return user[0]
+    out = os.path.join(MUSIC_DIR, f"_piano_{mood}.mp3")
+    if os.path.exists(out):
+        return out
+    print(f"  (sinh nhac piano '{mood}'...)")
+    freqs = MOODS.get(mood, MOODS["calm"])
+    note_dur = 0.62
+    notes = []
+    for i, fr in enumerate(freqs):
+        nw = os.path.join(MUSIC_DIR, f"_n{i}.wav")
+        # not piano-ish: sin co bồi âm + bao bien suy giam (pluck)
+        expr = (f"(0.6*sin(2*PI*{fr}*t)+0.2*sin(2*PI*{2*fr}*t)"
+                f"+0.1*sin(2*PI*{3*fr}*t))*exp(-3.4*t)")
+        subprocess.run(["ffmpeg","-y","-f","lavfi","-i",
+                        f"aevalsrc={expr}:d={note_dur}:s=44100",
+                        "-ac","1",nw], check=True, capture_output=True)
+        notes.append(nw)
+    lst = os.path.join(MUSIC_DIR, "_notes.txt")
+    with open(lst, "w", encoding="utf-8") as f:
+        for nw in notes:
+            f.write(f"file '{nw.replace(os.sep,'/')}'\n")
+    pattern = os.path.join(MUSIC_DIR, "_pat.wav")
+    subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,
+                    "-c","copy",pattern], check=True, capture_output=True)
+    # them vang + am am, xuat mp3 (mix_music se lap lai)
+    subprocess.run(["ffmpeg","-y","-i",pattern,
+                    "-af","aecho=0.8:0.85:90:0.32,lowpass=f=2600,"
+                          "areverse,afade=t=in:st=0:d=0.03,areverse,volume=2.2",
+                    "-ac","2",out], check=True, capture_output=True)
+    for nw in notes:
+        try: os.remove(nw)
+        except OSError: pass
+    return out
+
+def glob_mp3(d):
+    import glob as _g
+    return sorted(_g.glob(os.path.join(d, "*.mp3")))
+
+def make_standalone_mascot(ctx):
+    """Tao 1 PNG nen trong cua mascot (de overlay chuyen dong). None neu tat."""
+    if ctx.get("mascot") == "none":
+        return None
+    H_ = 270
+    img = ctx.get("_mascot_img")
+    if img and os.path.exists(img):                      # hinh AI
+        im = Image.open(img).convert("RGBA")
+        im = im.resize((int(im.width * H_ / im.height), H_))
+        p = os.path.join(AI_CACHE, "_overlay_ai.png")
+        im.save(p)
+        return p
+    # emoji -> PNG nen trong
+    e = ctx.get("mascot") or style_pastel.MASCOTS[(int(ctx.get("id", 1)) - 1)
+                                                  % len(style_pastel.MASCOTS)]
+    canvas = Image.new("RGBA", (330, 300), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(canvas)
+    ef = ImageFont.truetype(style_pastel.EMOJI, 150)
+    dd.text((18, 95), e, font=ef, embedded_color=True)
+    dd.text((178, 58), "🎵", font=ImageFont.truetype(style_pastel.EMOJI, 54),
+            embedded_color=True)
+    dd.text((168, 205), "🎧", font=ImageFont.truetype(style_pastel.EMOJI, 50),
+            embedded_color=True)
+    p = os.path.join(AI_CACHE, "_overlay_emoji.png")
+    canvas.save(p)
+    return p
+
+def compose_final(narr, ctx, final):
+    """Ghep buoc cuoi: overlay mascot bong benh + tron nhac (tuy chon)."""
+    mascot = ctx.get("_mascot_png")
+    music_on = ctx.get("music", True)
+    vol = ctx.get("music_vol", MUSIC_VOL)
+    vdur = dur_of(narr)
+    inputs = ["-i", narr]
+    parts, idx = [], 1
+    vmap, amap = "0:v", "0:a"
+    if mascot:
+        inputs += ["-i", mascot]; mi = idx; idx += 1
+        # bong benh: len xuong 13px moi ~2.6s
+        parts.append(f"[0:v][{mi}:v]overlay=x=42:"
+                     f"y='H-h-40+13*sin(2*PI*t/2.6)':eval=frame[v]")
+        vmap = "[v]"
+    if music_on:
+        mf = ctx.get("music_file")
+        music = mf if (mf and os.path.exists(mf)) else get_music(ctx.get("mood", "calm"))
+        inputs += ["-stream_loop", "-1", "-i", music]; mu = idx; idx += 1
+        parts.append(f"[{mu}:a]volume={vol},afade=t=in:st=0:d=2,"
+                     f"afade=t=out:st={vdur-3:.2f}:d=3[mm]")
+        parts.append("[0:a][mm]amix=inputs=2:duration=first:"
+                     "dropout_transition=0:normalize=0[a]")
+        amap = "[a]"
+    cmd = ["ffmpeg", "-y", *inputs]
+    if parts:
+        cmd += ["-filter_complex", ";".join(parts)]
+    vcodec = (["-c:v", "libx264", "-r", str(FPS), "-pix_fmt", "yuv420p"]
+              if mascot else ["-c:v", "copy"])
+    cmd += ["-map", vmap, "-map", amap, *vcodec,
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", final]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+def mix_music(narr_mp4, out_mp4, vol=None, mood="calm"):
+    music = get_music(mood)
+    if vol is None:
+        vol = MUSIC_VOL
+    vdur = dur_of(narr_mp4)
+    fc = (f"[1:a]volume={vol},afade=t=in:st=0:d=2,"
+          f"afade=t=out:st={vdur-3:.2f}:d=3[m];"
+          f"[0:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
+    subprocess.run(["ffmpeg","-y","-i",narr_mp4,"-stream_loop","-1","-i",music,
+                    "-filter_complex",fc,"-map","0:v","-map","[a]",
+                    "-c:v","copy","-c:a","aac","-b:a","192k",out_mp4],
+                   check=True, capture_output=True)
+
+# ---------- SEGMENT (TINH / DONG) ----------
+def make_static_segment(seg, ctx, i):
+    """Slide tinh: 1 hinh + audio, co fade."""
+    sp = os.path.join(SLIDES, f"s{i:02d}.png")
+    render_slide(seg, ctx, sp)
+    text, voice = tts_for(seg, ctx)
+    if text:
+        ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
+        synth(text, voice, ap, rate=ctx.get("rate", "-8%"),
+              azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False))
+        adur = dur_of(ap)
+    else:
+        ap, adur = None, 1.6
+    seg_total = adur + PAD
+    vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
+    vf = (f"scale={W}:{H},format=yuv420p,"
+          f"fade=t=in:st=0:d=0.35:c=0xFFEBED,"
+          f"fade=t=out:st={seg_total-0.35:.2f}:d=0.35:c=0xFFEBED")
+    if ap:
+        cmd = ["ffmpeg","-y","-loop","1","-i",sp,"-i",ap,
+               "-t",f"{seg_total:.2f}","-vf",vf,
+               "-af",f"aresample=44100,apad=pad_dur={PAD}",
+               "-c:v","libx264","-r",str(FPS),"-pix_fmt","yuv420p",
+               "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp]
+    else:
+        cmd = ["ffmpeg","-y","-loop","1","-i",sp,
+               "-f","lavfi","-i","anullsrc=r=44100:cl=stereo",
+               "-t",f"{seg_total:.2f}","-vf",vf,
+               "-c:v","libx264","-r",str(FPS),"-pix_fmt","yuv420p",
+               "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return vp, seg_total
+
+def _encode_states(states, ap, total, vp):
+    """states = [(png, start_time)] tang dan (bat dau 0) -> video chu hien dan."""
+    lst = os.path.join(AUDIO, "_states.txt")
+    with open(lst, "w", encoding="utf-8") as f:
+        for k, (png, st) in enumerate(states):
+            nxt = states[k+1][1] if k+1 < len(states) else total
+            dur = max(nxt - st, 0.04)
+            f.write(f"file '{png.replace(os.sep,'/')}'\n")
+            f.write(f"duration {dur:.3f}\n")
+        f.write(f"file '{states[-1][0].replace(os.sep,'/')}'\n")   # lap file cuoi
+    subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-i",ap,
+                    "-t",f"{total:.2f}","-vf",f"scale={W}:{H},format=yuv420p",
+                    "-af",f"aresample=44100,apad=pad_dur={PAD}",
+                    "-map","0:v","-map","1:a",
+                    "-c:v","libx264","-r",str(FPS),"-pix_fmt","yuv420p",
+                    "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp],
+                   check=True, capture_output=True)
+
+def make_anim_segment(seg, ctx, i):
+    """Slide chu hien dan tung chu / tung dong theo giong doc."""
+    t = seg["type"]
+    text, voice = tts_for(seg, ctx)
+    ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
+    sents = synth_timed(text, voice, ap, rate=ctx.get("rate", "-8%"),
+                        azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False))
+    adur = dur_of(ap)
+    total = adur + PAD
+    vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
+    states = []
+
+    if t == "dialogue":
+        rows = seg["rows"]; n = len(rows)
+        starts = [s[0] for s in sents][:n]
+        if len(starts) < n:                      # thieu moc -> rai deu
+            end = sents[-1][1] if sents else adur
+            starts = [end * k / n for k in range(n)]
+        times = [0.0] + list(starts)             # state k hien k dong
+        for k in range(n + 1):
+            png = os.path.join(SLIDES, f"s{i:02d}_{k:02d}.png")
+            render_slide(seg, ctx, png, n_visible=k)
+            states.append((png, times[k] if k < len(times) else times[-1]))
+    else:
+        twice = t in ("vocab", "practice_a")     # tu vung doc 2 lan
+        if sents:
+            win = (sents[0][0], sents[0][1]) if twice else (sents[0][0], sents[-1][1])
+        else:
+            win = (0.0, adur * (0.45 if twice else 0.95))
+        ws, we = win
+        reveal_t = style_pastel.char_reveal_times(seg["hanzi"], ws, we)
+        times = sorted(set([0.0] + [round(x, 3) for x in reveal_t]))
+        for k, ts in enumerate(times):
+            png = os.path.join(SLIDES, f"s{i:02d}_{k:02d}.png")
+            # tieng Viet hien NGAY cung tieng Trung (show_viet=True moi state)
+            render_slide(seg, ctx, png, t_now=ts, reveal_t=reveal_t, show_viet=True)
+            states.append((png, ts))
+
+    _encode_states(states, ap, total, vp)
+    return vp, total
+
+# ---------- BUILD ----------
+def build(lesson, progress=None):
+    """lesson: duong dan JSON hoac dict ctx.
+       progress: callback(done, total, label) de bao tien do (cho app web)."""
+    ctx = json.load(open(lesson, encoding="utf-8")) if isinstance(lesson, str) else lesson
+    segs = ctx["segments"]
+    if ctx.get("podcast"):
+        # podcast: bo intro/outro + cac doan noi tieng Viet, chi giu noi dung Trung
+        segs = [s for s in segs if s["type"] not in
+                ("title", "objectives", "outro", "practice_q")]
+    n = len(segs)
+    print(f'>> Bai {ctx.get("id","?")}: {ctx.get("title","")} — {n} doan')
+
+    if ctx.get("ai_mascot"):
+        if progress:
+            progress(0, n + 1, "AI đang vẽ hình minh hoạ theo chủ đề...")
+        setup_mascot(ctx)
+
+    # mascot chuyen dong nhe: chuan bi PNG overlay + bo mascot tinh trong slide
+    if ctx.get("mascot_motion", True) and ctx.get("mascot") != "none":
+        ctx["_mascot_png"] = make_standalone_mascot(ctx)
+        if ctx.get("_mascot_png"):
+            ctx["_skip_mascot_in_slide"] = True
+
+    seg_videos = []
+    for i, seg in enumerate(segs):
+        if seg["type"] in ANIM_TYPES:
+            vp, seg_total = make_anim_segment(seg, ctx, i)
+        else:
+            vp, seg_total = make_static_segment(seg, ctx, i)
+        seg_videos.append(vp)
+        print(f"  [{i+1:02d}/{n}] {seg['type']:11s} {seg_total:5.1f}s")
+        if progress:
+            progress(i + 1, n + 1, f"Dựng slide {i+1}/{n}")
+
+    # noi tat ca
+    concat_txt = os.path.join(AUDIO, "concat.txt")
+    with open(concat_txt, "w", encoding="utf-8") as f:
+        for v in seg_videos:
+            f.write(f"file '{v.replace(os.sep,'/')}'\n")
+    narr = os.path.join(AUDIO, "_narr.mp4")
+    subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",concat_txt,
+                    "-c","copy",narr], check=True, capture_output=True)
+    if progress:
+        progress(n, n + 1, "Trộn nhạc & xuất video")
+
+    out_name = ctx.get("out_name") or \
+        f'HSK1_Bai{int(ctx.get("id",1)):02d}_{ctx.get("title","video").replace(" ","")}'
+    final = os.path.join(OUT, out_name + ".mp4")
+    compose_final(narr, ctx, final)   # overlay mascot bong benh + tron nhac
+    if progress:
+        progress(n + 1, n + 1, "Hoàn tất")
+    print(f"\n✅ XONG: {final}")
+    print(f"   Thoi luong: {dur_of(final):.1f}s")
+    return final
+
+if __name__ == "__main__":
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT,"data","lesson01.json")
+    build(path)

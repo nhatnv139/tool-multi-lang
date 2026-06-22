@@ -1,0 +1,48 @@
+{
+  "id": "01",
+  "hsk": "HSK1",
+  "title": "CHÀO HỎI",
+  "topic": "cách chào hỏi cơ bản",
+  "hanzi_title": "你好",
+  "segments": [
+    { "type": "title" },
+    { "type": "objectives", "lines": [
+      "Cách nói XIN CHÀO",
+      "Cách CẢM ƠN",
+      "Cách TẠM BIỆT",
+      "Hỏi: Bạn khỏe không?"
+    ]},
+    { "type": "section", "label": "TỪ VỰNG MỚI" },
+    { "type": "vocab", "hanzi": "你",   "pinyin": "nǐ",        "viet": "bạn / anh / chị" },
+    { "type": "vocab", "hanzi": "好",   "pinyin": "hǎo",       "viet": "tốt, khỏe" },
+    { "type": "vocab", "hanzi": "你好", "pinyin": "nǐ hǎo",    "viet": "Xin chào" },
+    { "type": "vocab", "hanzi": "我",   "pinyin": "wǒ",        "viet": "tôi, mình" },
+    { "type": "vocab", "hanzi": "您",   "pinyin": "nín",       "viet": "ngài (kính trọng)" },
+    { "type": "vocab", "hanzi": "您好", "pinyin": "nín hǎo",   "viet": "Chào ngài (lịch sự)" },
+    { "type": "vocab", "hanzi": "谢谢", "pinyin": "xièxie",    "viet": "Cảm ơn" },
+    { "type": "vocab", "hanzi": "不客气","pinyin": "bú kèqi",  "viet": "Không có gì" },
+    { "type": "vocab", "hanzi": "再见", "pinyin": "zàijiàn",   "viet": "Tạm biệt" },
+    { "type": "vocab", "hanzi": "老师", "pinyin": "lǎoshī",    "viet": "giáo viên, thầy/cô" },
+    { "type": "vocab", "hanzi": "你好吗","pinyin": "nǐ hǎo ma","viet": "Bạn khỏe không?" },
+    { "type": "vocab", "hanzi": "我很好","pinyin": "wǒ hěn hǎo","viet": "Tôi khỏe" },
+    { "type": "section", "label": "MẪU CÂU" },
+    { "type": "sentence", "hanzi": "你好！",        "pinyin": "Nǐ hǎo!",          "viet": "Xin chào!" },
+    { "type": "sentence", "hanzi": "谢谢老师！",    "pinyin": "Xièxie lǎoshī!",    "viet": "Cảm ơn cô/thầy!" },
+    { "type": "sentence", "hanzi": "你好吗？",      "pinyin": "Nǐ hǎo ma?",       "viet": "Bạn khỏe không?" },
+    { "type": "sentence", "hanzi": "我很好，谢谢！","pinyin": "Wǒ hěn hǎo, xièxie!","viet": "Tôi khỏe, cảm ơn!" },
+    { "type": "sentence", "hanzi": "再见！",        "pinyin": "Zàijiàn!",         "viet": "Tạm biệt!" },
+    { "type": "section", "label": "HỘI THOẠI" },
+    { "type": "dialogue", "rows": [
+      { "sp": "A", "hanzi": "你好！",         "pinyin": "Nǐ hǎo!",            "viet": "Xin chào!" },
+      { "sp": "B", "hanzi": "你好！",         "pinyin": "Nǐ hǎo!",            "viet": "Xin chào!" },
+      { "sp": "A", "hanzi": "你好吗？",       "pinyin": "Nǐ hǎo ma?",         "viet": "Bạn khỏe không?" },
+      { "sp": "B", "hanzi": "我很好，谢谢！", "pinyin": "Wǒ hěn hǎo, xièxie!","viet": "Tôi khỏe, cảm ơn!" },
+      { "sp": "A", "hanzi": "再见！",         "pinyin": "Zàijiàn!",           "viet": "Tạm biệt!" },
+      { "sp": "B", "hanzi": "再见！",         "pinyin": "Zàijiàn!",           "viet": "Tạm biệt!" }
+    ]},
+    { "type": "section", "label": "LUYỆN TẬP" },
+    { "type": "practice_q", "question": "\"Cảm ơn\" tiếng Trung nói thế nào?" },
+    { "type": "practice_a", "hanzi": "谢谢", "pinyin": "xièxie", "viet": "Cảm ơn" },
+    { "type": "outro" }
+  ]
+}

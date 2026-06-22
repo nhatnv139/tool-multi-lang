@@ -1,0 +1,46 @@
+{
+  "id": "03",
+  "hsk": "HSK1",
+  "title": "HỎI TÊN",
+  "topic": "cách hỏi tên và giới thiệu bản thân",
+  "hanzi_title": "名字",
+  "segments": [
+    { "type": "title" },
+    { "type": "objectives", "lines": [
+      "Hỏi: Bạn tên là gì?",
+      "Cách giới thiệu tên mình",
+      "Đại từ: tôi, bạn, anh ấy, cô ấy",
+      "Nói: Rất vui được quen bạn"
+    ]},
+    { "type": "section", "label": "TỪ VỰNG MỚI" },
+    { "type": "vocab", "hanzi": "叫",   "pinyin": "jiào",    "viet": "gọi, tên là" },
+    { "type": "vocab", "hanzi": "什么", "pinyin": "shénme",  "viet": "cái gì" },
+    { "type": "vocab", "hanzi": "名字", "pinyin": "míngzi",  "viet": "tên" },
+    { "type": "vocab", "hanzi": "我",   "pinyin": "wǒ",      "viet": "tôi" },
+    { "type": "vocab", "hanzi": "你",   "pinyin": "nǐ",      "viet": "bạn" },
+    { "type": "vocab", "hanzi": "他",   "pinyin": "tā",      "viet": "anh ấy" },
+    { "type": "vocab", "hanzi": "她",   "pinyin": "tā",      "viet": "cô ấy" },
+    { "type": "vocab", "hanzi": "是",   "pinyin": "shì",     "viet": "là" },
+    { "type": "vocab", "hanzi": "谁",   "pinyin": "shéi",    "viet": "ai" },
+    { "type": "vocab", "hanzi": "呢",   "pinyin": "ne",      "viet": "…thì sao? (hỏi lại)" },
+    { "type": "vocab", "hanzi": "也",   "pinyin": "yě",      "viet": "cũng" },
+    { "type": "vocab", "hanzi": "认识", "pinyin": "rènshi",  "viet": "quen biết" },
+    { "type": "vocab", "hanzi": "高兴", "pinyin": "gāoxìng", "viet": "vui mừng" },
+    { "type": "section", "label": "MẪU CÂU" },
+    { "type": "sentence", "hanzi": "你叫什么名字？", "pinyin": "Nǐ jiào shénme míngzi?", "viet": "Bạn tên là gì?" },
+    { "type": "sentence", "hanzi": "我叫王明。",     "pinyin": "Wǒ jiào Wáng Míng.",     "viet": "Tôi tên là Vương Minh." },
+    { "type": "sentence", "hanzi": "他是谁？",       "pinyin": "Tā shì shéi?",           "viet": "Anh ấy là ai?" },
+    { "type": "sentence", "hanzi": "认识你很高兴！", "pinyin": "Rènshi nǐ hěn gāoxìng!", "viet": "Rất vui được quen bạn!" },
+    { "type": "section", "label": "HỘI THOẠI" },
+    { "type": "dialogue", "rows": [
+      { "sp": "A", "hanzi": "你好！你叫什么名字？", "pinyin": "Nǐ hǎo! Nǐ jiào shénme míngzi?", "viet": "Chào! Bạn tên gì?" },
+      { "sp": "B", "hanzi": "我叫李丽。你呢？",     "pinyin": "Wǒ jiào Lǐ Lì. Nǐ ne?",          "viet": "Mình tên Lý Lệ. Còn bạn?" },
+      { "sp": "A", "hanzi": "我叫王明。",           "pinyin": "Wǒ jiào Wáng Míng.",             "viet": "Mình tên Vương Minh." },
+      { "sp": "B", "hanzi": "认识你很高兴！",       "pinyin": "Rènshi nǐ hěn gāoxìng!",         "viet": "Rất vui được quen bạn!" }
+    ]},
+    { "type": "section", "label": "LUYỆN TẬP" },
+    { "type": "practice_q", "question": "\"Bạn tên là gì?\" nói thế nào?" },
+    { "type": "practice_a", "hanzi": "你叫什么名字", "pinyin": "Nǐ jiào shénme míngzi", "viet": "Bạn tên là gì?" },
+    { "type": "outro" }
+  ]
+}

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tạo video học tiếng Trung</title>
+<style>
+  :root { --pink:#e8617a; --bg:#fff5f7; --ink:#3c383a; --soft:#8a7f82; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg);
+         color:var(--ink); }
+  .wrap { max-width:880px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--soft); margin:0 0 22px; font-size:15px; }
+  .card { background:#fff; border:1px solid #f0dde2; border-radius:16px;
+          padding:20px; box-shadow:0 4px 18px rgba(200,120,140,.07); margin-bottom:18px; }
+  label { display:block; font-weight:600; margin:0 0 7px; font-size:15px; }
+  .hint { font-weight:400; color:var(--soft); font-size:13px; }
+  textarea { width:100%; min-height:280px; border:1.5px solid #ecd4da; border-radius:12px;
+             padding:14px; font-family:"Cascadia Code",Consolas,monospace; font-size:14px;
+             line-height:1.6; resize:vertical; }
+  select, input[type=text] { width:100%; padding:11px 12px; border:1.5px solid #ecd4da;
+             border-radius:10px; font-size:15px; background:#fff; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:200px; }
+  .mt { margin-top:14px; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:10px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:15px; font-weight:600; }
+  .btn-ghost { background:#fbe9ee; color:var(--pink); padding:8px 14px; }
+  .btn-go { background:var(--pink); color:#fff; padding:15px 22px; font-size:17px;
+            width:100%; border-radius:12px; }
+  .btn-go:disabled { opacity:.5; cursor:not-allowed; }
+  details summary { cursor:pointer; font-weight:600; color:var(--pink); margin-bottom:4px; }
+  .switch { display:flex; align-items:center; gap:8px; font-weight:400; }
+  #panel { display:none; margin-top:16px; }
+  .bar { height:14px; background:#f0dde2; border-radius:8px; overflow:hidden; }
+  .bar > i { display:block; height:100%; width:0; background:var(--pink);
+             transition:width .3s; }
+  .plabel { font-size:14px; color:var(--soft); margin:8px 0 0; }
+  video { width:100%; border-radius:12px; margin-top:6px; background:#000; }
+  .dl { display:inline-block; margin-top:12px; background:#27ae60; color:#fff;
+        padding:12px 20px; border-radius:10px; text-decoration:none; font-weight:600; }
+  code { background:#fbe9ee; padding:1px 6px; border-radius:5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🇨🇳 Tạo video học tiếng Trung</h1>
+  <p class="sub">Bạn chỉ cần <b>điền nội dung</b> + <b>chọn giọng đọc</b>. Còn lại
+     (slide, pinyin, chữ chạy theo giọng, nhạc, mascot, ghép & xuất video) app tự làm.</p>
+
+  <div class="card">
+    <div class="toolbar">
+      <label style="margin:0">📝 Nội dung <span class="hint">— mỗi dòng: <code>汉字 | nghĩa tiếng Việt</code></span></label>
+      <button class="btn-ghost" type="button" onclick="loadSample()">Điền mẫu</button>
+    </div>
+    <textarea id="content" spellcheck="false" placeholder="@title Chủ đề bài đọc
+@header CHINESE PODCAST · HSK 3-4-5
+
+学习外语时，请尽早去听。 | Khi học ngoại ngữ, hãy nghe càng sớm càng tốt.
+也许你说不出错在哪里。 | Có thể bạn không nói được sai ở đâu.
+但是你能感觉到不自然。 | Nhưng bạn cảm nhận được sự không tự nhiên.
+
+(Mỗi dòng = 1 câu:  中文 | nghĩa tiếng Việt)"></textarea>
+
+    <div class="mt">
+      <label>🏷️ Tiêu đề hiển thị (header trên video) <span class="hint">— để trống = tự theo @title</span></label>
+      <input type="text" id="header" placeholder="vd: CHINESE PODCAST · HSK 3-4-5">
+    </div>
+
+    <div class="row mt">
+      <div>
+        <label>🎙️ Giọng đọc tiếng Trung</label>
+        <select id="voice">
+          <optgroup label="🔥 Tự nhiên + Free (ChatTTS local - chạy trên máy, hơi chậm)">
+            {% for v,lbl in chattts_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="🆓 Free + Nhanh (edge-tts)">
+            {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="⚡ Tự nhiên nhất (Azure - cần key free)">
+            {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+        </select>
+      </div>
+      <div>
+        <label>🐢 Tốc độ đọc</label>
+        <select id="rate">
+          {% for v,lbl in rates %}<option value="{{v}}" {% if v=='-8%' %}selected{% endif %}>{{lbl}}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>🎹 Nhạc nền (tâm trạng)</label>
+        <select id="mood">
+          {% for v,lbl in moods %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="mt">
+      <label>🎭 Ngữ điệu giọng <span class="hint">(chỉ áp dụng cho giọng ChatTTS)</span></label>
+      <select id="chattts_style">
+        {% for v,lbl in chattts_styles %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+      </select>
+    </div>
+
+    <div class="mt switch">
+      <input type="checkbox" id="podcast" checked>
+      <label for="podcast" style="margin:0">🎧 Chế độ Podcast
+        <span class="hint">(chỉ đọc tiếng Trung + hiện dịch Việt, bỏ phần mở đầu/kết thúc — nghe thụ động)</span></label>
+    </div>
+
+    <details class="mt">
+      <summary>⚙️ Tuỳ chọn nâng cao (không bắt buộc)</summary>
+
+      <div class="row mt">
+        <div>
+          <label>🎨 Màu nền</label>
+          <select id="theme">
+            {% for v,lbl in themes %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>🖼️ Hoặc tải ảnh nền lên <span class="hint">(để trống = dùng màu)</span></label>
+          <input type="file" id="bg_file" accept="image/*" onchange="up('bg_file','bg')">
+          <div class="hint" id="bg_name"></div>
+        </div>
+      </div>
+
+      <div class="mt switch">
+        <input type="checkbox" id="character" checked onchange="toggleChar()">
+        <label for="character" style="margin:0">🧍 Hiện nhân vật (mascot)</label>
+      </div>
+      <div class="mt" id="mascot_box">
+        <label>🐼 Loại mascot</label>
+        <select id="mascot">
+          {% for v,lbl in mascots %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="row mt">
+        <div>
+          <label>📺 Tên kênh (watermark)</label>
+          <input type="text" id="channel" placeholder="Học Tiếng Trung">
+        </div>
+        <div>
+          <label>ℹ️ Thanh thông tin dưới <span class="hint">(FB / Youtube / Zalo)</span></label>
+          <input type="text" id="infobar" placeholder="FB: ... | Youtube: ... | ZALO: ...">
+        </div>
+      </div>
+      <div class="mt switch">
+        <input type="checkbox" id="music" checked>
+        <label for="music" style="margin:0">🎵 Nhạc nền (dùng nhạc piano theo "tâm trạng" đã chọn ở trên)</label>
+      </div>
+      <div class="mt">
+        <label>🎼 Hoặc tải nhạc nền của bạn lên <span class="hint">(mp3 — để trống = dùng nhạc piano)</span></label>
+        <input type="file" id="music_in" accept="audio/*" onchange="up('music_in','music')">
+        <div class="hint" id="music_name"></div>
+      </div>
+      <div class="mt">
+        <label>🔊 Âm lượng nhạc nền: <span id="vol_lbl">50%</span></label>
+        <input type="range" id="music_vol" min="0" max="100" value="50" style="width:100%"
+               oninput="document.getElementById('vol_lbl').textContent=this.value+'%'">
+      </div>
+      <div class="mt" style="background:#f0f7ff;border:1px solid #d6e6fb;border-radius:10px;padding:14px">
+        <label>⚡ Giọng tự nhiên (Azure) — nhập 1 lần, tự lưu
+          <span class="hint">(chọn giọng nhóm "Azure" ở trên mới cần)</span></label>
+        <div class="row">
+          <div><input type="text" id="azure_key" placeholder="Azure Speech KEY" value="{{azure_key}}"></div>
+          <div><input type="text" id="azure_region" placeholder="Region (vd: southeastasia)" value="{{azure_region}}"></div>
+        </div>
+        <p class="hint" style="margin:8px 0 0">Lấy key free: portal.azure.com → tạo "Speech service" (free F0) → Keys and Endpoint.</p>
+      </div>
+      <div class="mt switch">
+        <input type="checkbox" id="mascot_motion" checked>
+        <label for="mascot_motion" style="margin:0">💫 Nhân vật chuyển động nhẹ (bồng bềnh)</label>
+      </div>
+      <div class="mt switch">
+        <input type="checkbox" id="ai_mascot">
+        <label for="ai_mascot" style="margin:0">🎨 Hình minh hoạ AI theo chủ đề
+          <span class="hint">(AI vẽ 1 nhân vật hoạt hình dễ thương riêng cho chủ đề — cần internet, +10-20s)</span></label>
+      </div>
+      <div class="mt">
+        <label>✏️ Mô tả hình AI <span class="hint">(tiếng Anh, để trống = tự theo tiêu đề)</span></label>
+        <input type="text" id="image_prompt" placeholder="vd: cute panda eating noodles with chopsticks">
+      </div>
+    </details>
+  </div>
+
+  <button class="btn-go" id="go" onclick="generate()">🎬 Tạo video</button>
+
+  <div class="card" id="panel">
+    <div class="bar"><i id="fill"></i></div>
+    <p class="plabel" id="plabel">Đang chuẩn bị...</p>
+    <div id="result"></div>
+  </div>
+</div>
+
+<script>
+const SAMPLE = `@title Nghe sớm khi học ngoại ngữ
+@header CHINESE PODCAST · HSK 3-4-5
+@image cute owl wearing headphones listening to music, studying
+
+学习外语时，请尽早去听。 | Khi học ngoại ngữ, hãy nghe càng sớm càng tốt.
+也许你说不出错在哪里。 | Có thể bạn không nói được sai ở đâu.
+但是你能感觉到不自然。 | Nhưng bạn cảm nhận được sự không tự nhiên.
+这种语感非常重要。 | Loại ngữ cảm này rất quan trọng.
+比任何语法都重要。 | Quan trọng hơn bất kỳ ngữ pháp nào.
+所以请每天听一点。 | Vì vậy hãy nghe một chút mỗi ngày.`;
+
+function loadSample(){ document.getElementById('content').value = SAMPLE; }
+
+// ----- upload file (bg / music) -----
+const uploaded = { bg:'', music:'' };
+async function up(inputId, kind){
+  const f = document.getElementById(inputId).files[0];
+  if(!f) return;
+  const lbl = document.getElementById(kind=='bg'?'bg_name':'music_name');
+  lbl.textContent = '⏳ Đang tải...';
+  const fd = new FormData(); fd.append('file', f); fd.append('kind', kind);
+  try{
+    const r = await fetch('/upload', {method:'POST', body:fd});
+    const j = await r.json();
+    if(j.path){ uploaded[kind]=j.path; lbl.textContent = '✅ ' + j.name; }
+    else { lbl.textContent = '❌ ' + (j.error||'lỗi'); }
+  }catch(e){ lbl.textContent = '❌ lỗi tải file'; }
+}
+
+// ----- bật/tắt nhân vật -----
+function toggleChar(){
+  const on = document.getElementById('character').checked;
+  document.getElementById('mascot_box').style.opacity = on ? '1' : '.4';
+  document.getElementById('mascot').disabled = !on;
+}
+
+async function generate(){
+  const content = document.getElementById('content').value.trim();
+  if(!content){ alert('Bạn chưa nhập nội dung.'); return; }
+  const body = {
+    content,
+    voice:  document.getElementById('voice').value,
+    rate:   document.getElementById('rate').value,
+    theme:  document.getElementById('theme').value,
+    mascot: document.getElementById('mascot').value,
+    channel:document.getElementById('channel').value,
+    infobar:document.getElementById('infobar').value,
+    music:  document.getElementById('music').checked,
+    ai_mascot: document.getElementById('ai_mascot').checked,
+    image_prompt: document.getElementById('image_prompt').value,
+    header: document.getElementById('header').value,
+    podcast: document.getElementById('podcast').checked,
+    mood:   document.getElementById('mood').value,
+    mascot_motion: document.getElementById('mascot_motion').checked,
+    azure_key:    document.getElementById('azure_key').value,
+    azure_region: document.getElementById('azure_region').value,
+    character: document.getElementById('character').checked,
+    bg_image:  uploaded.bg,
+    music_file: uploaded.music,
+    music_vol: document.getElementById('music_vol').value/100,
+    chattts_style: document.getElementById('chattts_style').value,
+  };
+  const go = document.getElementById('go');
+  go.disabled = true; go.textContent = '⏳ Đang tạo video...';
+  document.getElementById('panel').style.display = 'block';
+  document.getElementById('result').innerHTML = '';
+  setFill(3);
+
+  let res = await fetch('/generate', {method:'POST', headers:{'Content-Type':'application/json'},
+                                      body: JSON.stringify(body)});
+  let j = await res.json();
+  if(j.error){ fail(j.error); return; }
+  poll(j.job_id);
+}
+
+function setFill(p){ document.getElementById('fill').style.width = p+'%'; }
+function fail(msg){
+  document.getElementById('plabel').textContent = '❌ ' + msg;
+  const go = document.getElementById('go');
+  go.disabled = false; go.textContent = '🎬 Tạo video';
+}
+
+async function poll(id){
+  try{
+    let r = await fetch('/progress/'+id); let s = await r.json();
+    const pct = Math.max(3, Math.round((s.done/Math.max(s.total,1))*100));
+    setFill(pct);
+    document.getElementById('plabel').textContent = (s.label||'Đang xử lý...') + '  ('+pct+'%)';
+    if(s.status === 'done'){
+      setFill(100);
+      document.getElementById('plabel').textContent = '✅ Hoàn tất!';
+      document.getElementById('result').innerHTML =
+        '<video controls autoplay src="/video/'+s.video+'"></video>' +
+        '<a class="dl" href="/download/'+s.video+'">⬇️ Tải video về</a>';
+      const go = document.getElementById('go');
+      go.disabled = false; go.textContent = '🎬 Tạo video mới';
+      return;
+    }
+    if(s.status === 'error'){ fail(s.error || 'Có lỗi xảy ra'); return; }
+    setTimeout(()=>poll(id), 1000);
+  }catch(e){ setTimeout(()=>poll(id), 1500); }
+}
+</script>
+</body>
+</html>

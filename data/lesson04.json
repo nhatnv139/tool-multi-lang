@@ -1,0 +1,45 @@
+{
+  "id": "04",
+  "hsk": "HSK1",
+  "title": "GIỚI THIỆU NGƯỜI KHÁC",
+  "topic": "cách giới thiệu người khác",
+  "hanzi_title": "老师",
+  "segments": [
+    { "type": "title" },
+    { "type": "objectives", "lines": [
+      "Từ chỉ định: đây, kia",
+      "Cấu trúc sở hữu: của tôi",
+      "Giới thiệu: thầy cô, bạn bè",
+      "Hỏi: Kia là ai?"
+    ]},
+    { "type": "section", "label": "TỪ VỰNG MỚI" },
+    { "type": "vocab", "hanzi": "这",   "pinyin": "zhè",     "viet": "đây, này" },
+    { "type": "vocab", "hanzi": "那",   "pinyin": "nà",      "viet": "kia, đó" },
+    { "type": "vocab", "hanzi": "是",   "pinyin": "shì",     "viet": "là" },
+    { "type": "vocab", "hanzi": "的",   "pinyin": "de",      "viet": "của (sở hữu)" },
+    { "type": "vocab", "hanzi": "谁",   "pinyin": "shéi",    "viet": "ai" },
+    { "type": "vocab", "hanzi": "汉语", "pinyin": "Hànyǔ",   "viet": "tiếng Trung (Hán ngữ)" },
+    { "type": "vocab", "hanzi": "老师", "pinyin": "lǎoshī",  "viet": "giáo viên" },
+    { "type": "vocab", "hanzi": "学生", "pinyin": "xuéshēng","viet": "học sinh" },
+    { "type": "vocab", "hanzi": "朋友", "pinyin": "péngyou", "viet": "bạn bè" },
+    { "type": "vocab", "hanzi": "和",   "pinyin": "hé",      "viet": "và" },
+    { "type": "vocab", "hanzi": "我们", "pinyin": "wǒmen",   "viet": "chúng tôi" },
+    { "type": "vocab", "hanzi": "她",   "pinyin": "tā",      "viet": "cô ấy" },
+    { "type": "section", "label": "MẪU CÂU" },
+    { "type": "sentence", "hanzi": "这是我的老师。",     "pinyin": "Zhè shì wǒ de lǎoshī.",      "viet": "Đây là giáo viên của tôi." },
+    { "type": "sentence", "hanzi": "她是我的汉语老师。", "pinyin": "Tā shì wǒ de Hànyǔ lǎoshī.", "viet": "Cô ấy là cô giáo tiếng Trung của tôi." },
+    { "type": "sentence", "hanzi": "那是谁？",           "pinyin": "Nà shì shéi?",               "viet": "Kia là ai?" },
+    { "type": "sentence", "hanzi": "他是我的朋友。",     "pinyin": "Tā shì wǒ de péngyou.",      "viet": "Anh ấy là bạn của tôi." },
+    { "type": "section", "label": "HỘI THOẠI" },
+    { "type": "dialogue", "rows": [
+      { "sp": "A", "hanzi": "她是谁？",         "pinyin": "Tā shì shéi?",               "viet": "Cô ấy là ai?" },
+      { "sp": "B", "hanzi": "她是我的汉语老师。","pinyin": "Tā shì wǒ de Hànyǔ lǎoshī.", "viet": "Cô ấy là cô giáo tiếng Trung của tôi." },
+      { "sp": "A", "hanzi": "他呢？",           "pinyin": "Tā ne?",                     "viet": "Còn anh ấy?" },
+      { "sp": "B", "hanzi": "他是我的朋友。",   "pinyin": "Tā shì wǒ de péngyou.",      "viet": "Anh ấy là bạn của tôi." }
+    ]},
+    { "type": "section", "label": "LUYỆN TẬP" },
+    { "type": "practice_q", "question": "\"của tôi\" tiếng Trung nói thế nào?" },
+    { "type": "practice_a", "hanzi": "我的", "pinyin": "wǒ de", "viet": "của tôi" },
+    { "type": "outro" }
+  ]
+}
