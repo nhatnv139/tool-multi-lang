@@ -1,0 +1,18 @@
+# File tu sinh khi render (slide PNG, audio MP3, video) — khong can commit
+assets/
+output/
+uploads/
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Tai lieu tham khao nang (bo dong duoi neu muon giu lai)
+ref/
+
+# Bi mat YouTube OAuth — TUYET DOI khong commit
+client_secret.json
+yt_tokens/
+
+# He thong
+.DS_Store
