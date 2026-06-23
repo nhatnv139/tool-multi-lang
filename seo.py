@@ -207,6 +207,13 @@ def generate(ctx):
     tr_txt = transcript_text(seg_meta)
     hashtags = ["#luyennghetiengtrung", f"#HSK{hsk}", "#tiengtrungchonguoiviet"]
     next_ep = (int(ep) + 1) if str(ep).isdigit() else ep
+    # thay transcript bang link Google Drive (tai lieu day du) neu co
+    doc_link = (ctx.get("doc_link") or "").strip()
+    if doc_link:
+        doc_section = ("📄 TÀI LIỆU BÀI HỌC (chữ Hán + pinyin + nghĩa Việt) — "
+                       f"xem & tải tại:\n{doc_link}")
+    else:
+        doc_section = "📄 Tài liệu bài học đầy đủ: (đang cập nhật)"
     description = f"""🎧 Luyện nghe tiếng Trung HSK{hsk} cho người Việt mới bắt đầu — "{han_title} / {viet_title}", đọc chậm, có chữ Hán + pinyin + nghĩa tiếng Việt + phụ đề CC.
 👉 Bạn chỉ cần NGHE và NHÌN CHỮ — phương pháp "nghe hiểu" (comprehensible input).
 
@@ -232,8 +239,7 @@ def generate(ctx):
 🔔 Đăng ký kênh để học tiếng Trung mỗi tuần!
 
 ━━━━━━━━━━━━━━━━━━━━
-📝 TRANSCRIPT (中文 | pinyin | nghĩa Việt)
-{tr_txt}
+{doc_section}
 
 ━━━━━━━━━━━━━━━━━━━━
 💬 Hãy kể cho mình nghe ở phần bình luận nhé! 👍 Like + Đăng ký để xem tập tiếp theo #{next_ep}."""

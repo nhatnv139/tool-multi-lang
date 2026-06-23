@@ -3,7 +3,7 @@
    Dung cho moi loai slide: title, objectives, section, vocab, sentence,
    dialogue, practice_q, practice_a, outro."""
 import sys, os
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from pypinyin import pinyin, Style
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -28,10 +28,10 @@ THEMES = {
     "sky":      dict(BG=(228,238,250), INK=(50,58,72),  PINYIN=(132,144,162),
                      VIET=(40,90,170),  HEADER=(74,88,112), LINE=(184,200,226),
                      BADGE=(86,140,220), GOLD=(60,120,200), SOFT=(116,128,148)),
-    # "none": khong phu mau len anh nen — giu nguyen anh, chu mau tuong phan de doc
-    "none":     dict(BG=(245,245,246), INK=(38,38,40),  PINYIN=(110,110,116),
-                     VIET=(178,45,62),  HEADER=(64,64,68), LINE=(182,182,186),
-                     BADGE=(240,150,90), GOLD=(214,120,88), SOFT=(118,118,122)),
+    # "none": khong phu mau len anh nen — giu nguyen anh; chu tong XANH NAVY hai hoa
+    "none":     dict(BG=(245,247,250), INK=(33,62,100),  PINYIN=(92,122,158),
+                     VIET=(24,74,98),   HEADER=(56,78,112), LINE=(168,186,210),
+                     BADGE=(86,134,180), GOLD=(60,116,170), SOFT=(96,116,148)),
 }
 # mau hien hanh (mac dinh hong) — apply_theme() doi bo nay
 BG, INK, PINYIN, VIET, HEADER, LINE, BADGE, GOLD, SOFT = (
@@ -50,6 +50,9 @@ def apply_theme(name):
     GOLD, SOFT = t["GOLD"], t["SOFT"]
     # "none": GIU NGUYEN anh, khong phu lop nao (alpha 0 -> _prep_bg tra ve anh goc)
     VEIL_RGBA = (255, 255, 255, 0) if name == "none" else (BG + (170,))
+    # nen anh sang/nhieu chi tiet -> bat quang sang sau chu cho ro net (khong lam mo anh)
+    global TEXT_GLOW
+    TEXT_GLOW = (name == "none")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Kaiti (thu phap) duoc copy san vao assets/fonts; du phong STHeiti/Songti neu thieu
@@ -227,6 +230,20 @@ def fit_zh_size(d, text, max_size, min_size=64, max_w=1640, char_gap=14):
         size -= 4
     return max(min_size, size)
 
+TEXT_GLOW = False
+def _apply_glow(im, overlay, color=(255,255,255), radius=14, boost=3.0, layers=4):
+    """Phu quang sang mo (halo) tu chu tren 'overlay' xuong 'im' roi ve lai chu net.
+       Tao 1 vung sang mem sau chu -> noi ro tren nen sang/nhieu chi tiet, KHONG lam mo ca anh."""
+    a = overlay.split()[3].point(lambda p: min(255, int(p * boost)))
+    glow = Image.composite(Image.new("RGBA", overlay.size, color + (255,)),
+                           Image.new("RGBA", overlay.size, (0, 0, 0, 0)), a)
+    glow = glow.filter(ImageFilter.GaussianBlur(radius))
+    base = im.convert("RGBA")
+    for _ in range(layers):             # chong nhieu lop -> quang dac, ro chu
+        base.alpha_composite(glow)
+    base.alpha_composite(overlay)       # chu net ben tren
+    im.paste(base.convert("RGB"), (0, 0))
+
 def wrap_text(d, text, fnt, max_w):
     """Cat van ban (theo tu) thanh nhieu dong sao cho moi dong <= max_w."""
     words = (text or "").split()
@@ -291,6 +308,20 @@ def _prep_bg(path):
     _bg_cache[k] = out
     return out.copy()
 
+_BRAND_LOGO = os.path.join(_HERE, "brand", "logo_tr.png")
+_logo_cache = {}
+def brand_logo(h):
+    """Logo thuong hieu (PNG trong suot) resize theo chieu cao h. None neu khong co file."""
+    path = _BRAND_LOGO
+    if not os.path.exists(path):
+        return None
+    key = (path, h)
+    if key not in _logo_cache:
+        im = Image.open(path).convert("RGBA")
+        w = max(1, int(im.width * h / im.height))
+        _logo_cache[key] = im.resize((w, h), Image.LANCZOS)
+    return _logo_cache[key]
+
 def base_slide(ctx, header=None):
     bgimg = ctx.get("bg_image")
     if bgimg and os.path.exists(bgimg):
@@ -312,6 +343,11 @@ def base_slide(ctx, header=None):
     bw = text_w(d, bt, bf)
     d.rounded_rectangle([W-bw-150, H-95, W-60, H-35], radius=30, fill=BADGE)
     d.text((W-bw-105, H-88), bt, font=bf, fill=(255, 255, 255))
+    # logo thuong hieu goc TREN-PHAI (nhan dien thuong hieu) — moi slide
+    if ctx.get("brand_logo", True):
+        lg = brand_logo(150)
+        if lg:
+            im.paste(lg, (W - lg.width - 45, 35), lg)
     # mascot dễ thương góc dưới-trái (bỏ qua nếu sẽ overlay chuyển động)
     if not ctx.get("_skip_mascot_in_slide"):
         draw_mascot(im, d, ctx)
@@ -322,9 +358,9 @@ def base_slide(ctx, header=None):
         tw2 = text_w(d, info, inf)
         d.text(((W - tw2)//2, H - 50), info, font=inf, fill=SOFT)
     else:
-        # watermark kenh (cạnh mascot)
+        # watermark kenh (cạnh mascot) — theo tong mau theme
         d.text((345, H-92), ctx.get("channel", "Học Tiếng Trung"),
-               font=font("sansb", 30), fill=(190, 150, 158))
+               font=font("sansb", 30), fill=SOFT)
     return im, d
 
 def center_text_block(d, blocks, gap=30, top=None):
@@ -379,25 +415,35 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
         vf = font("viet", 70)
         vh = len(wrap_text(d, seg.get("viet", ""), vf, int(W*0.9))) * (vf.size+10) if show_viet else 0
         top = (H - (h + vgap + vh))//2 - 20
-        py_hanzi(d, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
+        td, ov = d, None
+        if TEXT_GLOW:
+            ov = Image.new("RGBA", (W, H), (0, 0, 0, 0)); td = ImageDraw.Draw(ov)
+        py_hanzi(td, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
                  reveal_t=reveal_t, t_now=t_now)
         if show_viet:
-            draw_viet(d, seg["viet"], top+h+vgap, vf)
+            draw_viet(td, seg["viet"], top+h+vgap, vf)
+        if ov is not None:
+            _apply_glow(im, ov)
 
     elif t == "sentence":
         im, d = base_slide(ctx)
         # co DONG NHAT toan bai (tinh san trong build) -> khong nhay chu;
         # neu render le (khong qua build) thi tu co theo cau
-        zh = ctx.get("zh_size") or fit_zh_size(d, seg["hanzi"], 116)
-        py, vgap = max(34, int(zh * 0.38)), 34
+        zh = ctx.get("zh_size") or fit_zh_size(d, seg["hanzi"], 118)
+        py, vgap = max(38, int(zh * 0.46)), 36
         h = py_hanzi(d, seg["hanzi"], W//2, 0, zh_size=zh, py_size=py, draw=False)
         vf = font("viet", 60)
         vh = len(wrap_text(d, seg.get("viet", ""), vf, int(W*0.9))) * (vf.size+10) if show_viet else 0
         top = (H - (h + vgap + vh))//2 - 20
-        py_hanzi(d, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
+        td, ov = d, None
+        if TEXT_GLOW:
+            ov = Image.new("RGBA", (W, H), (0, 0, 0, 0)); td = ImageDraw.Draw(ov)
+        py_hanzi(td, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
                  reveal_t=reveal_t, t_now=t_now)
         if show_viet:
-            draw_viet(d, seg["viet"], top+h+vgap, vf)
+            draw_viet(td, seg["viet"], top+h+vgap, vf)
+        if ov is not None:
+            _apply_glow(im, ov)
 
     elif t == "dialogue":
         im, d = base_slide(ctx)

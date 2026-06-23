@@ -112,9 +112,11 @@
 
   <!-- COMMENT GHIM -->
   <div class="card">
-    <div class="lblrow"><label style="margin:0">📌 Comment ghim (từ vựng)</label>
+    <div class="lblrow"><label style="margin:0">📌 Comment từ vựng</label>
       <button class="btn-copy" onclick="copyVal('pin')">Copy</button></div>
-    <div class="muted" style="margin-bottom:8px">Tự gợi ý từ trọng tâm (thêm nghĩa tiếng Việt sau dấu “–”). Đăng video xong, dán vào phần bình luận rồi ghim.</div>
+    <label class="switch" style="font-weight:400;margin:2px 0 8px">
+      <input type="checkbox" id="postComment" checked> Tự động đăng comment này lên video (bạn vào ghim 1 lần — API không ghim tự động được)
+    </label>
     <textarea id="pin" style="min-height:200px">{{ seo.pinned_comment }}</textarea>
   </div>
 
@@ -167,13 +169,17 @@ async function doUpload(){
       tags:document.getElementById('tags').value,
       privacy:document.getElementById('privacy').value,
       category:document.getElementById('category').value,
-      captions:document.getElementById('capToggle').checked };
+      captions:document.getElementById('capToggle').checked,
+      post_comment:document.getElementById('postComment').checked,
+      comment:document.getElementById('pin').value };
     const r = await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j = await r.json();
     if(j.url){
       let cap = '';
       if(j.caption_ok && j.caption_ok.length) cap += '<br>📑 Đã đăng phụ đề: ' + j.caption_ok.join(', ');
       if(j.caption_err && j.caption_err.length) cap += '<br>⚠️ Phụ đề lỗi: ' + j.caption_err.join('; ');
+      if(j.comment_ok) cap += '<br>📌 Đã đăng comment từ vựng (nhớ vào video bấm Ghim nhé)';
+      if(j.comment_err) cap += '<br>⚠️ Comment lỗi: ' + j.comment_err;
       document.getElementById('status').className='ok';
       document.getElementById('status').innerHTML = '✅ Đăng thành công! <a href="'+j.url+'" target="_blank">Mở video trên YouTube ↗</a>' + cap;
     } else { setStatus('❌ Lỗi: '+(j.error||'không rõ'), 'err'); btn.disabled=false; btn.textContent='🚀 Đăng lên YouTube'; }

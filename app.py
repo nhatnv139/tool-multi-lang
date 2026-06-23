@@ -99,6 +99,62 @@ def upload():
     f.save(p)
     return jsonify(path=p, name=f.filename)
 
+BRAND_DIR = os.path.join(ROOT, "brand")
+@app.route("/upload_brand", methods=["POST"])
+def upload_brand():
+    """Luu intro/outro mp4 vao brand/ (tu luu, dung lai moi video). kind=intro|outro."""
+    f = request.files.get("file")
+    kind = request.form.get("kind", "")
+    if kind not in ("intro", "outro") or not f or not f.filename:
+        return jsonify(error="Thiếu file hoặc loại không hợp lệ"), 400
+    os.makedirs(BRAND_DIR, exist_ok=True)
+    f.save(os.path.join(BRAND_DIR, kind + ".mp4"))
+    return jsonify(ok=True, kind=kind)
+
+@app.route("/brand_status")
+def brand_status():
+    """Bao intro/outro da co chua de UI hien trang thai."""
+    return jsonify(intro=os.path.exists(os.path.join(BRAND_DIR, "intro.mp4")),
+                   outro=os.path.exists(os.path.join(BRAND_DIR, "outro.mp4")))
+
+@app.route("/brand_delete/<kind>", methods=["POST"])
+def brand_delete(kind):
+    if kind in ("intro", "outro"):
+        p = os.path.join(BRAND_DIR, kind + ".mp4")
+        if os.path.exists(p):
+            os.remove(p)
+    return jsonify(ok=True)
+
+@app.route("/import_drive", methods=["POST"])
+def import_drive():
+    """Doc noi dung tu link Google Drive/Docs (file phai chia se cong khai)."""
+    import requests, io, re as _re
+    url = ((request.get_json(force=True) or {}).get("url") or "").strip()
+    m = _re.search(r"/d/([A-Za-z0-9_-]{20,})", url) or _re.search(r"[?&]id=([A-Za-z0-9_-]{20,})", url)
+    if not m:
+        return jsonify(error="Link Google Drive/Docs không hợp lệ."), 400
+    fid = m.group(1)
+    is_doc = ("docs.google.com/document" in url) or ("/document/d/" in url)
+    try:
+        durl = (f"https://docs.google.com/document/d/{fid}/export?format=txt" if is_doc
+                else f"https://drive.google.com/uc?export=download&id={fid}")
+        data = requests.get(durl, timeout=25).content
+        head = data[:400].lower()
+        if data[:2] != b"PK" and (b"<!doctype html" in head or b"<html" in head):
+            return jsonify(error="File chưa chia sẻ công khai. Mở Drive → Share → "
+                                 "'Anyone with the link' (Viewer), rồi thử lại."), 400
+        if data[:4] == b"PK\x03\x04":          # .docx (zip)
+            from docx import Document
+            text = "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+        else:
+            text = data.decode("utf-8", errors="replace")
+        text = text.replace("\r\n", "\n").replace("﻿", "").strip()
+        if not text:
+            return jsonify(error="File rỗng hoặc không đọc được."), 400
+        return jsonify(content=text)
+    except Exception as e:
+        return jsonify(error=f"Lỗi đọc Drive: {e}"), 500
+
 @app.route("/generate", methods=["POST"])
 def generate_route():
     data = request.get_json(force=True)
@@ -145,6 +201,8 @@ def run_job(job_id, data):
                 "ai_mascot": bool(data.get("ai_mascot", False)),
                 "mascot_motion": bool(data.get("mascot_motion", True)),
                 "podcast":   bool(data.get("podcast", True)),
+                "intro_outro": bool(data.get("intro_outro", True)),
+                "doc_link":    (data.get("drive_url") or "").strip(),
                 "mood":      data.get("mood", "calm"),
                 "bg_image":  (data.get("bg_image") or "").strip(),
                 "music_file": (data.get("music_file") or "").strip(),
@@ -251,6 +309,14 @@ def yt_upload():
                 except Exception as ce:
                     captions["caption_err"].append(f"{name}: {ce}")
         res.update(captions)
+        # tu dong dang comment tu vung (API khong cho ghim -> user tu ghim)
+        cmt = (d.get("comment") or "").strip()
+        if d.get("post_comment", True) and cmt:
+            try:
+                youtube_upload.post_comment(d["channel"], res["id"], cmt)
+                res["comment_ok"] = True
+            except Exception as ce:
+                res["comment_err"] = str(ce)
         return jsonify(res)
     except Exception as e:
         traceback.print_exc()

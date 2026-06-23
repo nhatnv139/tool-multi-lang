@@ -66,6 +66,15 @@
 (Mỗi dòng = 1 câu:  中文 | nghĩa tiếng Việt)"></textarea>
 
     <div class="mt">
+      <label>📎 Hoặc dán link Google Drive / Docs <span class="hint">(file chia sẻ công khai — tự đọc & đổ vào ô trên)</span></label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="drive_url" style="flex:1" placeholder="https://drive.google.com/file/d/.../view  hoặc Google Docs">
+        <button class="btn-ghost" type="button" onclick="importDrive()" style="white-space:nowrap">📥 Đọc từ Drive</button>
+      </div>
+      <span id="drive_st" class="hint"></span>
+    </div>
+
+    <div class="mt">
       <label>🏷️ Tiêu đề hiển thị (header trên video) <span class="hint">— để trống = tự theo @title</span></label>
       <input type="text" id="header" placeholder="vd: CHINESE PODCAST · HSK 3-4-5">
     </div>
@@ -195,6 +204,24 @@
     </details>
   </div>
 
+  <div class="card">
+    <div class="switch">
+      <input type="checkbox" id="intro_outro" checked>
+      <label for="intro_outro" style="margin:0">🎬 Ghép Intro + Outro thương hiệu <span class="hint">(tải 1 lần, tự lưu & dùng cho mọi video)</span></label>
+    </div>
+    <div class="row mt">
+      <div>
+        <label>▶️ Video Intro (mp4) <span id="intro_st" class="hint">— chưa có</span></label>
+        <input type="file" id="intro_in" accept="video/mp4" onchange="upBrand('intro_in','intro')">
+      </div>
+      <div>
+        <label>⏹️ Video Outro / Cảm ơn (mp4) <span id="outro_st" class="hint">— chưa có</span></label>
+        <input type="file" id="outro_in" accept="video/mp4" onchange="upBrand('outro_in','outro')">
+      </div>
+    </div>
+    <p class="hint" style="margin:8px 0 0">Intro sẽ nối vào <b>đầu</b>, Outro vào <b>cuối</b> mỗi video. Tự chuẩn hoá về 1920×1080. (Timestamp phụ đề/chương tự dịch theo độ dài intro.)</p>
+  </div>
+
   <button class="btn-go" id="go" onclick="generate()">🎬 Tạo video</button>
 
   <div class="card" id="panel">
@@ -218,6 +245,22 @@ const SAMPLE = `@title Nghe sớm khi học ngoại ngữ
 
 function loadSample(){ document.getElementById('content').value = SAMPLE; }
 
+async function importDrive(){
+  const url = document.getElementById('drive_url').value.trim();
+  const st = document.getElementById('drive_st');
+  if(!url){ st.textContent='— hãy dán link Drive/Docs'; return; }
+  st.textContent = '— ⏳ đang đọc...';
+  try{
+    const r = await fetch('/import_drive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    const j = await r.json();
+    if(j.content){
+      document.getElementById('content').value = j.content;
+      const n = j.content.split('\n').filter(x=>x.includes('|')).length;
+      st.textContent = '— ✅ đã đọc & đổ vào nội dung ('+n+' câu)';
+    } else { st.textContent = '— ❌ '+(j.error||'lỗi đọc file'); }
+  }catch(e){ st.textContent='— ❌ lỗi mạng: '+e; }
+}
+
 // ----- upload file (bg / music) -----
 const uploaded = { bg:'', music:'' };
 async function up(inputId, kind){
@@ -233,6 +276,28 @@ async function up(inputId, kind){
     else { lbl.textContent = '❌ ' + (j.error||'lỗi'); }
   }catch(e){ lbl.textContent = '❌ lỗi tải file'; }
 }
+
+// ----- intro/outro thương hiệu -----
+async function upBrand(inputId, kind){
+  const f = document.getElementById(inputId).files[0];
+  if(!f) return;
+  const st = document.getElementById(kind+'_st');
+  st.textContent = '— ⏳ đang tải...';
+  const fd = new FormData(); fd.append('file', f); fd.append('kind', kind);
+  try{
+    const r = await fetch('/upload_brand', {method:'POST', body:fd});
+    const j = await r.json();
+    st.textContent = j.ok ? '— ✅ đã lưu' : '— ❌ '+(j.error||'lỗi');
+  }catch(e){ st.textContent = '— ❌ lỗi tải'; }
+}
+async function loadBrandStatus(){
+  try{
+    const j = await (await fetch('/brand_status')).json();
+    if(j.intro) document.getElementById('intro_st').textContent = '— ✅ đã có (tải lại để thay)';
+    if(j.outro) document.getElementById('outro_st').textContent = '— ✅ đã có (tải lại để thay)';
+  }catch(e){}
+}
+loadBrandStatus();
 
 // ----- bật/tắt nhân vật -----
 function toggleChar(){
@@ -266,6 +331,8 @@ async function generate(){
     image_prompt: document.getElementById('image_prompt').value,
     header: document.getElementById('header').value,
     podcast: document.getElementById('podcast').checked,
+    intro_outro: document.getElementById('intro_outro').checked,
+    drive_url: document.getElementById('drive_url').value.trim(),
     mood:   document.getElementById('mood').value,
     mascot_motion: document.getElementById('mascot_motion').checked,
     azure_key:    document.getElementById('azure_key').value,
@@ -299,7 +366,14 @@ function fail(msg){
 async function poll(id){
   try{
     let r = await fetch('/progress/'+id); let s = await r.json();
-    const pct = Math.max(3, Math.round((s.done/Math.max(s.total,1))*100));
+    if(s.status === 'unknown'){   // phien server cu (da restart) -> job mat
+      fail('Phiên đã cũ (server vừa khởi động lại). Hãy tải lại trang rồi tạo video.');
+      const go = document.getElementById('go'); go.disabled=false; go.textContent='🎬 Tạo video';
+      return;
+    }
+    let pct = Math.round((s.done/Math.max(s.total||1,1))*100);
+    if(!isFinite(pct)) pct = 0;
+    pct = Math.max(3, pct);
     setFill(pct);
     document.getElementById('plabel').textContent = (s.label||'Đang xử lý...') + '  ('+pct+'%)';
     if(s.status === 'done'){

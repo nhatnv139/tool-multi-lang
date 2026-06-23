@@ -498,7 +498,13 @@ def compose_final(narr, ctx, final):
         vmap = "[v]"
     if music_on:
         mf = ctx.get("music_file")
-        music = mf if (mf and os.path.exists(mf)) else get_music(ctx.get("mood", "calm"))
+        # chi dung file nhac neu THUC SU co audio (tranh upload nham anh PNG -> crash)
+        if mf and os.path.exists(mf) and _has_audio(mf):
+            music = mf
+        else:
+            if mf and not _has_audio(mf):
+                print(f"  [nhac] '{os.path.basename(mf)}' khong phai file am thanh -> dung piano")
+            music = get_music(ctx.get("mood", "calm"))
         inputs += ["-stream_loop", "-1", "-i", music]; mu = idx; idx += 1
         parts.append(f"[{mu}:a]volume={vol},afade=t=in:st=0:d=2,"
                      f"afade=t=out:st={vdur-3:.2f}:d=3[mm]")
@@ -513,6 +519,65 @@ def compose_final(narr, ctx, final):
     cmd += ["-map", vmap, "-map", amap, *vcodec,
             "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", final]
     subprocess.run(cmd, check=True, capture_output=True)
+
+BRAND_INTRO = os.path.join(ROOT, "brand", "intro.mp4")
+BRAND_OUTRO = os.path.join(ROOT, "brand", "outro.mp4")
+
+def _has_audio(path):
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a",
+                              "-show_entries", "stream=index", "-of", "csv=p=0", path],
+                             capture_output=True, text=True)
+        return bool(out.stdout.strip())
+    except Exception:
+        return False
+
+def _normalize_clip(src, dst):
+    """Chuan hoa clip ve dung dinh dang video chinh (1920x1080, 25fps, aac stereo 44100).
+       Them audio im lang neu clip khong co tieng."""
+    vf = (f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
+          f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=0x000000,setsar=1,fps={FPS},format=yuv420p")
+    base = ["-c:v", "libx264", "-r", str(FPS), "-pix_fmt", "yuv420p",
+            "-video_track_timescale", "12800",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"]
+    if _has_audio(src):
+        cmd = ["ffmpeg", "-y", "-i", src, "-vf", vf, "-map", "0:v:0", "-map", "0:a:0",
+               *base, dst]
+    else:
+        cmd = ["ffmpeg", "-y", "-i", src,
+               "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+               "-vf", vf, "-map", "0:v:0", "-map", "1:a:0", "-shortest", *base, dst]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+def attach_intro_outro(final, ctx):
+    """Ghep brand/intro.mp4 vao dau + brand/outro.mp4 vao cuoi (neu co). Tra ve path video moi."""
+    intro = BRAND_INTRO if os.path.exists(BRAND_INTRO) else None
+    outro = BRAND_OUTRO if os.path.exists(BRAND_OUTRO) else None
+    if not ctx.get("intro_outro", True) or not (intro or outro):
+        return final, 0.0
+    parts = []
+    intro_dur = 0.0
+    if intro:
+        ni = os.path.join(AUDIO, "_intro_norm.mp4"); _normalize_clip(intro, ni)
+        parts.append(ni); intro_dur = dur_of(ni)
+    parts.append(final)
+    if outro:
+        no = os.path.join(AUDIO, "_outro_norm.mp4"); _normalize_clip(outro, no); parts.append(no)
+    lst = os.path.join(AUDIO, "_concat_brand.txt")
+    with open(lst, "w", encoding="utf-8") as f:
+        for p in parts:
+            f.write(f"file '{p.replace(os.sep,'/')}'\n")
+    out = final.replace(".mp4", "_brand.mp4")
+    try:    # nhanh: noi truc tiep (cung dinh dang)
+        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+                        "-c", "copy", out], check=True, capture_output=True)
+    except subprocess.CalledProcessError:   # du phong: re-encode neu copy loi
+        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+                        "-c:v", "libx264", "-r", str(FPS), "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out],
+                       check=True, capture_output=True)
+    os.replace(out, final)   # ghi de len final
+    return final, intro_dur
 
 def mix_music(narr_mp4, out_mp4, vol=None, mood="calm"):
     music = get_music(mood)
@@ -633,8 +698,9 @@ def build(lesson, progress=None):
         _zf = style_pastel.font("zh", 116)
         longest = max(_sent, key=lambda h: style_pastel.text_w(_d, h, _zf))
         # kep [88,116]: giu chu du to & dong nhat; cau dai bat thuong se xuong dong (cung co)
-        fit = style_pastel.fit_zh_size(_d, longest, 116, min_size=88)
-        ctx["zh_size"] = max(88, min(116, fit))
+        # giu cỡ TO & dong nhat (>=100); cau dai se XUONG DONG cung co (khong thu nho)
+        fit = style_pastel.fit_zh_size(_d, longest, 118, min_size=100)
+        ctx["zh_size"] = max(100, min(118, fit))
         print(f"   Co chu cau (dong nhat): {ctx['zh_size']}px")
 
     if ctx.get("ai_mascot"):
@@ -684,6 +750,14 @@ def build(lesson, progress=None):
         f'HSK1_Bai{int(ctx.get("id",1)):02d}_{ctx.get("title","video").replace(" ","")}'
     final = os.path.join(OUT, out_name + ".mp4")
     compose_final(narr, ctx, final)   # overlay mascot bong benh + tron nhac
+    # ghep intro/outro thuong hieu (neu co brand/intro.mp4 / outro.mp4)
+    final, intro_dur = attach_intro_outro(final, ctx)
+    if intro_dur:
+        # dich timestamp phu de/chuong theo do dai intro o dau
+        for s in seg_meta:
+            s["start"] = round(s["start"] + intro_dur, 3)
+            s["end"] = round(s["end"] + intro_dur, 3)
+        print(f"   + Intro {intro_dur:.1f}s -> da dich timestamp")
     if progress:
         progress(n + 1, n + 1, "Hoàn tất")
     print(f"\n✅ XONG: {final}")
