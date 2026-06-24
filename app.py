@@ -144,7 +144,7 @@ def run_job(job_id, data):
                 "infobar":  data.get("infobar", "").strip(),
                 "ai_mascot": bool(data.get("ai_mascot", False)),
                 "mascot_motion": bool(data.get("mascot_motion", True)),
-                "podcast":   bool(data.get("podcast", True)),
+                "podcast":   bool(data.get("podcast", False)),
                 "mood":      data.get("mood", "calm"),
                 "bg_image":  (data.get("bg_image") or "").strip(),
                 "music_file": (data.get("music_file") or "").strip(),
