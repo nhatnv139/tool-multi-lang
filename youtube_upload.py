@@ -136,3 +136,16 @@ def post_comment(channel_id, video_id, text):
                         "topLevelComment": {"snippet": {"textOriginal": text}}}}
     r = yt.commentThreads().insert(part="snippet", body=body).execute()
     return r.get("id")
+
+
+def set_thumbnail(channel_id, video_id, image_path):
+    """Dat anh bia (thumbnail) cho video. Can kenh da bat 'custom thumbnail' (xac minh SDT)."""
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    if not os.path.exists(image_path):
+        return None
+    creds = _creds_for(channel_id)
+    yt = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    yt.thumbnails().set(videoId=video_id,
+                        media_body=MediaFileUpload(image_path, mimetype="image/jpeg")).execute()
+    return True

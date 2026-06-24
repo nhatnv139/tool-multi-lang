@@ -36,15 +36,24 @@ def pinyin_of(hanzi):
     return re.sub(r"\s{2,}", " ", s).strip(" ")
 
 def split_title(title):
-    """'我的一天 (Một ngày của tôi)' -> ('我的一天', 'Một ngày của tôi')."""
+    """Tach (chu Han, nghia Viet) — TU NHAN DIEN phan nao la Han du thu tu the nao.
+       '我的一天 (Một ngày của tôi)' hay 'Một ngày của tôi (我的一天)' deu dung."""
     title = (title or "").strip()
+    a = b = None
     m = re.match(r"^(.*?)[\(（](.+?)[\)）]\s*$", title)
     if m:
-        return m.group(1).strip(), m.group(2).strip()
-    for sep in ("|", "—", "-"):
-        if sep in title:
-            a, b = title.split(sep, 1)
-            return a.strip(), b.strip()
+        a, b = m.group(1).strip(), m.group(2).strip()
+    else:
+        for sep in ("|", "—", "-"):
+            if sep in title:
+                a, b = [x.strip() for x in title.split(sep, 1)]
+                break
+    if a is not None:
+        if has_hanzi(a) and not has_hanzi(b):
+            return a, b
+        if has_hanzi(b) and not has_hanzi(a):
+            return b, a          # Viet truoc, Han trong ngoac -> dao lai cho dung
+        return a, b
     han = "".join(c for c in title if "一" <= c <= "鿿")
     lat = "".join(c for c in title if not ("一" <= c <= "鿿")).strip()
     return (han or title), (lat or "")

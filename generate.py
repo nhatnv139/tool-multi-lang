@@ -773,6 +773,13 @@ def build(lesson, progress=None):
                       f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("  [meta.json] khong ghi duoc:", e)
+    # tao thumbnail (anh bia YouTube)
+    try:
+        thumb = final[:-4] + ".thumb.jpg"
+        style_pastel.make_thumbnail(ctx, thumb)
+        print(f"   Thumbnail: {os.path.basename(thumb)}")
+    except Exception as e:
+        print("  [thumbnail] loi:", e)
     return final
 
 if __name__ == "__main__":

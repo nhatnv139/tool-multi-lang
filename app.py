@@ -222,7 +222,9 @@ def run_job(job_id, data):
                 jobs[job_id].update(done=done, total=total, label=label)
             final = generate.build(ctx, progress=prog)
             seo_meta = seo.generate(ctx)        # Buoc 2: sinh thong tin YouTube
+            thumb = os.path.basename(final)[:-4] + ".thumb.jpg"
             jobs[job_id].update(status="done", video=os.path.basename(final),
+                                thumb=(thumb if os.path.exists(os.path.join(OUT, thumb)) else None),
                                 seo=seo_meta, label="Hoàn tất!")
     except Exception as e:
         traceback.print_exc()
@@ -240,6 +242,29 @@ def video(fn):
 def download(fn):
     return send_from_directory(OUT, fn, as_attachment=True)
 
+@app.route("/thumb/<path:fn>")
+def thumb(fn):
+    return send_from_directory(OUT, fn, as_attachment=False)
+
+@app.route("/upload_thumb/<job_id>", methods=["POST"])
+def upload_thumb(job_id):
+    """Tai anh bia tu thiet ke len -> tu cat ve 1280x720, de len anh tu tao."""
+    job = jobs.get(job_id)
+    if not job or not job.get("video"):
+        return jsonify(error="Phiên không hợp lệ (hãy tạo video lại)."), 400
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(error="Chưa chọn ảnh"), 400
+    try:
+        from PIL import Image, ImageOps
+        im = ImageOps.fit(Image.open(f.stream).convert("RGB"), (1280, 720), Image.LANCZOS)
+        name = os.path.basename(job["video"])[:-4] + ".thumb.jpg"
+        im.save(os.path.join(OUT, name), "JPEG", quality=90)
+        job["thumb"] = name
+        return jsonify(ok=True, thumb=name)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
 # ---------- BUOC 2: trang dang YouTube ----------
 @app.route("/youtube/<job_id>")
 def youtube_page(job_id):
@@ -247,7 +272,8 @@ def youtube_page(job_id):
     if not job or job.get("status") != "done":
         return "Video chưa sẵn sàng. Hãy tạo video trước.", 404
     return render_template("youtube.html", job_id=job_id,
-                           video=job["video"], seo=job.get("seo", {}))
+                           video=job["video"], thumb=job.get("thumb"),
+                           seo=job.get("seo", {}))
 
 @app.route("/api/seo/<job_id>")
 def api_seo(job_id):
@@ -309,6 +335,14 @@ def yt_upload():
                 except Exception as ce:
                     captions["caption_err"].append(f"{name}: {ce}")
         res.update(captions)
+        # dat anh bia (thumbnail) — can kenh da bat custom thumbnail (xac minh SDT)
+        if d.get("set_thumb", True) and job.get("thumb"):
+            try:
+                youtube_upload.set_thumbnail(d["channel"], res["id"],
+                                             os.path.join(OUT, job["thumb"]))
+                res["thumb_ok"] = True
+            except Exception as te:
+                res["thumb_err"] = str(te)
         # tu dong dang comment tu vung (API khong cho ghim -> user tu ghim)
         cmt = (d.get("comment") or "").strip()
         if d.get("post_comment", True) and cmt:

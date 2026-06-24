@@ -490,6 +490,68 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
 
     im.save(path)
 
+# ---------- THUMBNAIL (anh bia YouTube 1280x720) ----------
+def _thumb_blob(size, color, alpha):
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0)); dd = ImageDraw.Draw(im)
+    dd.ellipse([0, 0, size, size], fill=color + (alpha,))
+    return im.filter(ImageFilter.GaussianBlur(size // 5))
+
+def make_thumbnail(ctx, path):
+    """Anh bia dep: nen gradient am + dom trang tri + cau Viet (cam) + chu Han + pinyin + logo."""
+    from seo import split_title, pinyin_of
+    TW, TH = 1280, 720
+    ORANGE = (232, 98, 46); NAVY = (30, 58, 98); GRAY = (138, 130, 122)
+    han, viet = split_title(ctx.get("title", ""))
+    viet = (viet or ctx.get("title", "")).strip()
+    # nen gradient kem -> dao nhe
+    im = Image.new("RGB", (TW, TH)); px = im.load()
+    for y in range(TH):
+        f = y / TH
+        c = (int(253 - 6*f), int(248 - 12*f), int(240 - 18*f))
+        for x in range(TW):
+            px[x, y] = c
+    d = ImageDraw.Draw(im)
+    # vien tren + duoi mau cam
+    d.rectangle([0, 0, TW, 10], fill=ORANGE)
+    d.rectangle([0, TH-12, TW, TH], fill=ORANGE)
+    # badge PODCAST
+    bf = font("badge", 34); bt = "PODCAST"; bw = text_w(d, bt, bf)
+    d.rounded_rectangle([52, 46, 52+bw+98, 46+60], radius=30, fill=ORANGE)
+    d.text((118, 56), bt, font=bf, fill=(255, 255, 255))
+    ef = emoji_font(40); d.text((70, 54), "🎙️", font=ef, embedded_color=True)
+    # logo goc tren phai
+    lg = brand_logo(158)
+    if lg: im.paste(lg, (TW-lg.width-46, 34), lg)
+    # khoi text can giua theo chieu doc
+    vf = font("viet", 82); vlines = wrap_text(d, viet, vf, TW-180)
+    if len(vlines) > 2:
+        vf = font("viet", 62); vlines = wrap_text(d, viet, vf, TW-150)
+    zf = font("zh", 76)
+    if han and text_w(d, han, zf) > TW-150:
+        zf = font("zh", 58)
+    pf = font("pinyin", 36)
+    block_h = len(vlines)*(vf.size+14) + (40 + zf.size + 12 + pf.size if han else 0)
+    y = max(170, (TH - block_h)//2 + 8)
+    # cau tieng Viet (cam, dam) — co bong nhe cho noi
+    for ln in vlines:
+        tw = text_w(d, ln, vf)
+        d.text(((TW-tw)//2+2, y+2), ln, font=vf, fill=(210, 180, 150))  # bong
+        d.text(((TW-tw)//2, y), ln, font=vf, fill=ORANGE)
+        y += vf.size + 14
+    if han:
+        y += 26
+        # gach ngan trang tri giua Viet va Han
+        d.rounded_rectangle([TW//2-46, y-18, TW//2+46, y-13], radius=3, fill=(228, 196, 150))
+        tw = text_w(d, han, zf); d.text(((TW-tw)//2, y), han, font=zf, fill=NAVY)
+        py = pinyin_of(han); ptw = text_w(d, py, pf)
+        d.text(((TW-ptw)//2, y+zf.size+10), py, font=pf, fill=GRAY)
+    # tagline duoi (emoji ve rieng vi Lexend khong co emoji)
+    d.text((104, TH-62), ctx.get("channel", "Lạc Học Đường") + " · Luyện nghe tiếng Trung mỗi ngày",
+           font=font("sansb", 30), fill=NAVY)
+    d.text((56, TH-66), "🎧", font=emoji_font(36), embedded_color=True)
+    im.save(path, "JPEG", quality=92)
+    return path
+
 if __name__ == "__main__":
     ctx = {"id": "01", "hsk": "HSK1", "title": "CHÀO HỎI",
            "hanzi_title": "你好", "channel": "Học Tiếng Trung"}

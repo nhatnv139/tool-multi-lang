@@ -50,6 +50,19 @@
     <video controls src="/video/{{ video }}"></video>
   </div>
 
+  {% if thumb %}
+  <div class="card">
+    <div class="lblrow"><label style="margin:0">🖼️ Ảnh bìa (Thumbnail)</label>
+      <a class="btn-copy" style="text-decoration:none" href="/thumb/{{ thumb }}" download>⬇️ Tải ảnh bìa</a></div>
+    <img id="thumbImg" src="/thumb/{{ thumb }}" style="width:100%;border-radius:12px;border:1px solid #f0dde2">
+    <label class="mt" style="display:block">📤 Hoặc tải ảnh bìa của bạn lên <span class="hint" id="thumb_st">(tự cắt về 1280×720 — đè lên ảnh tự tạo)</span></label>
+    <input type="file" id="thumb_in" accept="image/*" onchange="upThumb()">
+    <label class="switch" style="font-weight:400;margin-top:10px">
+      <input type="checkbox" id="setThumb" checked> Tự đặt ảnh bìa này lên video <span class="hint">(cần kênh đã bật ảnh bìa tuỳ chỉnh — xác minh SĐT)</span>
+    </label>
+  </div>
+  {% endif %}
+
   <!-- KENH -->
   <div class="card">
     <div class="lblrow">
@@ -131,6 +144,18 @@ const TITLES = {{ seo.titles|tojson }};
 const tp = document.getElementById('titlePick');
 TITLES.forEach(t => { const o=document.createElement('option'); o.value=t; o.textContent=t; tp.appendChild(o); });
 
+async function upThumb(){
+  const f=document.getElementById('thumb_in').files[0]; if(!f) return;
+  const st=document.getElementById('thumb_st'); st.textContent='⏳ đang tải...';
+  const fd=new FormData(); fd.append('file',f);
+  try{
+    const r=await fetch('/upload_thumb/'+JOB,{method:'POST',body:fd});
+    const j=await r.json();
+    if(j.ok){ document.getElementById('thumbImg').src='/thumb/'+j.thumb+'?t='+Date.now();
+      st.textContent='✅ đã thay ảnh bìa của bạn'; }
+    else st.textContent='❌ '+(j.error||'lỗi');
+  }catch(e){ st.textContent='❌ lỗi tải'; }
+}
 function copyVal(id){ const el=document.getElementById(id); navigator.clipboard.writeText(el.value);
   event.target.textContent='✓ Đã copy'; setTimeout(()=>event.target.textContent='Copy',1200); }
 
@@ -171,13 +196,16 @@ async function doUpload(){
       category:document.getElementById('category').value,
       captions:document.getElementById('capToggle').checked,
       post_comment:document.getElementById('postComment').checked,
-      comment:document.getElementById('pin').value };
+      comment:document.getElementById('pin').value,
+      set_thumb:(document.getElementById('setThumb')||{checked:false}).checked };
     const r = await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j = await r.json();
     if(j.url){
       let cap = '';
       if(j.caption_ok && j.caption_ok.length) cap += '<br>📑 Đã đăng phụ đề: ' + j.caption_ok.join(', ');
       if(j.caption_err && j.caption_err.length) cap += '<br>⚠️ Phụ đề lỗi: ' + j.caption_err.join('; ');
+      if(j.thumb_ok) cap += '<br>🖼️ Đã đặt ảnh bìa';
+      if(j.thumb_err) cap += '<br>⚠️ Ảnh bìa lỗi (kênh chưa bật ảnh bìa tuỳ chỉnh?): ' + j.thumb_err;
       if(j.comment_ok) cap += '<br>📌 Đã đăng comment từ vựng (nhớ vào video bấm Ghim nhé)';
       if(j.comment_err) cap += '<br>⚠️ Comment lỗi: ' + j.comment_err;
       document.getElementById('status').className='ok';
