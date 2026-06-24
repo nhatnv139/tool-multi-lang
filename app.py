@@ -99,6 +99,62 @@ def upload():
     f.save(p)
     return jsonify(path=p, name=f.filename)
 
+BRAND_DIR = os.path.join(ROOT, "brand")
+@app.route("/upload_brand", methods=["POST"])
+def upload_brand():
+    """Luu intro/outro mp4 vao brand/ (tu luu, dung lai moi video). kind=intro|outro."""
+    f = request.files.get("file")
+    kind = request.form.get("kind", "")
+    if kind not in ("intro", "outro") or not f or not f.filename:
+        return jsonify(error="Thiếu file hoặc loại không hợp lệ"), 400
+    os.makedirs(BRAND_DIR, exist_ok=True)
+    f.save(os.path.join(BRAND_DIR, kind + ".mp4"))
+    return jsonify(ok=True, kind=kind)
+
+@app.route("/brand_status")
+def brand_status():
+    """Bao intro/outro da co chua de UI hien trang thai."""
+    return jsonify(intro=os.path.exists(os.path.join(BRAND_DIR, "intro.mp4")),
+                   outro=os.path.exists(os.path.join(BRAND_DIR, "outro.mp4")))
+
+@app.route("/brand_delete/<kind>", methods=["POST"])
+def brand_delete(kind):
+    if kind in ("intro", "outro"):
+        p = os.path.join(BRAND_DIR, kind + ".mp4")
+        if os.path.exists(p):
+            os.remove(p)
+    return jsonify(ok=True)
+
+@app.route("/import_drive", methods=["POST"])
+def import_drive():
+    """Doc noi dung tu link Google Drive/Docs (file phai chia se cong khai)."""
+    import requests, io, re as _re
+    url = ((request.get_json(force=True) or {}).get("url") or "").strip()
+    m = _re.search(r"/d/([A-Za-z0-9_-]{20,})", url) or _re.search(r"[?&]id=([A-Za-z0-9_-]{20,})", url)
+    if not m:
+        return jsonify(error="Link Google Drive/Docs không hợp lệ."), 400
+    fid = m.group(1)
+    is_doc = ("docs.google.com/document" in url) or ("/document/d/" in url)
+    try:
+        durl = (f"https://docs.google.com/document/d/{fid}/export?format=txt" if is_doc
+                else f"https://drive.google.com/uc?export=download&id={fid}")
+        data = requests.get(durl, timeout=25).content
+        head = data[:400].lower()
+        if data[:2] != b"PK" and (b"<!doctype html" in head or b"<html" in head):
+            return jsonify(error="File chưa chia sẻ công khai. Mở Drive → Share → "
+                                 "'Anyone with the link' (Viewer), rồi thử lại."), 400
+        if data[:4] == b"PK\x03\x04":          # .docx (zip)
+            from docx import Document
+            text = "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+        else:
+            text = data.decode("utf-8", errors="replace")
+        text = text.replace("\r\n", "\n").replace("﻿", "").strip()
+        if not text:
+            return jsonify(error="File rỗng hoặc không đọc được."), 400
+        return jsonify(content=text)
+    except Exception as e:
+        return jsonify(error=f"Lỗi đọc Drive: {e}"), 500
+
 @app.route("/generate", methods=["POST"])
 def generate_route():
     data = request.get_json(force=True)
@@ -164,7 +220,9 @@ def run_job(job_id, data):
                 jobs[job_id].update(done=done, total=total, label=label)
             final = generate.build(ctx, progress=prog)
             seo_meta = seo.generate(ctx)        # Buoc 2: sinh thong tin YouTube
+            thumb = os.path.basename(final)[:-4] + ".thumb.jpg"
             jobs[job_id].update(status="done", video=os.path.basename(final),
+                                thumb=(thumb if os.path.exists(os.path.join(OUT, thumb)) else None),
                                 seo=seo_meta, label="Hoàn tất!")
     except Exception as e:
         traceback.print_exc()
@@ -182,6 +240,29 @@ def video(fn):
 def download(fn):
     return send_from_directory(OUT, fn, as_attachment=True)
 
+@app.route("/thumb/<path:fn>")
+def thumb(fn):
+    return send_from_directory(OUT, fn, as_attachment=False)
+
+@app.route("/upload_thumb/<job_id>", methods=["POST"])
+def upload_thumb(job_id):
+    """Tai anh bia tu thiet ke len -> tu cat ve 1280x720, de len anh tu tao."""
+    job = jobs.get(job_id)
+    if not job or not job.get("video"):
+        return jsonify(error="Phiên không hợp lệ (hãy tạo video lại)."), 400
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(error="Chưa chọn ảnh"), 400
+    try:
+        from PIL import Image, ImageOps
+        im = ImageOps.fit(Image.open(f.stream).convert("RGB"), (1280, 720), Image.LANCZOS)
+        name = os.path.basename(job["video"])[:-4] + ".thumb.jpg"
+        im.save(os.path.join(OUT, name), "JPEG", quality=90)
+        job["thumb"] = name
+        return jsonify(ok=True, thumb=name)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
 # ---------- BUOC 2: trang dang YouTube ----------
 @app.route("/youtube/<job_id>")
 def youtube_page(job_id):
@@ -189,7 +270,8 @@ def youtube_page(job_id):
     if not job or job.get("status") != "done":
         return "Video chưa sẵn sàng. Hãy tạo video trước.", 404
     return render_template("youtube.html", job_id=job_id,
-                           video=job["video"], seo=job.get("seo", {}))
+                           video=job["video"], thumb=job.get("thumb"),
+                           seo=job.get("seo", {}))
 
 @app.route("/api/seo/<job_id>")
 def api_seo(job_id):
@@ -251,6 +333,22 @@ def yt_upload():
                 except Exception as ce:
                     captions["caption_err"].append(f"{name}: {ce}")
         res.update(captions)
+        # dat anh bia (thumbnail) — can kenh da bat custom thumbnail (xac minh SDT)
+        if d.get("set_thumb", True) and job.get("thumb"):
+            try:
+                youtube_upload.set_thumbnail(d["channel"], res["id"],
+                                             os.path.join(OUT, job["thumb"]))
+                res["thumb_ok"] = True
+            except Exception as te:
+                res["thumb_err"] = str(te)
+        # tu dong dang comment tu vung (API khong cho ghim -> user tu ghim)
+        cmt = (d.get("comment") or "").strip()
+        if d.get("post_comment", True) and cmt:
+            try:
+                youtube_upload.post_comment(d["channel"], res["id"], cmt)
+                res["comment_ok"] = True
+            except Exception as ce:
+                res["comment_err"] = str(ce)
         return jsonify(res)
     except Exception as e:
         traceback.print_exc()
