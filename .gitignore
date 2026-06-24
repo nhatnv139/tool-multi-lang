@@ -14,5 +14,8 @@ ref/
 client_secret.json
 yt_tokens/
 
+# Clip intro/outro nguoi dung tai len (nang, re-upload duoc) — giu logo/banner png
+brand/*.mp4
+
 # He thong
 .DS_Store

@@ -36,15 +36,24 @@ def pinyin_of(hanzi):
     return re.sub(r"\s{2,}", " ", s).strip(" ")
 
 def split_title(title):
-    """'我的一天 (Một ngày của tôi)' -> ('我的一天', 'Một ngày của tôi')."""
+    """Tach (chu Han, nghia Viet) — TU NHAN DIEN phan nao la Han du thu tu the nao.
+       '我的一天 (Một ngày của tôi)' hay 'Một ngày của tôi (我的一天)' deu dung."""
     title = (title or "").strip()
+    a = b = None
     m = re.match(r"^(.*?)[\(（](.+?)[\)）]\s*$", title)
     if m:
-        return m.group(1).strip(), m.group(2).strip()
-    for sep in ("|", "—", "-"):
-        if sep in title:
-            a, b = title.split(sep, 1)
-            return a.strip(), b.strip()
+        a, b = m.group(1).strip(), m.group(2).strip()
+    else:
+        for sep in ("|", "—", "-"):
+            if sep in title:
+                a, b = [x.strip() for x in title.split(sep, 1)]
+                break
+    if a is not None:
+        if has_hanzi(a) and not has_hanzi(b):
+            return a, b
+        if has_hanzi(b) and not has_hanzi(a):
+            return b, a          # Viet truoc, Han trong ngoac -> dao lai cho dung
+        return a, b
     han = "".join(c for c in title if "一" <= c <= "鿿")
     lat = "".join(c for c in title if not ("一" <= c <= "鿿")).strip()
     return (han or title), (lat or "")
@@ -207,6 +216,13 @@ def generate(ctx):
     tr_txt = transcript_text(seg_meta)
     hashtags = ["#luyennghetiengtrung", f"#HSK{hsk}", "#tiengtrungchonguoiviet"]
     next_ep = (int(ep) + 1) if str(ep).isdigit() else ep
+    # thay transcript bang link Google Drive (tai lieu day du) neu co
+    doc_link = (ctx.get("doc_link") or "").strip()
+    if doc_link:
+        doc_section = ("📄 TÀI LIỆU BÀI HỌC (chữ Hán + pinyin + nghĩa Việt) — "
+                       f"xem & tải tại:\n{doc_link}")
+    else:
+        doc_section = "📄 Tài liệu bài học đầy đủ: (đang cập nhật)"
     description = f"""🎧 Luyện nghe tiếng Trung HSK{hsk} cho người Việt mới bắt đầu — "{han_title} / {viet_title}", đọc chậm, có chữ Hán + pinyin + nghĩa tiếng Việt + phụ đề CC.
 👉 Bạn chỉ cần NGHE và NHÌN CHỮ — phương pháp "nghe hiểu" (comprehensible input).
 
@@ -232,8 +248,7 @@ def generate(ctx):
 🔔 Đăng ký kênh để học tiếng Trung mỗi tuần!
 
 ━━━━━━━━━━━━━━━━━━━━
-📝 TRANSCRIPT (中文 | pinyin | nghĩa Việt)
-{tr_txt}
+{doc_section}
 
 ━━━━━━━━━━━━━━━━━━━━
 💬 Hãy kể cho mình nghe ở phần bình luận nhé! 👍 Like + Đăng ký để xem tập tiếp theo #{next_ep}."""
