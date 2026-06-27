@@ -43,7 +43,7 @@ def _split_item(line):
 def parse_lesson(text):
     """Tra ve ctx dict: title, hanzi_title, topic, hsk, segments[...]."""
     meta = {"title": "BÀI HỌC", "hanzi_title": "", "topic": "", "hsk": "HSK1",
-            "objectives": [], "image_prompt": "", "header": ""}
+            "objectives": [], "image_prompt": "", "header": "", "hsk_explicit": False}
     sections = []           # [(label, type, [items])]
     cur = None
 
@@ -59,7 +59,7 @@ def parse_lesson(text):
             elif key == "title":       meta["title"] = val
             elif key == "hanzi":       meta["hanzi_title"] = val
             elif key == "topic":       meta["topic"] = val
-            elif key == "hsk":         meta["hsk"] = val
+            elif key == "hsk":         meta["hsk"] = val; meta["hsk_explicit"] = True
             elif key == "image":       meta["image_prompt"] = val
             elif key == "header":      meta["header"] = val
             continue
@@ -128,6 +128,7 @@ def parse_lesson(text):
         "id": 1, "hsk": meta["hsk"], "title": meta["title"],
         "topic": meta["topic"], "hanzi_title": meta["hanzi_title"],
         "image_prompt": meta["image_prompt"], "header": meta["header"],
+        "hsk_explicit": meta["hsk_explicit"],
         "segments": segs,
     }
 

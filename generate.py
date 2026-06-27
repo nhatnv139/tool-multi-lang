@@ -605,8 +605,9 @@ def _normalize_clip(src, dst):
 
 def attach_intro_outro(final, ctx):
     """Ghep brand/intro.mp4 vao dau + brand/outro.mp4 vao cuoi (neu co). Tra ve path video moi."""
-    intro = BRAND_INTRO if os.path.exists(BRAND_INTRO) else None
-    outro = BRAND_OUTRO if os.path.exists(BRAND_OUTRO) else None
+    # ton trong bat/tat rieng tung cai (use_intro / use_outro)
+    intro = BRAND_INTRO if (os.path.exists(BRAND_INTRO) and ctx.get("use_intro", True)) else None
+    outro = BRAND_OUTRO if (os.path.exists(BRAND_OUTRO) and ctx.get("use_outro", True)) else None
     if not ctx.get("intro_outro", True) or not (intro or outro):
         return final, 0.0
     parts = []
@@ -805,6 +806,12 @@ def build(lesson, progress=None):
         # podcast: bo intro/outro + cac doan noi tieng Viet, chi giu noi dung Trung
         segs = [s for s in segs if s["type"] not in
                 ("title", "objectives", "outro", "practice_q")]
+    # bo slide tieu de mo dau (hanzi + ten bai) tru khi nguoi dung bat lai
+    if not ctx.get("show_title", False):
+        segs = [s for s in segs if s["type"] != "title"]
+    # bo slide ket thuc (再见 / cam on / like-subscribe) tru khi nguoi dung bat lai
+    if not ctx.get("show_outro", False):
+        segs = [s for s in segs if s["type"] != "outro"]
     n = len(segs)
     print(f'>> Bai {ctx.get("id","?")}: {ctx.get("title","")} — {n} doan')
 

@@ -337,12 +337,13 @@ def base_slide(ctx, header=None):
     cy = 84
     d.line([(W-tw)//2-180, cy, (W-tw)//2-40, cy], fill=LINE, width=3)
     d.line([(W+tw)//2+40, cy, (W+tw)//2+180, cy], fill=LINE, width=3)
-    # badge HSK goc duoi phai
-    bt = ctx.get("hsk", "HSK1")
-    bf = font("badge", 38)
-    bw = text_w(d, bt, bf)
-    d.rounded_rectangle([W-bw-150, H-95, W-60, H-35], radius=30, fill=BADGE)
-    d.text((W-bw-105, H-88), bt, font=bf, fill=(255, 255, 255))
+    # badge HSK goc duoi phai — chi hien khi nguoi dung dat @hsk (bai hoc co so)
+    if ctx.get("hsk_explicit"):
+        bt = ctx.get("hsk", "HSK1")
+        bf = font("badge", 38)
+        bw = text_w(d, bt, bf)
+        d.rounded_rectangle([W-bw-150, H-95, W-60, H-35], radius=30, fill=BADGE)
+        d.text((W-bw-105, H-88), bt, font=bf, fill=(255, 255, 255))
     # logo thuong hieu goc TREN-PHAI (nhan dien thuong hieu) — moi slide
     if ctx.get("brand_logo", True):
         lg = brand_logo(150)
@@ -383,11 +384,14 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
     t = seg["type"]
 
     if t == "title":
-        im, d = base_slide(ctx, header=f'CHINESE · {ctx["hsk"]}')
+        # header: uu tien @header nguoi dung; neu khong moi dung mac dinh "CHINESE · HSK"
+        im, d = base_slide(ctx, header=(ctx.get("header") or f'CHINESE · {ctx["hsk"]}'))
         h = py_hanzi(d, ctx["hanzi_title"], W//2, 0, zh_size=230, py_size=64, draw=False)
         top = (H-h)//2 - 70
-        center_text_block(d, [(f'{ctx["hsk"]}  ·  BÀI {int(ctx["id"])}', "sansb", 56, GOLD)],
-                          top=top-90)
+        # chi hien dong "HSK · BÀI n" khi nguoi dung THUC SU dat @hsk (bai hoc co so)
+        if ctx.get("hsk_explicit"):
+            center_text_block(d, [(f'{ctx["hsk"]}  ·  BÀI {int(ctx["id"])}', "sansb", 56, GOLD)],
+                              top=top-90)
         py_hanzi(d, ctx["hanzi_title"], W//2, top, zh_size=230, py_size=64)
         vf = font("viet", 76); tw = text_w(d, ctx["title"], vf)
         d.text(((W-tw)//2, top+h+30), ctx["title"], font=vf, fill=VIET)

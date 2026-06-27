@@ -137,6 +137,16 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       <label for="podcast" style="margin:0">🎧 Chế độ Podcast
         <span class="hint">(chỉ đọc tiếng Trung + hiện dịch Việt, bỏ phần mở đầu/kết thúc — nghe thụ động)</span></label>
     </div>
+    <div class="mt switch">
+      <input type="checkbox" id="show_title">
+      <label for="show_title" style="margin:0">🪧 Hiện slide tiêu đề mở đầu
+        <span class="hint">(chữ Hán to + tên bài ở đầu video — mặc định TẮT)</span></label>
+    </div>
+    <div class="mt switch">
+      <input type="checkbox" id="show_outro">
+      <label for="show_outro" style="margin:0">🙏 Hiện slide kết thúc
+        <span class="hint">(再见 + cảm ơn / like-subscribe ở cuối video — mặc định TẮT)</span></label>
+    </div>
 
     <details class="mt">
       <summary>⚙️ Tuỳ chọn nâng cao (không bắt buộc)</summary>
@@ -249,15 +259,21 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
     </div>
     <div class="row mt">
       <div>
-        <label>▶️ Video Intro (mp4) <span id="intro_st" class="hint">— chưa có</span></label>
+        <label>▶️ Video Intro (mp4) <span id="intro_st" class="hint">— chưa có</span>
+          <button type="button" id="intro_del" onclick="delBrand('intro')" style="display:none;margin-left:6px;padding:2px 8px;border:1px solid #e0a0a0;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">🗑 Xoá</button>
+        </label>
         <input type="file" id="intro_in" accept="video/mp4" onchange="upBrand('intro_in','intro')">
+        <label class="switch" style="margin-top:4px"><input type="checkbox" id="use_intro" checked> <span style="margin:0">Ghép intro vào đầu</span></label>
       </div>
       <div>
-        <label>⏹️ Video Outro / Cảm ơn (mp4) <span id="outro_st" class="hint">— chưa có</span></label>
+        <label>⏹️ Video Outro / Cảm ơn (mp4) <span id="outro_st" class="hint">— chưa có</span>
+          <button type="button" id="outro_del" onclick="delBrand('outro')" style="display:none;margin-left:6px;padding:2px 8px;border:1px solid #e0a0a0;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">🗑 Xoá</button>
+        </label>
         <input type="file" id="outro_in" accept="video/mp4" onchange="upBrand('outro_in','outro')">
+        <label class="switch" style="margin-top:4px"><input type="checkbox" id="use_outro" checked> <span style="margin:0">Ghép outro vào cuối</span></label>
       </div>
     </div>
-    <p class="hint" style="margin:8px 0 0">Intro sẽ nối vào <b>đầu</b>, Outro vào <b>cuối</b> mỗi video. Tự chuẩn hoá về 1920×1080. (Timestamp phụ đề/chương tự dịch theo độ dài intro.)</p>
+    <p class="hint" style="margin:8px 0 0">Intro nối vào <b>đầu</b>, Outro vào <b>cuối</b>. Bỏ tick để <b>không ghép</b> dù đã upload; bấm <b>🗑 Xoá</b> để xoá hẳn file. Tự chuẩn hoá 1920×1080.</p>
   </div>
 
   <button class="btn-go" id="go" onclick="generate()">🎬 Tạo video</button>
@@ -325,14 +341,27 @@ async function upBrand(inputId, kind){
   try{
     const r = await fetch('/upload_brand', {method:'POST', body:fd});
     const j = await r.json();
-    st.textContent = j.ok ? '— ✅ đã lưu' : '— ❌ '+(j.error||'lỗi');
+    if(j.ok){ setBrandState(kind, true); }
+    else { st.textContent = '— ❌ '+(j.error||'lỗi'); }
   }catch(e){ st.textContent = '— ❌ lỗi tải'; }
+}
+async function delBrand(kind){
+  if(!confirm('Xoá video '+kind+'? Video sau sẽ không ghép '+kind+' nữa.')) return;
+  try{
+    await fetch('/brand_delete/'+kind, {method:'POST'});
+    setBrandState(kind, false);
+    document.getElementById(kind+'_in').value = '';   // reset input file
+  }catch(e){}
+}
+function setBrandState(kind, has){
+  document.getElementById(kind+'_st').textContent = has ? '— ✅ đã có (tải lại để thay)' : '— chưa có';
+  document.getElementById(kind+'_del').style.display = has ? 'inline-block' : 'none';
 }
 async function loadBrandStatus(){
   try{
     const j = await (await fetch('/brand_status')).json();
-    if(j.intro) document.getElementById('intro_st').textContent = '— ✅ đã có (tải lại để thay)';
-    if(j.outro) document.getElementById('outro_st').textContent = '— ✅ đã có (tải lại để thay)';
+    setBrandState('intro', !!j.intro);
+    setBrandState('outro', !!j.outro);
   }catch(e){}
 }
 loadBrandStatus();
@@ -464,7 +493,11 @@ async function generate(){
     image_prompt: document.getElementById('image_prompt').value,
     header: document.getElementById('header').value,
     podcast: document.getElementById('podcast').checked,
+    show_title: document.getElementById('show_title').checked,
+    show_outro: document.getElementById('show_outro').checked,
     intro_outro: document.getElementById('intro_outro').checked,
+    use_intro: document.getElementById('use_intro').checked,
+    use_outro: document.getElementById('use_outro').checked,
     drive_url: document.getElementById('drive_url').value.trim(),
     mood:   document.getElementById('mood').value,
     mascot_motion: document.getElementById('mascot_motion').checked,
