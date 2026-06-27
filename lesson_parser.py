@@ -23,6 +23,7 @@ Dinh dang:
     ? "Cảm ơn" nói thế nào?      (tuy chon - cau hoi)
     谢谢 | Cảm ơn                 (dap an)
 """
+import re
 
 def _section_type(name):
     u = name.upper()
@@ -89,9 +90,12 @@ def parse_lesson(text):
             for it in sec["items"]:
                 sp = ""
                 body = it
-                if ":" in it.split("|")[0]:        # 'A: hanzi | viet'
-                    sp, body = it.split(":", 1)
-                    sp = sp.strip()
+                head = it.split("|", 1)[0]          # chi xet phan truoc dau '|'
+                # nhan nguoi noi: 'A:' / 'B：' / '小明:' ... (ho tro ca ':' va '：')
+                m = re.match(r"^\s*([A-Za-z0-9一-鿿]{1,12})\s*[:：]\s*", head)
+                if m:
+                    sp = m.group(1).strip()
+                    body = it[m.end():]            # phan con lai: 'hanzi | viet'
                 hz, vi = _split_item(body)
                 rows.append({"sp": sp or "A", "hanzi": hz, "pinyin": "", "viet": vi})
             segs.append({"type": "dialogue", "rows": rows})

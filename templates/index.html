@@ -56,14 +56,19 @@
       <label style="margin:0">📝 Nội dung <span class="hint">— mỗi dòng: <code>汉字 | nghĩa tiếng Việt</code></span></label>
       <button class="btn-ghost" type="button" onclick="loadSample()">Điền mẫu</button>
     </div>
-    <textarea id="content" spellcheck="false" placeholder="@title Chủ đề bài đọc
+    <textarea id="content" spellcheck="false" placeholder="@title Chủ đề bài học
 @header CHINESE PODCAST · HSK 3-4-5
 
+# BÀI ĐỌC
 学习外语时，请尽早去听。 | Khi học ngoại ngữ, hãy nghe càng sớm càng tốt.
-也许你说不出错在哪里。 | Có thể bạn không nói được sai ở đâu.
-但是你能感觉到不自然。 | Nhưng bạn cảm nhận được sự không tự nhiên.
+听得多了，你就会有语感。 | Nghe nhiều thì tự nhiên sẽ có ngữ cảm.
 
-(Mỗi dòng = 1 câu:  中文 | nghĩa tiếng Việt)"></textarea>
+# HỘI THOẠI
+A: 你好，最近怎么样？ | Chào, dạo này thế nào?
+B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
+
+— Mỗi dòng:  中文 | nghĩa tiếng Việt
+— Dòng dạng A: / B: = hội thoại (gán giọng riêng cho từng người)"></textarea>
 
     <div class="mt">
       <label>📎 Hoặc dán link Google Drive / Docs <span class="hint">(file chia sẻ công khai — tự đọc & đổ vào ô trên)</span></label>
@@ -197,11 +202,29 @@
       <div class="mt" style="background:#faf5ff;border:1px solid #e6d6fb;border-radius:10px;padding:14px">
         <label>💎 Giọng cao cấp (ElevenLabs) — nhập 1 lần, tự lưu
           <span class="hint">(chọn giọng nhóm "ElevenLabs" ở trên mới cần)</span></label>
-        <div class="row">
-          <div><input type="password" id="eleven_key" placeholder="ElevenLabs API key (xi-api-key)" value="{{eleven_key}}"></div>
-          <div><input type="text" id="eleven_voice" placeholder="Voice ID riêng (tuỳ chọn — để trống dùng giọng đã chọn)"></div>
+        <div class="row" style="align-items:center">
+          <div style="flex:1"><input type="password" id="eleven_key" placeholder="ElevenLabs API key (xi-api-key)" value="{{eleven_key}}"></div>
+          <div style="flex:0 0 auto">
+            <button type="button" onclick="loadElevenVoices()"
+                    style="padding:8px 12px;border:1px solid #c9a6f0;background:#fff;border-radius:8px;cursor:pointer;white-space:nowrap">
+              🔄 Tải giọng của tôi
+            </button>
+            <span id="el_voices_status" class="hint"></span>
+          </div>
         </div>
-        <p class="hint" style="margin:8px 0 0">Lấy key: elevenlabs.io → đăng nhập → góc phải avatar → <b>API Keys</b> → Create. Voice ID lấy ở <b>Voices</b> (mỗi giọng có nút "ID").</p>
+        <label style="margin-top:10px">🎙️ Giọng chính <span class="hint">(đọc lời dẫn / câu mẫu)</span></label>
+        <select id="eleven_voice_select" onchange="document.getElementById('eleven_voice').value=this.value">
+          <option value="">— Tải giọng để chọn, hoặc gõ Voice ID bên dưới —</option>
+        </select>
+        <input type="text" id="eleven_voice" placeholder="Voice ID (tự điền khi chọn ở trên — hoặc gõ tay nếu chưa tải giọng)" style="margin-top:6px">
+        <label style="margin-top:10px">🗣️ Hội thoại nhiều giọng <span class="hint">(tuỳ chọn — mỗi người 1 giọng cho giống đối thoại thật)</span></label>
+        <button type="button" id="scan_speakers" onclick="scanSpeakers()"
+                style="margin:4px 0 2px;padding:6px 12px;border:1px solid #c9a6f0;background:#fff;border-radius:8px;cursor:pointer">
+          🔍 Quét người nói trong nội dung
+        </button>
+        <div id="dialogue_voices"></div>
+        <p class="hint" style="margin:8px 0 0">Bấm <b>Quét người nói</b> → tool tự tìm các nhân vật (A, B, C, D…) trong phần <b>HỘI THOẠI</b> và sinh ô nhập Voice ID cho từng người. Bỏ trống người nào thì người đó dùng giọng mặc định.<br>
+          Lấy key: elevenlabs.io → <b>API Keys</b> → Create. Voice ID lấy ở <b>Voices</b> (mỗi giọng có nút "ID").</p>
       </div>
       <div class="mt switch">
         <input type="checkbox" id="mascot_motion" checked>
@@ -321,6 +344,101 @@ function toggleChar(){
   document.getElementById('mascot').disabled = !on;
 }
 
+// ----- ElevenLabs: tải danh sách giọng của tài khoản để chọn bằng dropdown -----
+let EL_VOICES = [];
+async function loadElevenVoices(){
+  const key = document.getElementById('eleven_key').value.trim();
+  const st = document.getElementById('el_voices_status');
+  st.textContent = ' Đang tải...';
+  try{
+    const r = await fetch('/eleven/voices?key=' + encodeURIComponent(key));
+    const d = await r.json();
+    if(d.error){ st.textContent = ' ⚠️ ' + d.error; return; }
+    EL_VOICES = d.voices || [];
+    st.textContent = ' ✅ ' + EL_VOICES.length + ' giọng';
+    // đổ vào dropdown giọng chính (giữ lựa chọn cũ nếu có); ô gõ tay vẫn nguyên
+    fillVoiceSelect(document.getElementById('eleven_voice_select'),
+                    document.getElementById('eleven_voice').value);
+    // nếu đã quét người nói rồi thì render lại thành dropdown
+    const sps = [...document.querySelectorAll('#dialogue_voices [data-sp]')].map(e=>e.dataset.sp);
+    if(sps.length) renderDialogueVoices(sps);
+  }catch(e){ st.textContent = ' ⚠️ Lỗi tải: ' + e; }
+}
+function voiceOptions(sel){
+  let o = '<option value="">— Giọng mặc định —</option>';
+  for(const v of EL_VOICES){
+    o += `<option value="${v.id}"${v.id===sel?' selected':''}>${v.name}</option>`;
+  }
+  return o;
+}
+function fillVoiceSelect(el, sel){
+  el.innerHTML = EL_VOICES.length
+    ? voiceOptions(sel)
+    : '<option value="">— Tải giọng để chọn, hoặc gõ Voice ID bên dưới —</option>';
+}
+
+// danh sách giọng MS free (edge) — dùng cho hội thoại khi engine không phải ElevenLabs
+let MS_VOICES = [];
+(function(){
+  document.querySelectorAll('#voice option').forEach(o=>{
+    if(o.value.startsWith('edge:')) MS_VOICES.push({id:o.value.slice(5), name:o.textContent.trim()});
+  });
+})();
+function dialogueOptions(sel){
+  const engine = (document.getElementById('voice').value.split(':')[0]) || 'edge';
+  const list = (engine==='eleven') ? EL_VOICES : MS_VOICES;
+  let o = '<option value="">— Giọng mặc định (giọng chính) —</option>';
+  for(const v of list) o += `<option value="${v.id}"${v.id===sel?' selected':''}>${v.name}</option>`;
+  if(engine==='eleven' && !EL_VOICES.length)
+    o += '<option value="" disabled>↑ Bấm "Tải giọng của tôi" để hiện giọng ElevenLabs</option>';
+  return o;
+}
+
+// ----- Hội thoại nhiều giọng: quét người nói (A,B,C,D...) trong phần HỘI THOẠI -----
+function scanSpeakers(){
+  const text = document.getElementById('content').value;
+  let inDlg = false; const speakers = [];
+  for(const raw of text.split('\n')){
+    const line = raw.trim();
+    if(line.startsWith('#')){ inDlg = /HỘI|THOẠI|DIALOG/i.test(line); continue; }
+    if(!inDlg || !line) continue;
+    const head = line.split('|')[0];                 // bỏ phần nghĩa tiếng Việt
+    const m = head.match(/^\s*([^:：]{1,12})[:：]/);   // nhãn trước dấu ":" / "："
+    if(m){ const sp = m[1].trim(); if(sp && !speakers.includes(sp)) speakers.push(sp); }
+  }
+  renderDialogueVoices(speakers);
+}
+function renderDialogueVoices(speakers){
+  const box = document.getElementById('dialogue_voices');
+  const prev = {}; box.querySelectorAll('input[data-sp]').forEach(i=>prev[i.dataset.sp]=i.value);
+  if(!speakers.length){
+    box.innerHTML = '<p class="hint" style="margin:6px 0 0;color:#c0392b">⚠️ Không thấy người nói. Phần HỘI THOẠI cần dòng dạng <b>A: 你好 | Xin chào</b>.</p>';
+    return;
+  }
+  const engine = (document.getElementById('voice').value.split(':')[0]) || 'edge';
+  const useInput = (engine==='eleven' && !EL_VOICES.length);   // ElevenLabs chưa tải → gõ tay
+  box.innerHTML = speakers.map(sp => {
+    const ctrl = useInput
+      ? `<input type="text" data-sp="${sp}" value="${prev[sp]||''}" placeholder="Voice ID cho ${sp} (ElevenLabs) — hoặc bấm 'Tải giọng của tôi'">`
+      : `<select data-sp="${sp}">${dialogueOptions(prev[sp]||'')}</select>`;
+    return `<div class="row" style="margin-top:6px;align-items:center">`+
+      `<div style="flex:0 0 96px">🗣️ Người <b>${sp}</b></div>`+
+      `<div style="flex:1">${ctrl}</div>`+
+    `</div>`;
+  }).join('');
+}
+function collectDialogueVoices(){
+  const map = {};
+  document.querySelectorAll('#dialogue_voices [data-sp]').forEach(i=>{
+    const v = (i.value||'').trim(); if(v) map[i.dataset.sp] = v;
+  });
+  return map;
+}
+// đổi engine giọng chính → cập nhật lại danh sách giọng cho từng người nói
+document.getElementById('voice').addEventListener('change', ()=>{
+  const sps = [...document.querySelectorAll('#dialogue_voices [data-sp]')].map(e=>e.dataset.sp);
+  if(sps.length) renderDialogueVoices(sps);
+});
 function rateValue(){ const v=parseInt(document.getElementById('rate').value,10);
   return (v>=0?'+':'')+v+'%'; }
 function rateLabel(v){ v=parseInt(v,10);
@@ -354,6 +472,7 @@ async function generate(){
     azure_region: document.getElementById('azure_region').value,
     eleven_key:   document.getElementById('eleven_key').value,
     eleven_voice: document.getElementById('eleven_voice').value,
+    dialogue_map: collectDialogueVoices(),
     character: document.getElementById('character').checked,
     bg_image:  uploaded.bg,
     music_file: uploaded.music,
