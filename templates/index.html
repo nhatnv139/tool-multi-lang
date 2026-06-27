@@ -89,8 +89,14 @@
           <optgroup label="🆓 Free + Nhanh (edge-tts)">
             {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
+          <optgroup label="🌐 Free + Đa ngữ Microsoft (tự nhiên, có thể hơi lơ lớ)">
+            {% for v,lbl in edge_ml_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
           <optgroup label="⚡ Tự nhiên nhất (Azure - cần key free)">
             {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="💎 Cao cấp nhất (ElevenLabs - trả phí, cần key)">
+            {% for v,lbl in eleven_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
         </select>
       </div>
@@ -187,6 +193,15 @@
           <div><input type="text" id="azure_region" placeholder="Region (vd: southeastasia)" value="{{azure_region}}"></div>
         </div>
         <p class="hint" style="margin:8px 0 0">Lấy key free: portal.azure.com → tạo "Speech service" (free F0) → Keys and Endpoint.</p>
+      </div>
+      <div class="mt" style="background:#faf5ff;border:1px solid #e6d6fb;border-radius:10px;padding:14px">
+        <label>💎 Giọng cao cấp (ElevenLabs) — nhập 1 lần, tự lưu
+          <span class="hint">(chọn giọng nhóm "ElevenLabs" ở trên mới cần)</span></label>
+        <div class="row">
+          <div><input type="password" id="eleven_key" placeholder="ElevenLabs API key (xi-api-key)" value="{{eleven_key}}"></div>
+          <div><input type="text" id="eleven_voice" placeholder="Voice ID riêng (tuỳ chọn — để trống dùng giọng đã chọn)"></div>
+        </div>
+        <p class="hint" style="margin:8px 0 0">Lấy key: elevenlabs.io → đăng nhập → góc phải avatar → <b>API Keys</b> → Create. Voice ID lấy ở <b>Voices</b> (mỗi giọng có nút "ID").</p>
       </div>
       <div class="mt switch">
         <input type="checkbox" id="mascot_motion" checked>
@@ -337,6 +352,8 @@ async function generate(){
     mascot_motion: document.getElementById('mascot_motion').checked,
     azure_key:    document.getElementById('azure_key').value,
     azure_region: document.getElementById('azure_region').value,
+    eleven_key:   document.getElementById('eleven_key').value,
+    eleven_voice: document.getElementById('eleven_voice').value,
     character: document.getElementById('character').checked,
     bg_image:  uploaded.bg,
     music_file: uploaded.music,
