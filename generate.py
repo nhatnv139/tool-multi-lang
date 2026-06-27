@@ -212,7 +212,7 @@ def tts_for(seg, ctx):
                 f'Nhớ đăng ký kênh để học tiếp bài {num.get(n+1,n+1)}. Tạm biệt!', vv)
     return (None, None)
 
-import hashlib, urllib.request, urllib.parse
+import hashlib, urllib.request, urllib.parse, urllib.error
 TTS_CACHE = os.path.join(TMP, "tts_cache")
 os.makedirs(TTS_CACHE, exist_ok=True)
 
@@ -287,6 +287,54 @@ def synth_azure(text, voice, path, key, region, rate="-8%"):
     with open(path, "wb") as f:
         f.write(data)
 
+ELEVEN_MODEL = "eleven_multilingual_v2"   # da ngon ngu: 1 giong doc ca Trung + Viet
+
+def _rate_to_eleven_speed(rate):
+    """edge rate (vd -8%) -> ElevenLabs speed (0.7..1.2; 1.0 = binh thuong)."""
+    try:
+        pct = int(str(rate).replace("%", ""))
+    except ValueError:
+        pct = -8
+    return max(0.7, min(1.2, round(1.0 + pct / 100.0, 2)))
+
+def synth_eleven(text, voice_id, path, key, rate="-8%", model=ELEVEN_MODEL):
+    """ElevenLabs TTS (tra phi, chat luong cao). Ghi mp3 ra path.
+       voice_id lay tu ElevenLabs (Voice Lab / Voices). 1 giong da ngu noi ca Trung+Viet."""
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    payload = {
+        "text": text,
+        "model_id": model,
+        "voice_settings": {
+            "stability": 0.5, "similarity_boost": 0.75,
+            "style": 0.0, "use_speaker_boost": True,
+            "speed": _rate_to_eleven_speed(rate),
+        },
+    }
+    headers = {"xi-api-key": key, "Content-Type": "application/json",
+               "Accept": "audio/mpeg"}
+
+    def _post(body):
+        req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
+                                     headers=headers, method="POST")
+        return urllib.request.urlopen(req, timeout=120).read()
+
+    try:
+        data = _post(payload)
+    except urllib.error.HTTPError as e:
+        # mot so model cu khong nhan "speed" -> thu lai bo speed di
+        if e.code in (400, 422):
+            payload["voice_settings"].pop("speed", None)
+            data = _post(payload)
+        else:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")[:300]
+            except Exception:
+                pass
+            raise RuntimeError(f"ElevenLabs loi {e.code}: {detail or e.reason}")
+    with open(path, "wb") as f:
+        f.write(data)
+
 def _rate_to_speed(rate):
     """edge rate (vd -10%) -> ChatTTS speed token 0-9 (cang nho cang cham)."""
     try:
@@ -312,10 +360,11 @@ def _edge_voice(voice):
     """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh."""
     return voice if (voice and "-" in voice and "Neural" in voice) else VOICE_ZH
 
-def synth(text, voice, path, rate="-8%", azure=None, chattts=False):
-    """Giong doc co cache. chattts -> ChatTTS local; azure=(key,region) -> Azure;
-       con lai -> edge-tts. ChatTTS loi -> tu fallback edge-tts."""
-    eng = ("ct-" + str(chattts)) if chattts else ("az" if azure else "ed")
+def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None):
+    """Giong doc co cache. chattts -> ChatTTS local; eleven=key -> ElevenLabs;
+       azure=(key,region) -> Azure; con lai -> edge-tts. ChatTTS loi -> fallback edge."""
+    eng = ("ct-" + str(chattts)) if chattts else \
+          ("el" if eleven else ("az" if azure else "ed"))
     c = os.path.join(TTS_CACHE, _tts_key(eng + text, voice, rate) + ".mp3")
     if not os.path.exists(c):
         if chattts:
@@ -327,16 +376,19 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False):
             except Exception as e:
                 print(f"[ChatTTS khong dung duoc -> chuyen sang edge-tts] {e}")
                 _synth_edge(text, _edge_voice(voice), c, rate)
+        elif eleven:
+            synth_eleven(text, voice, c, eleven, rate)
         elif azure:
             synth_azure(text, voice, c, azure[0], azure[1], rate)
         else:
             _synth_edge(text, voice, c, rate)
     shutil.copyfile(c, path)
 
-def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False):
+def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None):
     """Ghi mp3 + tra ve list (start,end) cac cau. Co cache.
-       chattts/azure: khong co moc cau -> [] (fallback rai deu chu)."""
-    eng = ("ct-" + str(chattts)) if chattts else ("az" if azure else "ed")
+       chattts/azure/eleven: khong co moc cau -> [] (fallback rai deu chu)."""
+    eng = ("ct-" + str(chattts)) if chattts else \
+          ("el" if eleven else ("az" if azure else "ed"))
     key = _tts_key(eng + text, voice, rate)
     c = os.path.join(TTS_CACHE, key + ".mp3")
     cj = os.path.join(TTS_CACHE, key + ".sents.json")
@@ -344,7 +396,7 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False):
         shutil.copyfile(c, path)
         return json.load(open(cj, encoding="utf-8"))
 
-    if chattts or azure:            # khong co moc cau -> [] (rai deu chu)
+    if chattts or azure or eleven:  # khong co moc cau -> [] (rai deu chu)
         if chattts:
             try:
                 import chattts_engine
@@ -358,6 +410,8 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False):
                 json.dump(sents, open(cj, "w", encoding="utf-8"))
                 shutil.copyfile(c, path)
                 return sents
+        elif eleven:
+            synth_eleven(text, voice, c, eleven, rate)
         else:
             synth_azure(text, voice, c, azure[0], azure[1], rate)
         json.dump([], open(cj, "w", encoding="utf-8"))
@@ -601,7 +655,8 @@ def make_static_segment(seg, ctx, i):
     if text:
         ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
         synth(text, voice, ap, rate=ctx.get("rate", "-8%"),
-              azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False))
+              azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
+              eleven=ctx.get("_eleven"))
         adur = dur_of(ap)
     else:
         ap, adur = None, 1.6
@@ -650,7 +705,8 @@ def make_anim_segment(seg, ctx, i):
     text, voice = tts_for(seg, ctx)
     ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
     sents = synth_timed(text, voice, ap, rate=ctx.get("rate", "-8%"),
-                        azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False))
+                        azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
+                        eleven=ctx.get("_eleven"))
     adur = dur_of(ap)
     pad = ctx.get("pad", PAD)
     total = adur + pad

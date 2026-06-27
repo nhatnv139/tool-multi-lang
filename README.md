@@ -64,6 +64,25 @@ Mở trình duyệt: **http://127.0.0.1:5000**
 
 > **Lần đầu cần cấu hình OAuth** (`client_secret.json`). Xem **[YOUTUBE_SETUP.md](YOUTUBE_SETUP.md)** — làm 1 lần duy nhất.
 
+### 🎙️ Chọn giọng đọc (4 mức)
+
+| Engine | Phí | Chất lượng | Cần gì |
+|--------|-----|-----------|--------|
+| **edge-tts** | Free | Tốt | Chỉ cần internet (mặc định) |
+| **ChatTTS (local)** | Free | Tự nhiên | Chạy trên máy, hơi chậm |
+| **Azure** | Free F0 | Rất tự nhiên | Key + Region (portal.azure.com) |
+| **ElevenLabs** 💎 | Trả phí | Cao nhất | API key (elevenlabs.io) |
+
+**Dùng ElevenLabs (trả phí):**
+1. Vào https://elevenlabs.io → đăng nhập → avatar góc phải → **API Keys → Create** → copy key.
+2. (Tuỳ chọn) Vào **Voices** chọn/clone 1 giọng → bấm nút **ID** để copy `voice_id`.
+3. Trên app: dropdown giọng chọn nhóm **💎 ElevenLabs**, dán **API key** vào ô "Giọng cao cấp (ElevenLabs)".
+   - Muốn dùng giọng riêng → dán `voice_id` vào ô bên cạnh (để trống thì dùng giọng đã chọn).
+4. Key được lưu vào `eleven_config.json` (đã .gitignore — không commit), lần sau khỏi nhập.
+
+> Dùng model `eleven_multilingual_v2`: **1 giọng đọc được cả tiếng Trung lẫn tiếng Việt**.
+> Tốc độ đọc (thanh trượt) tự map sang `speed` 0.7–1.2 của ElevenLabs.
+
 ---
 
 ## 📝 Định dạng nội dung (dán vào app)

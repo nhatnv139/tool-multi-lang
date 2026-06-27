@@ -28,7 +28,22 @@ EDGE_VOICES = [
     ("edge:zh-CN-YunxiaNeural",   "Vân Hạ — Nam, dễ thương (free)"),
     ("edge:zh-CN-liaoning-XiaobeiNeural", "Hiểu Bối — Nữ, giọng Đông Bắc (free)"),
     ("edge:zh-CN-shaanxi-XiaoniNeural",   "Hiểu Ni — Nữ, giọng Thiểm Tây (free)"),
+    # Quan Thoai Dai Loan (zh-TW) — van la tieng pho thong chuan, chi khac am dieu vung mien
+    ("edge:zh-TW-HsiaoChenNeural", "Hiểu Trăn — Nữ, giọng Đài Loan (free)"),
+    ("edge:zh-TW-HsiaoYuNeural",   "Hiểu Du — Nữ, giọng Đài Loan, nhẹ (free)"),
+    ("edge:zh-TW-YunJheNeural",    "Vân Triết — Nam, giọng Đài Loan (free)"),
 ]
+# Giong da ngu Microsoft (free, khong can key) — chat luong cao, doc duoc tieng Trung
+# Luu y: phat am co the hoi "la" (am dieu khong phai nguoi ban xu) -> hay cho loi dan, can nhac cho phat am chuan.
+EDGE_ML_VOICES = [
+    ("edge:en-US-AvaMultilingualNeural",    "Ava — Nữ, biểu cảm, rất tự nhiên 🌐 (free)"),
+    ("edge:en-US-AndrewMultilingualNeural", "Andrew — Nam, ấm, tự tin 🌐 (free)"),
+    ("edge:en-US-EmmaMultilingualNeural",   "Emma — Nữ, vui tươi, rõ ràng 🌐 (free)"),
+    ("edge:en-US-BrianMultilingualNeural",  "Brian — Nam, gần gũi, tự nhiên 🌐 (free)"),
+    ("edge:de-DE-SeraphinaMultilingualNeural", "Seraphina — Nữ, nhẹ nhàng 🌐 (free)"),
+    ("edge:fr-FR-VivienneMultilingualNeural",  "Vivienne — Nữ, êm 🌐 (free)"),
+]
+
 # Giong Azure (tu nhien hon, can key free) — value tien to "azure:"
 AZURE_VOICES = [
     ("azure:zh-CN-XiaoxiaoMultilingualNeural", "Hiểu Hiểu Đa ngữ — Nữ, rất tự nhiên ⭐"),
@@ -36,6 +51,16 @@ AZURE_VOICES = [
     ("azure:zh-CN-YunyiMultilingualNeural",    "Vân Nghị — Nam, tự nhiên"),
     ("azure:zh-CN-Xiaochen:DragonHDLatestNeural", "Hiểu Trần HD — siêu thật (mới nhất)"),
     ("azure:zh-CN-Yunfan:DragonHDLatestNeural",   "Vân Phàm HD — Nam, siêu thật"),
+]
+
+# Giong ElevenLabs (TRA PHI, chat luong cao nhat) — value tien to "eleven:<voice_id>"
+# Day la cac giong mac dinh cua ElevenLabs (model eleven_multilingual_v2 noi duoc tieng Trung + Viet).
+ELEVEN_VOICES = [
+    ("eleven:21m00Tcm4TlvDq8ikWAM", "Rachel — Nữ, ấm, kể chuyện ⭐ (ElevenLabs)"),
+    ("eleven:EXAVITQu4vr4xnSDxMaL", "Sarah — Nữ, nhẹ nhàng (ElevenLabs)"),
+    ("eleven:9BWtsMINqrJLrRacOk9x", "Aria — Nữ, biểu cảm (ElevenLabs)"),
+    ("eleven:pNInz6obpgDQGcFmaJgB", "Adam — Nam, trầm ấm (ElevenLabs)"),
+    ("eleven:ErXwobaYiN019PkySvjV", "Antoni — Nam, trẻ (ElevenLabs)"),
 ]
 
 # Giong ChatTTS chay local (mien phi, khong can key)
@@ -59,6 +84,17 @@ def load_azure():
 def save_azure(key, region):
     import json as _j
     _j.dump({"key": key, "region": region}, open(AZURE_CFG, "w", encoding="utf-8"))
+
+ELEVEN_CFG = os.path.join(ROOT, "eleven_config.json")
+def load_eleven():
+    try:
+        import json as _j
+        return _j.load(open(ELEVEN_CFG, encoding="utf-8")).get("key", "")
+    except Exception:
+        return ""
+def save_eleven(key):
+    import json as _j
+    _j.dump({"key": key}, open(ELEVEN_CFG, "w", encoding="utf-8"))
 RATES = [("-20%", "Chậm (người mới)"), ("-10%", "Hơi chậm"),
          ("-8%", "Vừa (khuyên)"), ("+0%", "Bình thường")]
 THEMES = [("pink", "Hồng pastel"), ("mint", "Xanh mint"), ("sky", "Xanh da trời"),
@@ -83,9 +119,11 @@ def index():
     akey, aregion = load_azure()
     return render_template("index.html", edge_voices=EDGE_VOICES,
                            azure_voices=AZURE_VOICES, chattts_voices=CHATTTS_VOICES,
-                           chattts_styles=CHATTTS_STYLES,
+                           chattts_styles=CHATTTS_STYLES, eleven_voices=ELEVEN_VOICES,
+                           edge_ml_voices=EDGE_ML_VOICES,
                            rates=RATES, themes=THEMES, mascots=MASCOTS, moods=MOODS,
-                           azure_key=akey, azure_region=aregion)
+                           azure_key=akey, azure_region=aregion,
+                           eleven_key=load_eleven())
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -174,6 +212,8 @@ def run_job(job_id, data):
             # giong: value dang "edge:..." hoac "azure:..."
             engine, _, vname = (data.get("voice") or "edge:zh-CN-XiaoxiaoNeural").partition(":")
             azure_tuple = None
+            eleven_key = None
+            voice_vi = generate.VOICE_VI            # mac dinh: giong Viet edge-tts
             if engine == "azure":
                 akey = (data.get("azure_key") or "").strip()
                 aregion = (data.get("azure_region") or "").strip()
@@ -185,9 +225,22 @@ def run_job(job_id, data):
                     raise RuntimeError("Giọng Azure cần Key + Region. "
                                        "Hãy nhập ở mục 'Giọng tự nhiên (Azure)'.")
                 azure_tuple = (akey, aregion)
+            elif engine == "eleven":
+                eleven_key = (data.get("eleven_key") or "").strip() or load_eleven()
+                if not eleven_key:
+                    raise RuntimeError("Giọng ElevenLabs cần API key. "
+                                       "Hãy nhập ở mục 'Giọng cao cấp (ElevenLabs)'.")
+                save_eleven(eleven_key)                # luu de lan sau khoi nhap
+                # cho phep dan voice_id rieng (uu tien) thay cho giong chon san
+                custom = (data.get("eleven_voice") or "").strip()
+                if custom:
+                    vname = custom
+                voice_vi = vname                       # 1 giong da ngu: doc ca Trung + Viet
             ctx.update({
                 "voice_zh": vname,
+                "voice_vi": voice_vi,
                 "_azure":   azure_tuple,
+                "_eleven":  eleven_key,
                 "_chattts": (data.get("chattts_style", "warm")
                              if engine == "chattts" else None),
                 "rate":     data.get("rate", "-8%"),
