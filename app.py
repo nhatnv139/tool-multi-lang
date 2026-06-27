@@ -125,6 +125,31 @@ def index():
                            azure_key=akey, azure_region=aregion,
                            eleven_key=load_eleven())
 
+@app.route("/eleven/voices")
+def eleven_voices_list():
+    """Lay danh sach giong cua tai khoan ElevenLabs (de dropdown chon)."""
+    key = (request.args.get("key") or "").strip() or load_eleven()
+    if not key:
+        return jsonify(voices=[], error="Chưa có API key — nhập key rồi bấm tải lại.")
+    try:
+        import urllib.request, urllib.error, json as _j
+        req = urllib.request.Request("https://api.elevenlabs.io/v1/voices",
+                                     headers={"xi-api-key": key})
+        data = _j.loads(urllib.request.urlopen(req, timeout=30).read())
+        voices = [{"id": v.get("voice_id"),
+                   "name": (v.get("name") or v.get("voice_id"))}
+                  for v in data.get("voices", []) if v.get("voice_id")]
+        save_eleven(key)                       # luu key de lan sau khoi nhap
+        return jsonify(voices=voices)
+    except urllib.error.HTTPError as e:
+        msg = "Lỗi tải giọng."
+        if e.code == 401:
+            msg = ("Key thiếu quyền 'Voices → Read'. Vào ElevenLabs → API Keys → "
+                   "sửa key → bật Voices = Read → Save.")
+        return jsonify(voices=[], error=f"{msg} (HTTP {e.code})")
+    except Exception as e:
+        return jsonify(voices=[], error=str(e))
+
 @app.route("/upload", methods=["POST"])
 def upload():
     f = request.files.get("file")
@@ -236,11 +261,19 @@ def run_job(job_id, data):
                 if custom:
                     vname = custom
                 voice_vi = vname                       # 1 giong da ngu: doc ca Trung + Viet
+
+            # Hoi thoai nhieu giong (MOI engine): map {nguoi_noi: voice}
+            # voice = ten giong edge (vd zh-CN-YunjianNeural) hoac voice_id ElevenLabs,
+            # dispatch theo dung engine cua giong chinh.
+            dmap_raw = data.get("dialogue_map") or {}
+            dialogue_map = {str(k).strip(): str(v).strip()
+                            for k, v in dmap_raw.items() if str(v).strip()}
             ctx.update({
                 "voice_zh": vname,
                 "voice_vi": voice_vi,
                 "_azure":   azure_tuple,
                 "_eleven":  eleven_key,
+                "_dialogue_map": dialogue_map,
                 "_chattts": (data.get("chattts_style", "warm")
                              if engine == "chattts" else None),
                 "rate":     data.get("rate", "-8%"),

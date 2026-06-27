@@ -699,19 +699,80 @@ def _encode_states(states, ap, total, vp, pad=PAD):
                     "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp],
                    check=True, capture_output=True)
 
+DIALOGUE_GAP = 0.35      # khoang nghi giua 2 luot noi (giay)
+
+def dialogue_voice_map(rows, ctx):
+    """Tra ve dict {nguoi_noi: voice}. Map theo nhan ('A','B','小明'...) tu _dialogue_map;
+       nguoi nao khong gan thi dung giong chinh (voice_zh). Hop voi MOI engine."""
+    default_v = ctx.get("voice_zh", VOICE_ZH)
+    by_label = ctx.get("_dialogue_map") or {}            # {sp: voice (edge name / voice_id)}
+    speakers = []                                        # gom theo thu tu xuat hien
+    for r in rows:
+        sp = r.get("sp", "")
+        if sp not in speakers:
+            speakers.append(sp)
+    return {sp: (by_label.get(sp) or default_v) for sp in speakers}
+
+def synth_dialogue(rows, ctx, out_mp3, vmap):
+    """Doc hoi thoai NHIEU GIONG: moi nguoi noi mot voice rieng (A, B, C, D...).
+       vmap: dict {nguoi_noi: voice}. Dung CUNG engine voi giong chinh (edge/azure/eleven).
+       Tra ve (starts, total): starts[k] = thoi diem bat dau dong k (de canh hien chu)."""
+    default_v = ctx.get("voice_zh", VOICE_ZH)
+    eleven = ctx.get("_eleven")
+    azure = ctx.get("_azure")
+    chattts = ctx.get("_chattts", False)
+    rate = ctx.get("rate", "-8%")
+    parts, starts, t = [], [], 0.0
+    for k, r in enumerate(rows):
+        v = vmap.get(r.get("sp", ""), default_v)
+        rp = os.path.join(AUDIO, f"_dlg_{k:02d}.mp3")
+        synth(r["hanzi"], v, rp, rate=rate, azure=azure,
+              chattts=chattts, eleven=eleven)                # co cache theo (giong,text)
+        d = dur_of(rp)
+        starts.append(t)
+        parts.append(rp)
+        t += d + DIALOGUE_GAP
+    # ghep cac luot lai, chen khoang lang DIALOGUE_GAP sau moi luot
+    inputs, filt = [], []
+    for k, rp in enumerate(parts):
+        inputs += ["-i", rp]
+        filt.append(f"[{k}:a]aresample=44100,apad=pad_dur={DIALOGUE_GAP}[a{k}]")
+    concat_in = "".join(f"[a{k}]" for k in range(len(parts)))
+    filt.append(f"{concat_in}concat=n={len(parts)}:v=0:a=1[out]")
+    subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(filt),
+                    "-map", "[out]", "-c:a", "libmp3lame", "-q:a", "2", out_mp3],
+                   check=True, capture_output=True)
+    return starts, dur_of(out_mp3)
+
 def make_anim_segment(seg, ctx, i):
     """Slide chu hien dan tung chu / tung dong theo giong doc."""
     t = seg["type"]
-    text, voice = tts_for(seg, ctx)
     ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
+    pad = ctx.get("pad", PAD)
+    vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
+    states = []
+
+    # Hoi thoai nhieu giong (MOI engine: edge/azure/eleven) khi co gan giong theo nguoi noi
+    has_dlg_cfg = bool(ctx.get("_dialogue_map"))
+    if t == "dialogue" and has_dlg_cfg:
+        rows = seg["rows"]; n = len(rows)
+        vmap = dialogue_voice_map(rows, ctx)
+        starts, adur = synth_dialogue(rows, ctx, ap, vmap)
+        total = adur + pad
+        times = [0.0] + list(starts)
+        for k in range(n + 1):
+            png = os.path.join(SLIDES, f"s{i:02d}_{k:02d}.png")
+            render_slide(seg, ctx, png, n_visible=k)
+            states.append((png, times[k] if k < len(times) else times[-1]))
+        _encode_states(states, ap, total, vp, pad=pad)
+        return vp, total
+
+    text, voice = tts_for(seg, ctx)
     sents = synth_timed(text, voice, ap, rate=ctx.get("rate", "-8%"),
                         azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
                         eleven=ctx.get("_eleven"))
     adur = dur_of(ap)
-    pad = ctx.get("pad", PAD)
     total = adur + pad
-    vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
-    states = []
 
     if t == "dialogue":
         rows = seg["rows"]; n = len(rows)
