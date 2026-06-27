@@ -46,11 +46,46 @@ EDGE_ML_VOICES = [
 
 # Giong Azure (tu nhien hon, can key free) — value tien to "azure:"
 AZURE_VOICES = [
+    # --- HD / siêu thật (mới nhất) ---
+    ("azure:zh-CN-Xiaochen:DragonHDLatestNeural", "Hiểu Trần HD — Nữ, siêu thật ⭐ (mới nhất)"),
+    ("azure:zh-CN-Yunfan:DragonHDLatestNeural",   "Vân Phàm HD — Nam, siêu thật ⭐"),
+    ("azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural", "Hiểu Hiểu HD Flash — Nữ, siêu thật"),
+    ("azure:zh-CN-Xiaochen:DragonHDFlashLatestNeural", "Hiểu Trần HD Flash — Nữ, nhanh"),
+    # --- Đa ngữ (đọc tốt cả Trung + Việt + Anh) ---
     ("azure:zh-CN-XiaoxiaoMultilingualNeural", "Hiểu Hiểu Đa ngữ — Nữ, rất tự nhiên ⭐"),
-    ("azure:zh-CN-XiaochenMultilingualNeural", "Hiểu Trần — Nữ trẻ, tự nhiên"),
-    ("azure:zh-CN-YunyiMultilingualNeural",    "Vân Nghị — Nam, tự nhiên"),
-    ("azure:zh-CN-Xiaochen:DragonHDLatestNeural", "Hiểu Trần HD — siêu thật (mới nhất)"),
-    ("azure:zh-CN-Yunfan:DragonHDLatestNeural",   "Vân Phàm HD — Nam, siêu thật"),
+    ("azure:zh-CN-XiaochenMultilingualNeural", "Hiểu Trần Đa ngữ — Nữ trẻ, tự nhiên"),
+    ("azure:zh-CN-XiaoyuMultilingualNeural",   "Hiểu Vũ Đa ngữ — Nữ, ấm"),
+    ("azure:zh-CN-YunyiMultilingualNeural",    "Vân Nghị Đa ngữ — Nam, tự nhiên"),
+    # --- Nữ (giọng phổ thông biểu cảm) ---
+    ("azure:zh-CN-XiaoxiaoNeural", "Hiểu Hiểu — Nữ, ấm, kể chuyện"),
+    ("azure:zh-CN-XiaoyiNeural",   "Hiểu Y — Nữ, trẻ, hoạt náo"),
+    ("azure:zh-CN-XiaohanNeural",  "Hiểu Hàm — Nữ, dịu dàng"),
+    ("azure:zh-CN-XiaomengNeural", "Hiểu Mộng — Nữ, tươi vui"),
+    ("azure:zh-CN-XiaomoNeural",   "Hiểu Mặc — Nữ, đa cảm xúc"),
+    ("azure:zh-CN-XiaoruiNeural",  "Hiểu Duệ — Nữ, lớn tuổi, điềm đạm"),
+    ("azure:zh-CN-XiaoxuanNeural", "Hiểu Tuyên — Nữ, chững chạc"),
+    ("azure:zh-CN-XiaoyanNeural",  "Hiểu Yến — Nữ, dịch vụ KH"),
+    ("azure:zh-CN-XiaozhenNeural", "Hiểu Trinh — Nữ, nghiêm túc"),
+    ("azure:zh-CN-XiaoshuangNeural", "Hiểu Sảng — Bé gái, dễ thương"),
+    # --- Nam ---
+    ("azure:zh-CN-YunxiNeural",    "Vân Hi — Nam, trẻ, nắng ấm"),
+    ("azure:zh-CN-YunjianNeural",  "Vân Kiện — Nam, kể chuyện biểu cảm"),
+    ("azure:zh-CN-YunyangNeural",  "Vân Dương — Nam, tin tức chuyên nghiệp"),
+    ("azure:zh-CN-YunxiaNeural",   "Vân Hạ — Nam, dễ thương"),
+    ("azure:zh-CN-YunfengNeural",  "Vân Phong — Nam, sôi nổi"),
+    ("azure:zh-CN-YunhaoNeural",   "Vân Hạo — Nam, quảng cáo"),
+    ("azure:zh-CN-YunyeNeural",    "Vân Diệp — Nam, lớn tuổi, kể chuyện"),
+    ("azure:zh-CN-YunzeNeural",    "Vân Trạch — Nam, lớn tuổi, điềm tĩnh"),
+    # --- Giọng vùng miền (tiếng phổ thông + chất địa phương) ---
+    ("azure:zh-CN-sichuan-YunxiNeural",   "Vân Hi — Nam, giọng Tứ Xuyên"),
+    ("azure:zh-CN-henan-YundengNeural",   "Vân Đăng — Nam, giọng Hà Nam"),
+    ("azure:zh-CN-shandong-YunxiangNeural", "Vân Tường — Nam, giọng Sơn Đông"),
+    ("azure:zh-CN-liaoning-XiaobeiNeural", "Hiểu Bối — Nữ, giọng Đông Bắc"),
+    ("azure:zh-CN-shaanxi-XiaoniNeural",   "Hiểu Ni — Nữ, giọng Thiểm Tây"),
+    # --- Quan Thoại Đài Loan ---
+    ("azure:zh-TW-HsiaoChenNeural", "Hiểu Trăn — Nữ, Đài Loan"),
+    ("azure:zh-TW-HsiaoYuNeural",   "Hiểu Du — Nữ, Đài Loan, nhẹ"),
+    ("azure:zh-TW-YunJheNeural",    "Vân Triết — Nam, Đài Loan"),
 ]
 
 # Giong ElevenLabs (TRA PHI, chat luong cao nhat) — value tien to "eleven:<voice_id>"
