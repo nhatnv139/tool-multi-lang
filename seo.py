@@ -214,44 +214,45 @@ def generate(ctx):
 
     ch_txt = chapters_text(seg_meta)
     tr_txt = transcript_text(seg_meta)
-    hashtags = ["#luyennghetiengtrung", f"#HSK{hsk}", "#tiengtrungchonguoiviet"]
+    hashtags = ["#luyennghetiengtrung", "#hoctiengtrung", f"#HSK{hsk}",
+                "#tiengtrungchonguoiviet", "#nghehieutiengtrung"]
     next_ep = (int(ep) + 1) if str(ep).isdigit() else ep
-    # thay transcript bang link Google Drive (tai lieu day du) neu co
+    next_ep_txt = f"#{next_ep}" if str(next_ep).isdigit() else str(next_ep)
     doc_link = (ctx.get("doc_link") or "").strip()
-    if doc_link:
-        doc_section = ("📄 TÀI LIỆU BÀI HỌC (chữ Hán + pinyin + nghĩa Việt) — "
-                       f"xem & tải tại:\n{doc_link}")
-    else:
-        doc_section = "📄 Tài liệu bài học đầy đủ: (đang cập nhật)"
-    description = f"""🎧 Luyện nghe tiếng Trung HSK{hsk} cho người Việt mới bắt đầu — "{han_title} / {viet_title}", đọc chậm, có chữ Hán + pinyin + nghĩa tiếng Việt + phụ đề CC.
-👉 Bạn chỉ cần NGHE và NHÌN CHỮ — phương pháp "nghe hiểu" (comprehensible input).
+    # khoi tai lieu Google Drive chi hien khi co link (tu an khi rong)
+    doc_block = (f"📄 TÀI LIỆU (chữ Hán + pinyin + nghĩa Việt) — tải miễn phí:\n{doc_link}\n\n"
+                 if doc_link else "")
+    description = f"""🎧 Luyện nghe tiếng Trung HSK{hsk} cho người Việt | {han_title} ({viet_title})
+Podcast "nghe hiểu": đọc chậm, có 中文 + pinyin + nghĩa Việt + phụ đề CC. Chưa biết chữ Hán vẫn nghe theo được.
 
 ━━━━━━━━━━━━━━━━━━━━
-📖 TRONG TẬP NÀY
-• Trình độ: HSK{hsk} (người mới bắt đầu)
-• Giọng kể chậm, ngắt câu rõ + nhạc nền nhẹ
-• Trên màn hình: 中文 (chữ Hán) + pinyin + nghĩa tiếng Việt
-• 📑 Phụ đề CC: chữ Hán / pinyin / tiếng Việt (bật nút CC để chọn)
+Bạn học tiếng Trung mãi mà nghe vẫn không kịp?
+Học thuộc cả trăm từ rồi vài hôm quên sạch, nhìn chữ Hán thấy rối?
 
-⏱️ NỘI DUNG
+Mình cũng từng vậy — cho đến khi đổi cách: thay vì học thuộc, NGHE thật nhiều thứ vừa sức hiểu, đúng cách một đứa trẻ học tiếng mẹ đẻ.
+
+Không học thuộc. Không tra từ. Không áp lực. Chỉ cần nghe mỗi ngày.
+
+📌 NỘI DUNG TỪNG PHẦN
 {ch_txt}
 
-📚 CÁCH HỌC HIỆU QUẢ
-1. Nghe lần 1: chỉ nghe, không nhìn chữ.
-2. Nghe lần 2: nhìn pinyin + nghĩa Việt.
-3. Nghe lần 3: nói nhẩm theo (shadowing).
-4. Học từ vựng ở bình luận ghim 📌 rồi nghe lại.
+📚 CÁCH NGHE CHO THẤM
+1. Lần 1 — nghe & nhìn cả 3 dòng (Hán + pinyin + Việt), hiểu ý chung là được.
+2. Lần 2 — che nghĩa Việt, nghe theo pinyin.
+3. Lần 3 — chỉ nhìn chữ Hán, nghe lại. Bạn sẽ bất ngờ vì hiểu nhiều hơn.
+👉 Nghe lại nhiều lần (lúc nấu ăn, đi đường) quan trọng hơn nghe nhiều bài mới.
 
-{' '.join(hashtags)}
+{doc_block}💜 Nếu tập này giúp được bạn, gửi cho 1 người bạn cũng đang học tiếng Trung nhé — biết đâu giữ họ ở lại với tiếng Trung thêm một ngày.
+💬 Comment cho mình biết bạn nghe được khoảng mấy %?
+🔔 Đăng ký kênh để mỗi ngày có một bài nghe mới.
 
-━━━━━━━━━━━━━━━━━━━━
-🔔 Đăng ký kênh để học tiếng Trung mỗi tuần!
-
-━━━━━━━━━━━━━━━━━━━━
-{doc_section}
+🔥 Thử thách #NgheCungLacHocDuong — nghe 20 phút mỗi ngày!
 
 ━━━━━━━━━━━━━━━━━━━━
-💬 Hãy kể cho mình nghe ở phần bình luận nhé! 👍 Like + Đăng ký để xem tập tiếp theo #{next_ep}."""
+🎧 {channel} — Nghe tiếng Trung mỗi ngày, tiến bộ không cần ép. 听中文，乐学习。
+▶️ Series: Luyện nghe tiếng Trung mỗi ngày · Tập tiếp theo {next_ep_txt}
+
+{' '.join(hashtags)} #LacHocDuong"""
 
     tags = DEFAULT_TAGS.copy()
     if han_title:

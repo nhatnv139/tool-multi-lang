@@ -1,0 +1,12 @@
+# Web app + render
+flask
+pillow
+edge-tts
+pypinyin
+numpy
+requests
+
+# Đăng YouTube (OAuth + upload + phụ đề + thumbnail)
+google-api-python-client
+google-auth-oauthlib
+google-auth
