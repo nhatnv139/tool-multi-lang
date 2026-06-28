@@ -147,6 +147,24 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       <label for="show_outro" style="margin:0">🙏 Hiện slide kết thúc
         <span class="hint">(再见 + cảm ơn / like-subscribe ở cuối video — mặc định TẮT)</span></label>
     </div>
+    <div class="mt switch">
+      <input type="checkbox" id="podcast_layout">
+      <label for="podcast_layout" style="margin:0">📻 Layout Podcast (Chinese Daily)
+        <span class="hint">(Hán to + pinyin + Việt trên nền bạn tự làm — nhớ upload ảnh nền người dẫn/tranh)</span></label>
+    </div>
+    <div class="mt" id="panel_alpha_wrap" style="display:none">
+      <label>🩹 Độ mờ lớp nền chữ: <span id="panel_alpha_lbl" class="hint">150</span> <span class="hint">(0 = không có lớp nền, 255 = đặc)</span></label>
+      <input type="range" id="panel_alpha" min="0" max="255" step="5" value="150" style="width:100%"
+             oninput="document.getElementById('panel_alpha_lbl').textContent=this.value">
+      <div class="switch" style="margin-top:8px">
+        <input type="checkbox" id="tone_colors" checked>
+        <label for="tone_colors" style="margin:0">🎨 Pinyin tô màu theo thanh điệu <span class="hint">(thanh 1 đỏ · 2 cam · 3 xanh lá · 4 xanh dương)</span></label>
+      </div>
+      <div class="switch" style="margin-top:6px">
+        <input type="checkbox" id="podcast_frame" checked>
+        <label for="podcast_frame" style="margin:0">🖼️ Khung viền cổ điển + góc trang trí</label>
+      </div>
+    </div>
 
     <details class="mt">
       <summary>⚙️ Tuỳ chọn nâng cao (không bắt buộc)</summary>
@@ -222,6 +240,13 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
             <span id="el_voices_status" class="hint"></span>
           </div>
         </div>
+        <label style="margin-top:10px">🧠 Model giọng <span class="hint">(chọn bản đọc thật nhất)</span></label>
+        <select id="eleven_model">
+          <option value="eleven_multilingual_v2">Đa ngữ v2 — giàu cảm xúc, ổn định ⭐ (khuyên)</option>
+          <option value="eleven_v3">v3 — mới nhất, thật & biểu cảm nhất (tốn credit hơn)</option>
+          <option value="eleven_turbo_v2_5">Turbo v2.5 — nhanh, nhẹ credit</option>
+          <option value="eleven_flash_v2_5">Flash v2.5 — nhanh nhất</option>
+        </select>
         <label style="margin-top:10px">🎙️ Giọng chính <span class="hint">(đọc lời dẫn / câu mẫu)</span></label>
         <select id="eleven_voice_select" onchange="document.getElementById('eleven_voice').value=this.value">
           <option value="">— Tải giọng để chọn, hoặc gõ Voice ID bên dưới —</option>
@@ -316,7 +341,9 @@ async function importDrive(){
 }
 
 // ----- upload file (bg / music) -----
-const uploaded = { bg:'', music:'' };
+const uploaded = { bg: "{{ bg_saved }}", music:'' };
+// hien trang thai anh nen da luu (khong mat khi F5)
+if(uploaded.bg){ const e=document.getElementById('bg_name'); if(e) e.textContent='— ✅ đã có ảnh nền (tự lưu, F5 không mất)'; }
 async function up(inputId, kind){
   const f = document.getElementById(inputId).files[0];
   if(!f) return;
@@ -413,8 +440,16 @@ let MS_VOICES = [];
     if(o.value.startsWith('edge:')) MS_VOICES.push({id:o.value.slice(5), name:o.textContent.trim()});
   });
 })();
+// engine đang dùng: nếu đã nhập key ElevenLabs + (chọn giọng chính HOẶC đã tải giọng)
+// thì coi như đang dùng ElevenLabs (bất kể dropdown trên cùng) -> người nói chọn giọng EL.
+function voiceEngine(){
+  const elKey = document.getElementById('eleven_key').value.trim();
+  const elVoice = document.getElementById('eleven_voice').value.trim();
+  if(elKey && (elVoice || EL_VOICES.length)) return 'eleven';
+  return (document.getElementById('voice').value.split(':')[0]) || 'edge';
+}
 function dialogueOptions(sel){
-  const engine = (document.getElementById('voice').value.split(':')[0]) || 'edge';
+  const engine = voiceEngine();
   const list = (engine==='eleven') ? EL_VOICES : MS_VOICES;
   let o = '<option value="">— Giọng mặc định (giọng chính) —</option>';
   for(const v of list) o += `<option value="${v.id}"${v.id===sel?' selected':''}>${v.name}</option>`;
@@ -425,17 +460,25 @@ function dialogueOptions(sel){
 
 // ----- Hội thoại nhiều giọng: quét người nói (A,B,C,D...) trong phần HỘI THOẠI -----
 function scanSpeakers(){
+  // dò TOÀN BỘ content (khớp backend detect_speakers): nhãn Latin/Hán/vai trò + ':'/'：',
+  // bỏ timestamp (00:12), nhãn toàn số, từ khoá metadata.
   const text = document.getElementById('content').value;
-  let inDlg = false; const speakers = [];
+  const NON = new Set(['时间','时长','时候','正文','介绍','目录','日期','地点','time','date','url','link','note']);
+  const RE = /^\s*([A-Za-z][A-Za-z0-9 ]{0,14}|[一-鿿]{1,6})\s*[:：]/;
+  const TIME = /^\s*\d{1,2}[:：]\d{2}/;
+  const speakers = [];
   for(const raw of text.split('\n')){
     const line = raw.trim();
-    if(line.startsWith('#')){ inDlg = /HỘI|THOẠI|DIALOG/i.test(line); continue; }
-    if(!inDlg || !line) continue;
-    const head = line.split('|')[0];                 // bỏ phần nghĩa tiếng Việt
-    const m = head.match(/^\s*([^:：]{1,12})[:：]/);   // nhãn trước dấu ":" / "："
-    if(m){ const sp = m[1].trim(); if(sp && !speakers.includes(sp)) speakers.push(sp); }
+    if(!line || line[0]==='@' || line[0]==='#') continue;
+    const head = line.split('|')[0];
+    if(TIME.test(head)) continue;
+    const m = head.match(RE);
+    if(!m) continue;
+    const sp = m[1].trim();
+    if(!sp || /^\d+$/.test(sp) || NON.has(sp) || NON.has(sp.toLowerCase())) continue;
+    if(!speakers.includes(sp)) speakers.push(sp);
   }
-  renderDialogueVoices(speakers);
+  renderDialogueVoices(speakers.length>=2 ? speakers : speakers);  // hiện cả khi 1 (để user thấy)
 }
 function renderDialogueVoices(speakers){
   const box = document.getElementById('dialogue_voices');
@@ -444,7 +487,7 @@ function renderDialogueVoices(speakers){
     box.innerHTML = '<p class="hint" style="margin:6px 0 0;color:#c0392b">⚠️ Không thấy người nói. Phần HỘI THOẠI cần dòng dạng <b>A: 你好 | Xin chào</b>.</p>';
     return;
   }
-  const engine = (document.getElementById('voice').value.split(':')[0]) || 'edge';
+  const engine = voiceEngine();
   const useInput = (engine==='eleven' && !EL_VOICES.length);   // ElevenLabs chưa tải → gõ tay
   box.innerHTML = speakers.map(sp => {
     const ctrl = useInput
@@ -463,6 +506,10 @@ function collectDialogueVoices(){
   });
   return map;
 }
+// bật layout podcast → hiện thanh chỉnh độ mờ lớp nền chữ
+document.getElementById('podcast_layout').addEventListener('change', function(){
+  document.getElementById('panel_alpha_wrap').style.display = this.checked ? 'block' : 'none';
+});
 // đổi engine giọng chính → cập nhật lại danh sách giọng cho từng người nói
 document.getElementById('voice').addEventListener('change', ()=>{
   const sps = [...document.querySelectorAll('#dialogue_voices [data-sp]')].map(e=>e.dataset.sp);
@@ -479,9 +526,12 @@ rateLabel(document.getElementById('rate').value);
 async function generate(){
   const content = document.getElementById('content').value.trim();
   if(!content){ alert('Bạn chưa nhập nội dung.'); return; }
+  const _elVoice = document.getElementById('eleven_voice').value.trim();
   const body = {
     content,
-    voice:  document.getElementById('voice').value,
+    // đã chọn giọng ElevenLabs -> dùng ElevenLabs (bất kể dropdown trên cùng)
+    voice:  (voiceEngine()==='eleven' && _elVoice) ? ('eleven:' + _elVoice)
+                                                   : document.getElementById('voice').value,
     rate:   rateValue(),
     pad:    document.getElementById('pad').value/10,
     theme:  document.getElementById('theme').value,
@@ -495,6 +545,10 @@ async function generate(){
     podcast: document.getElementById('podcast').checked,
     show_title: document.getElementById('show_title').checked,
     show_outro: document.getElementById('show_outro').checked,
+    podcast_layout: document.getElementById('podcast_layout').checked,
+    panel_alpha: parseInt(document.getElementById('panel_alpha').value,10),
+    tone_colors: document.getElementById('tone_colors').checked,
+    podcast_frame: document.getElementById('podcast_frame').checked,
     intro_outro: document.getElementById('intro_outro').checked,
     use_intro: document.getElementById('use_intro').checked,
     use_outro: document.getElementById('use_outro').checked,
@@ -504,6 +558,7 @@ async function generate(){
     azure_key:    document.getElementById('azure_key').value,
     azure_region: document.getElementById('azure_region').value,
     eleven_key:   document.getElementById('eleven_key').value,
+    eleven_model: document.getElementById('eleven_model').value,
     eleven_voice: document.getElementById('eleven_voice').value,
     dialogue_map: collectDialogueVoices(),
     character: document.getElementById('character').checked,

@@ -120,6 +120,18 @@ def save_azure(key, region):
     import json as _j
     _j.dump({"key": key, "region": region}, open(AZURE_CFG, "w", encoding="utf-8"))
 
+BG_CFG = os.path.join(ROOT, "bg_config.json")
+def load_bg():
+    try:
+        import json as _j
+        p = _j.load(open(BG_CFG, encoding="utf-8")).get("path", "")
+        return p if (p and os.path.exists(p)) else ""
+    except Exception:
+        return ""
+def save_bg(path):
+    import json as _j
+    _j.dump({"path": path}, open(BG_CFG, "w", encoding="utf-8"))
+
 ELEVEN_CFG = os.path.join(ROOT, "eleven_config.json")
 def load_eleven():
     try:
@@ -158,7 +170,7 @@ def index():
                            edge_ml_voices=EDGE_ML_VOICES,
                            rates=RATES, themes=THEMES, mascots=MASCOTS, moods=MOODS,
                            azure_key=akey, azure_region=aregion,
-                           eleven_key=load_eleven())
+                           eleven_key=load_eleven(), bg_saved=load_bg())
 
 @app.route("/eleven/voices")
 def eleven_voices_list():
@@ -195,6 +207,8 @@ def upload():
     name = f"{kind}_{int(time.time()*1000)}{ext}"
     p = os.path.join(UP, name)
     f.save(p)
+    if kind == "bg":
+        save_bg(p)               # nho anh nen de F5 khong mat
     return jsonify(path=p, name=f.filename)
 
 BRAND_DIR = os.path.join(ROOT, "brand")
@@ -303,11 +317,19 @@ def run_job(job_id, data):
             dmap_raw = data.get("dialogue_map") or {}
             dialogue_map = {str(k).strip(): str(v).strip()
                             for k, v in dmap_raw.items() if str(v).strip()}
+            # TU GAN GIONG: neu chua gan tay + engine free (edge/azure) + phat hien >=2 nguoi noi
+            # -> tu doan gioi tinh & gan giong nam/nu khac nhau cho tung nguoi.
+            auto_speakers = lesson_parser.detect_speakers(data["content"])
+            if not dialogue_map and auto_speakers and engine in ("edge", "azure"):
+                dialogue_map = lesson_parser.assign_speaker_voices(auto_speakers)
+                jobs[job_id]["label"] = (f"Tự nhận diện {len(auto_speakers)} người nói, "
+                                         "đã gán giọng…")
             ctx.update({
                 "voice_zh": vname,
                 "voice_vi": voice_vi,
                 "_azure":   azure_tuple,
                 "_eleven":  eleven_key,
+                "_eleven_model": (data.get("eleven_model") or "eleven_multilingual_v2"),
                 "_dialogue_map": dialogue_map,
                 "_chattts": (data.get("chattts_style", "warm")
                              if engine == "chattts" else None),
@@ -326,6 +348,10 @@ def run_job(job_id, data):
                 "use_outro":   bool(data.get("use_outro", True)),
                 "show_title":  bool(data.get("show_title", False)),
                 "show_outro":  bool(data.get("show_outro", False)),
+                "podcast_layout": bool(data.get("podcast_layout", False)),
+                "panel_alpha": int(data.get("panel_alpha", 150)),
+                "tone_colors": bool(data.get("tone_colors", True)),
+                "podcast_frame": bool(data.get("podcast_frame", True)),
                 "podcast":   bool(data.get("podcast", False)),
                 "mood":      data.get("mood", "calm"),
                 "bg_image":  (data.get("bg_image") or "").strip(),

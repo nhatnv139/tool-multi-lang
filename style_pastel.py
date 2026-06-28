@@ -375,6 +375,212 @@ def center_text_block(d, blocks, gap=30, top=None):
         d.text(((W-tw)//2, y-oy), t, font=font(fk, sz), fill=col)
         y += th + gap
 
+# ---------- LAYOUT PODCAST (Chinese Daily style) ----------
+# Vung noi dung chinh (khung do): nguoi dung tu lam header (nguoi dan + tranh) o nen.
+PODCAST_BOX = (24, 482, W - 24, 1046)        # x0,y0,x1,y1
+PC_PINYIN = (105, 110, 115)                  # pinyin xam
+PC_VIET   = (38, 110, 78)                    # nghia (xanh la dam, giong mau dich mau)
+PC_BORDER = (193, 142, 90)                   # vien panel (nau vang co dien)
+PC_CORNER = (193, 142, 90)                   # hoa van goc
+
+# Tone-color (ho tro hoc): pinyin to mau theo thanh dieu
+_TONE_MARKS = {
+    'āēīōūǖ': 1, 'áéíóúǘ': 2, 'ǎěǐǒǔǚ': 3, 'àèìòùǜ': 4,
+}
+TONE_COLORS = {1: (208, 38, 46), 2: (224, 142, 30), 3: (46, 139, 76),
+               4: (40, 96, 196), 0: (105, 110, 115)}
+def _tone_of(syl):
+    for ch in syl:
+        for marks, t in _TONE_MARKS.items():
+            if ch in marks:
+                return t
+    return 0
+
+def _cover_bg(path):
+    """Anh nen nguoi dung -> phu kin 1920x1080 (giu nguyen mau, KHONG veil)."""
+    src = Image.open(path).convert("RGB")
+    sr, tr = src.width / src.height, W / H
+    if sr > tr:
+        src = src.resize((int(H * sr), H))
+    else:
+        src = src.resize((W, int(W / sr)))
+    x, y = (src.width - W) // 2, (src.height - H) // 2
+    return src.crop((x, y, x + W, y + H))
+
+_CLOSERS = "，。、！？；：）】》」』”’%…"      # dau cau dong: khong de dung dau dong
+
+def _is_cjk(ch):
+    """Chu Han hoac dau cau CJK (toan-rong) -> dung font Han; con lai (Latin/Viet) -> font Latin."""
+    o = ord(ch)
+    return has_hanzi(ch) or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF
+
+def _charfont(ch, size):
+    """Font cho 1 ky tu: CJK -> Kaiti; Latin/Viet -> Lexend (co dau tieng Viet, KHONG tofu)."""
+    return font("zh", size) if _is_cjk(ch) else font("viet", int(size * 0.86))
+
+def _hanzi_wrap_lines(d, text, size, max_w, char_gap=8):
+    """Chia thanh cac dong <= max_w (dung font dung cho tung ky tu); dau cau dong khong dung dau dong."""
+    cw = lambda ch: text_w(d, ch, _charfont(ch, size))
+    lines, cur, curw, gi = [], [], 0, 0
+    for ch, p, h in flatten(text):
+        w = cw(ch) + char_gap
+        if curw + w > max_w and cur and ch not in _CLOSERS:
+            lines.append(cur); cur, curw = [], 0
+        cur.append((ch, gi)); curw += w; gi += 1
+    if cur:
+        lines.append(cur)
+    return lines
+
+def _fit_hanzi_box(d, text, max_w, max_h, hi=132, lo=72, line_gap=22):
+    """Chon co chu Han LON NHAT sao cho ngat dong vua chieu cao max_h (chu to, 2-3 dong)."""
+    size = hi
+    while size > lo:
+        n = len(_hanzi_wrap_lines(d, text, size, max_w))
+        if n * (size + line_gap) <= max_h:
+            return size
+        size -= 4
+    return lo
+
+def _draw_hanzi_wrapped(d, text, cx, top, size, max_w,
+                        char_gap=8, line_gap=22, reveal_t=None, t_now=BIG, color=INK):
+    """Ve chu Han to (KHONG pinyin tren chu), tu xuong dong, canh giua. Tra ve chieu cao."""
+    lines = _hanzi_wrap_lines(d, text, size, max_w, char_gap)
+    cw = lambda ch: text_w(d, ch, _charfont(ch, size))
+    lh = size + line_gap
+    y = top
+    for ln in lines:
+        total = sum(cw(ch) + char_gap for ch, _ in ln) - char_gap
+        x = cx - total // 2
+        for ch, idx in ln:
+            if reveal_t is None or reveal_t[idx] <= t_now:
+                # canh chan day chu Han va chu Latin (Latin nho hon -> ha xuong chut)
+                f = _charfont(ch, size)
+                oy = 0 if _is_cjk(ch) else int(size * 0.12)
+                d.text((x, y + oy), ch, font=f, fill=color)
+            x += cw(ch) + char_gap
+        y += lh
+    return len(lines) * lh
+
+def _draw_pinyin_line(d, text, cx, y, max_w, size=46, gap=10, tone=False):
+    """Ve dong pinyin ca cau, canh giua. Dau cau (，。"") ve bang font Han de KHONG bi tofu.
+       tone=True: to mau tung am tiet theo thanh dieu. Tu thu nho neu dai qua max_w."""
+    toks = []
+    for ch, p, h in flatten(text):
+        if ch.strip() == "":
+            continue
+        if h and p:
+            toks.append((p, False))            # am tiet pinyin -> font Latin
+        else:
+            toks.append((ch, _is_cjk(ch)))     # dau cau CJK -> font Han; Latin/Viet -> font Latin
+    while size > 26:
+        pf = font("pinyin", size); zf = font("zh", int(size * 0.92))
+        ws = [(t, isc, text_w(d, t, zf if isc else pf)) for t, isc in toks]
+        total = sum(w for *_, w in ws) + gap * (max(0, len(ws) - 1))
+        if total <= max_w:
+            break
+        size -= 2
+    x = cx - total // 2
+    for t, isc, w in ws:
+        f = zf if isc else pf
+        col = PC_PINYIN if (isc or not tone) else TONE_COLORS[_tone_of(t)]
+        d.text((x, y), t, font=f, fill=col)
+        x += w + gap
+    return size + 12
+
+def _ornament_corners(d, box, size=34, inset=18, color=PC_CORNER, w=3):
+    """Ve 4 goc trang tri kieu khung co dien (L-bracket) cho panel."""
+    x0, y0, x1, y1 = box
+    x0 += inset; y0 += inset; x1 -= inset; y1 -= inset
+    for (cx, cy, sx, sy) in [(x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)]:
+        d.line([(cx, cy), (cx + sx * size, cy)], fill=color, width=w)
+        d.line([(cx, cy), (cx, cy + sy * size)], fill=color, width=w)
+
+def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
+    """Layout podcast (Chinese Daily): chi ve KHOI NOI DUNG CHINH (Han to + pinyin + Viet)
+       trong khung do + lop nen mo de chu ro. Nen (nguoi dan + tranh) lay tu ctx['bg_image']."""
+    bgimg = ctx.get("bg_image")
+    if bgimg and os.path.exists(bgimg):
+        im = _cover_bg(bgimg)                 # nen nguoi dung (nguoi dan + tranh)
+    else:
+        im = Image.new("RGB", (W, H), BG)     # chua upload -> dung nen pastel theo theme
+    im = im.convert("RGBA")
+    # lop nen mo (readability) — mep MO DAN (feather) de hoa vao tranh, khong co vet doc
+    alpha = int(ctx.get("panel_alpha", 150))
+    x0, y0, x1, y1 = PODCAST_BOX
+    if alpha > 0:
+        mask = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=26, fill=alpha)
+        mask = mask.filter(ImageFilter.GaussianBlur(16))     # mo mep -> khong vet cung
+        white = Image.new("RGBA", (W, H), (255, 253, 248, 255))
+        im = Image.composite(white, im, mask)
+    # vien co dien + goc trang tri (net sac)
+    if ctx.get("podcast_frame", True):
+        ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        od = ImageDraw.Draw(ov)
+        od.rounded_rectangle([x0, y0, x1, y1], radius=26, outline=PC_BORDER + (210,), width=3)
+        od.rounded_rectangle([x0 + 10, y0 + 10, x1 - 10, y1 - 10],
+                             radius=20, outline=PC_BORDER + (110,), width=2)
+        im = Image.alpha_composite(im, ov)
+    im = im.convert("RGB")
+    d = ImageDraw.Draw(im)
+    if ctx.get("podcast_frame", True):
+        _ornament_corners(d, PODCAST_BOX, color=PC_CORNER)
+
+    text = seg.get("hanzi", "")
+    viet = seg.get("viet", "")
+    x0, y0, x1, y1 = PODCAST_BOX
+    cx = W // 2
+    box_w = x1 - x0
+    max_w = int(box_w * 0.90)
+
+    # --- chip ten nguoi noi (hoi thoai nhieu giong) ---
+    sp = seg.get("_sp")
+    spcol = (ctx.get("_speaker_colors") or {}).get(sp) if sp else None
+    chip_h = 58 if spcol else 0
+
+    gap1, gap2 = 40, 30
+    # --- uoc luong chieu cao pinyin + viet de chua khong gian cho chu Han ---
+    pf = font("pinyin", 46)
+    pin_h = 46 + 12
+    vf = font("viet", 56)
+    vwraps = wrap_text(d, viet, vf, int(box_w * 0.88)) if viet else []
+    vie_h = len(vwraps) * (56 + 12)
+    reserved = chip_h + (gap1 + pin_h) + (gap2 + vie_h if vie_h else 0) + 40
+    # --- chu Han TO, ngat dong vua khung con lai ---
+    zsize = _fit_hanzi_box(d, text, max_w, (y1 - y0) - reserved, hi=132, lo=78)
+    han_h = len(_hanzi_wrap_lines(d, text, zsize, max_w)) * (zsize + 22)
+
+    total = chip_h + han_h + (gap1 + pin_h) + (gap2 + vie_h if vie_h else 0)
+    y = y0 + ((y1 - y0) - total) // 2
+
+    # --- ve ---
+    if spcol:
+        label = str(sp)
+        has_cjk = any(has_hanzi(c) for c in label)
+        cf = font("zh", 32) if has_cjk else font("badge", 32)   # ten Han -> font Han (khong tofu)
+        lw = text_w(d, label, cf)
+        cw2 = lw + 56
+        d.rounded_rectangle([cx - cw2 // 2, y, cx + cw2 // 2, y + 46], radius=23, fill=spcol)
+        d.text((cx - lw // 2, y + (2 if has_cjk else 6)), label, font=cf, fill=(255, 255, 255))
+        y += chip_h
+    tone = bool(ctx.get("tone_colors", True))
+    y += _draw_hanzi_wrapped(d, text, cx, y, zsize, max_w, reveal_t=reveal_t, t_now=t_now)
+    y += gap1
+    y += _draw_pinyin_line(d, text, cx, y, int(box_w * 0.94), tone=tone)
+    if vie_h:
+        # gach trang tri mảnh + cham ngoc giua Han/pinyin va nghia Viet
+        dy = y + gap2 // 2
+        d.line([(cx - 70, dy), (cx - 14, dy)], fill=PC_BORDER, width=2)
+        d.line([(cx + 14, dy), (cx + 70, dy)], fill=PC_BORDER, width=2)
+        d.ellipse([cx - 4, dy - 4, cx + 4, dy + 4], fill=PC_BORDER)
+        y += gap2 + 8
+        for ln in vwraps:
+            tw = text_w(d, ln, vf)
+            d.text((cx - tw // 2, y), ln, font=vf, fill=PC_VIET); y += 56 + 12
+
+    im.save(path)
+    return im
+
 # ---------- DISPATCH ----------
 def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
                  show_viet=True, n_visible=BIG):
@@ -382,6 +588,10 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
        n_visible: so dong hoi thoai da hien (dialogue)."""
     apply_theme(ctx.get("theme", "pink"))
     t = seg["type"]
+    # Layout podcast: chi ve khoi noi dung chinh (Han+pinyin+Viet) tren nen nguoi dung
+    if ctx.get("podcast_layout") and t in ("sentence", "vocab", "practice_a"):
+        render_podcast_main(seg, ctx, path, reveal_t=reveal_t, t_now=t_now)
+        return
 
     if t == "title":
         # header: uu tien @header nguoi dung; neu khong moi dung mac dinh "CHINESE · HSK"
@@ -458,11 +668,13 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
         total = turn_h * len(rows)
         y = (H - total)//2 + 8        # vua khung, khong dung header
         vf = font("viet", vi_s)
-        lf = font("sansb", 46)
         for ri, r in enumerate(rows):
             if ri >= n_visible:        # dong chua toi luot -> chua hien
                 y += turn_h; continue
-            d.text((175, y + py_s), r["sp"] + ".", font=lf, fill=BADGE)
+            sp_lbl = str(r.get("sp", ""))
+            # nhan ten: ten Han -> font Han (khong tofu); A/B/Host -> font Latin
+            lf = font("zh", 42) if any(has_hanzi(c) for c in sp_lbl) else font("sansb", 46)
+            d.text((175, y + py_s), sp_lbl + " :", font=lf, fill=BADGE)
             py_hanzi(d, r["hanzi"], W//2 + 40, y, zh_size=zh_s, py_size=py_s,
                      char_gap=8, py_gap=gap_py)
             sub = r["viet"]

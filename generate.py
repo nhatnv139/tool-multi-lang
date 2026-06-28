@@ -186,7 +186,7 @@ def _old_render_slide_RED(seg, ctx, path):   # GIU LAI THAM KHAO, khong dung nua
 def tts_for(seg, ctx):
     """Tra ve (text, voice). None neu khong can doc.
        Giong tieng Trung lay tu ctx['voice_zh'], tieng Viet ctx['voice_vi']."""
-    vz = ctx.get("voice_zh", VOICE_ZH)
+    vz = seg.get("_voice") or ctx.get("voice_zh", VOICE_ZH)   # _voice: giong rieng tung luot (podcast)
     vv = ctx.get("voice_vi", VOICE_VI)
     t = seg["type"]
     if t == "title":
@@ -288,6 +288,7 @@ def synth_azure(text, voice, path, key, region, rate="-8%"):
         f.write(data)
 
 ELEVEN_MODEL = "eleven_multilingual_v2"   # da ngon ngu: 1 giong doc ca Trung + Viet
+_eleven_model_override = None             # build() dat theo lua chon nguoi dung
 
 def _rate_to_eleven_speed(rate):
     """edge rate (vd -8%) -> ElevenLabs speed (0.7..1.2; 1.0 = binh thuong)."""
@@ -297,9 +298,11 @@ def _rate_to_eleven_speed(rate):
         pct = -8
     return max(0.7, min(1.2, round(1.0 + pct / 100.0, 2)))
 
-def synth_eleven(text, voice_id, path, key, rate="-8%", model=ELEVEN_MODEL):
+def synth_eleven(text, voice_id, path, key, rate="-8%", model=None):
     """ElevenLabs TTS (tra phi, chat luong cao). Ghi mp3 ra path.
-       voice_id lay tu ElevenLabs (Voice Lab / Voices). 1 giong da ngu noi ca Trung+Viet."""
+       voice_id lay tu ElevenLabs (Voice Lab / Voices). 1 giong da ngu noi ca Trung+Viet.
+       model: None -> dung lua chon nguoi dung (_eleven_model_override) hoac mac dinh."""
+    model = model or _eleven_model_override or ELEVEN_MODEL
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     payload = {
         "text": text,
@@ -661,7 +664,7 @@ def make_static_segment(seg, ctx, i):
         adur = dur_of(ap)
     else:
         ap, adur = None, 1.6
-    pad = ctx.get("pad", PAD)
+    pad = seg.get("_pad", ctx.get("pad", PAD))
     seg_total = adur + pad
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     vf = (f"scale={W}:{H},format=yuv420p,"
@@ -692,10 +695,12 @@ def _encode_states(states, ap, total, vp, pad=PAD):
             f.write(f"file '{png.replace(os.sep,'/')}'\n")
             f.write(f"duration {dur:.3f}\n")
         f.write(f"file '{states[-1][0].replace(os.sep,'/')}'\n")   # lap file cuoi
+    # fps={FPS} ÉP ảnh thành khung CFR ĐỦ thời lượng (sửa lỗi ffmpeg chỉ sinh 1 frame khi
+    # 1 ảnh duration >= -t -> truoc day slide chi hien 1/25s roi chay truoc tieng).
     subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-i",ap,
-                    "-t",f"{total:.2f}","-vf",f"scale={W}:{H},format=yuv420p",
+                    "-t",f"{total:.2f}","-vf",f"scale={W}:{H},format=yuv420p,fps={FPS}",
                     "-af",f"aresample=44100,apad=pad_dur={pad}",
-                    "-map","0:v","-map","1:a",
+                    "-map","0:v","-map","1:a","-fps_mode","cfr",
                     "-c:v","libx264","-r",str(FPS),"-pix_fmt","yuv420p",
                     "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp],
                    check=True, capture_output=True)
@@ -749,13 +754,13 @@ def make_anim_segment(seg, ctx, i):
     """Slide chu hien dan tung chu / tung dong theo giong doc."""
     t = seg["type"]
     ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
-    pad = ctx.get("pad", PAD)
+    pad = seg.get("_pad", ctx.get("pad", PAD))     # _pad: nhip deu cho tung luot podcast
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     states = []
 
-    # Hoi thoai nhieu giong (MOI engine: edge/azure/eleven) khi co gan giong theo nguoi noi
-    has_dlg_cfg = bool(ctx.get("_dialogue_map"))
-    if t == "dialogue" and has_dlg_cfg:
+    # Hoi thoai: LUON doc tung luot rieng (synth_dialogue) -> moc hien chu CHINH XAC theo
+    # tung luot, dong bo voi giong doc (du 1 hay nhieu giong). Tranh dung word-boundary lech.
+    if t == "dialogue":
         rows = seg["rows"]; n = len(rows)
         vmap = dialogue_voice_map(rows, ctx)
         starts, adur = synth_dialogue(rows, ctx, ap, vmap)
@@ -775,23 +780,10 @@ def make_anim_segment(seg, ctx, i):
     adur = dur_of(ap)
     total = adur + pad
 
-    if t == "dialogue":
-        rows = seg["rows"]; n = len(rows)
-        starts = [s[0] for s in sents][:n]
-        if len(starts) < n:                      # thieu moc -> rai deu
-            end = sents[-1][1] if sents else adur
-            starts = [end * k / n for k in range(n)]
-        times = [0.0] + list(starts)             # state k hien k dong
-        for k in range(n + 1):
-            png = os.path.join(SLIDES, f"s{i:02d}_{k:02d}.png")
-            render_slide(seg, ctx, png, n_visible=k)
-            states.append((png, times[k] if k < len(times) else times[-1]))
-    else:
-        # Hien CA CAU chu Trung NGAY tu dau (khong chay tung chu theo giong doc),
-        # giong nhu dong tieng Viet -> chi can 1 state tinh cho ca doan.
-        png = os.path.join(SLIDES, f"s{i:02d}_00.png")
-        render_slide(seg, ctx, png, reveal_t=None, show_viet=True)
-        states.append((png, 0.0))
+    # Cau/tu vung: hien CA CAU ngay tu dau (1 state tinh) -> text luon khop voi giong doc.
+    png = os.path.join(SLIDES, f"s{i:02d}_00.png")
+    render_slide(seg, ctx, png, reveal_t=None, show_viet=True)
+    states.append((png, 0.0))
 
     _encode_states(states, ap, total, vp, pad=pad)
     return vp, total
@@ -801,6 +793,8 @@ def build(lesson, progress=None):
     """lesson: duong dan JSON hoac dict ctx.
        progress: callback(done, total, label) de bao tien do (cho app web)."""
     ctx = json.load(open(lesson, encoding="utf-8")) if isinstance(lesson, str) else lesson
+    global _eleven_model_override
+    _eleven_model_override = ctx.get("_eleven_model")     # model ElevenLabs nguoi dung chon
     segs = ctx["segments"]
     if ctx.get("podcast"):
         # podcast: bo intro/outro + cac doan noi tieng Viet, chi giu noi dung Trung
@@ -812,6 +806,35 @@ def build(lesson, progress=None):
     # bo slide ket thuc (再见 / cam on / like-subscribe) tru khi nguoi dung bat lai
     if not ctx.get("show_outro", False):
         segs = [s for s in segs if s["type"] != "outro"]
+    # layout podcast: bo mascot + tach hoi thoai thanh tung luot (moi luot = 1 slide khung,
+    # doc bang giong nguoi noi do). Tranh roi vao layout hoi thoai cu (header + nhan A.).
+    if ctx.get("podcast_layout"):
+        ctx["mascot"] = "none"
+        dmap = ctx.get("_dialogue_map") or {}
+        default_v = ctx.get("voice_zh", VOICE_ZH)
+        PALETTE = [(40, 96, 196), (192, 57, 110), (224, 142, 30), (46, 139, 76), (120, 80, 180)]
+        order = []
+        for s in segs:
+            if s.get("type") == "dialogue":
+                for r in s.get("rows", []):
+                    sp = r.get("sp", "")
+                    if sp and sp not in order:
+                        order.append(sp)
+        ctx["_speaker_colors"] = {sp: PALETTE[i % len(PALETTE)] for i, sp in enumerate(order)}
+        turn_gap = float(ctx.get("turn_gap", 0.3))   # khoang nghi NGAN & DEU giua cac luot
+        expanded = []
+        for s in segs:
+            if s.get("type") == "dialogue":
+                for r in s.get("rows", []):
+                    expanded.append({"type": "sentence", "hanzi": r.get("hanzi", ""),
+                                     "pinyin": "", "viet": r.get("viet", ""),
+                                     "_voice": dmap.get(r.get("sp", "")) or default_v,
+                                     "_sp": r.get("sp", ""), "_pad": turn_gap})
+            else:
+                # cau le trong podcast cung dung nhip deu (khong de khoang lang 0.8 lung tung)
+                s = dict(s); s["_pad"] = turn_gap
+                expanded.append(s)
+        segs = expanded
     n = len(segs)
     print(f'>> Bai {ctx.get("id","?")}: {ctx.get("title","")} — {n} doan')
 
@@ -865,8 +888,14 @@ def build(lesson, progress=None):
         for v in seg_videos:
             f.write(f"file '{v.replace(os.sep,'/')}'\n")
     narr = os.path.join(AUDIO, "_narr.mp4")
+    # RE-ENCODE khi noi (khong dung -c copy): ep khung hinh deu (CFR) + dong bo lai audio
+    # -> tranh lech tieng-hinh TICH LUY qua nhieu luot (chu chay truoc tieng o luot sau).
     subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",concat_txt,
-                    "-c","copy",narr], check=True, capture_output=True)
+                    "-vsync","cfr","-r",str(FPS),
+                    "-c:v","libx264","-pix_fmt","yuv420p",
+                    "-af","aresample=async=1:first_pts=0",
+                    "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",narr],
+                   check=True, capture_output=True)
     if progress:
         progress(n, n + 1, "Trộn nhạc & xuất video")
 

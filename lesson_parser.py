@@ -40,6 +40,98 @@ def _split_item(line):
         return a.strip(), b.strip()
     return line.strip(), ""
 
+# ---------- TU NHAN DIEN NGUOI NOI (auto speaker detection) ----------
+# nhan = tu Latin (A, Host) HOAC 1-6 chu Han (王雨, 记者) + dau ':' / '：'
+_SPK_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 ]{0,14}|[一-鿿]{1,6})\s*[:：]")
+_TIME_RE = re.compile(r"^\s*\d{1,2}[:：]\d{2}")
+_NON_SPEAKER = {"时间", "时长", "时候", "正文", "介绍", "目录", "日期", "地点",
+                "time", "date", "url", "link", "note", "ghi chú"}
+
+def parse_speaker(line):
+    """(speaker, rest) neu dong co nhan nguoi noi hop le; nguoc lai (None, line).
+       Bo qua timestamp (00:12), nhan toan so, tu khoa metadata (时间...)."""
+    head = line.split("|", 1)[0]
+    if _TIME_RE.match(head):
+        return None, line
+    m = _SPK_RE.match(head)
+    if not m:
+        return None, line
+    sp = m.group(1).strip()
+    if not sp or sp.isdigit() or sp.lower() in _NON_SPEAKER or sp in _NON_SPEAKER:
+        return None, line
+    return sp, line[m.end():].strip()
+
+_TERMINAL = "。！？.!?…"
+def _is_cjk_char(ch):
+    o = ord(ch)
+    return ("一" <= ch <= "鿿") or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF
+
+def _ends_terminal(s):
+    """Dong da 'dong' chua? (ket thuc bang dau cau, bo qua ngoac/nhay cuoi)."""
+    s = s.rstrip().rstrip("\"'”’」』）) ")
+    return bool(s) and s[-1] in _TERMINAL
+
+def _smart_join(a, b):
+    """Noi 2 manh: Han giap Han -> khong space; con lai -> 1 dau cach."""
+    a, b = a.rstrip(), b.lstrip()
+    if a and b and _is_cjk_char(a[-1]) and _is_cjk_char(b[0]):
+        return a + b
+    return a + " " + b
+
+def detect_speakers(text):
+    """Tra ve danh sach nguoi noi theo thu tu xuat hien ([] neu doc thoai/khong ro).
+       Chi coi la hoi thoai khi co >=2 nguoi noi khac nhau."""
+    order = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line[0] in "@#":
+            continue
+        sp, _ = parse_speaker(line)
+        if sp and sp not in order:
+            order.append(sp)
+    return order if len(order) >= 2 else []
+
+# doan gioi tinh tu ten -> chon giong nam/nu
+_FEM_HAN = set("雨丽娜婷芳燕玲莉娟静秀红梅兰珍春花雪琴霞凤蕾欣怡颖琳")
+_MALE_HAN = set("明强伟军磊勇刚峰涛斌波辉杰俊浩宇航昊鹏龙飞建国华")
+_FEM_EN = {"sarah", "emma", "anna", "mary", "lisa", "aria", "rachel", "linda", "lan", "hoa"}
+_NEUTRAL = {"记者", "主持人", "主播", "专家", "host", "guest", "mc", "khách", "người dẫn"}
+
+def guess_gender(name):
+    """'F' / 'M' / None (trung tinh)."""
+    if not name:
+        return None
+    low = name.lower()
+    if name in _NEUTRAL or low in _NEUTRAL:
+        return None
+    if name[-1] in _FEM_HAN:
+        return "F"
+    if name[-1] in _MALE_HAN:
+        return "M"
+    if low in _FEM_EN:
+        return "F"
+    return None
+
+# pool giong MS (edge/azure dung chung ten) — nam/nu
+VOICES_F = ["zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-XiaomengNeural"]
+VOICES_M = ["zh-CN-YunjianNeural", "zh-CN-YunxiNeural", "zh-CN-YunyangNeural"]
+
+def assign_speaker_voices(speakers):
+    """{speaker: voice} — doan gioi tinh; trung tinh/khong ro thi luan phien nam-nu;
+       moi nguoi 1 giong on dinh, xoay vong khi thieu."""
+    fi = mi = alt = 0
+    vmap = {}
+    for sp in speakers:
+        g = guess_gender(sp)
+        if g is None:
+            g = "F" if alt % 2 == 0 else "M"
+            alt += 1
+        if g == "F":
+            vmap[sp] = VOICES_F[fi % len(VOICES_F)]; fi += 1
+        else:
+            vmap[sp] = VOICES_M[mi % len(VOICES_M)]; mi += 1
+    return vmap
+
 def parse_lesson(text):
     """Tra ve ctx dict: title, hanzi_title, topic, hsk, segments[...]."""
     meta = {"title": "BÀI HỌC", "hanzi_title": "", "topic": "", "hsk": "HSK1",
@@ -72,7 +164,29 @@ def parse_lesson(text):
         if cur is None:                # dong le (khong co #) -> cau, KHONG divider
             cur = {"label": "", "type": "sentence", "items": [], "explicit": False}
             sections.append(cur)
+        # GOP DONG NOI TIEP: dong bi xuong dong giua luot/cau (khong co nhan nguoi noi)
+        # -> noi vao item truoc. Khong gop trong vocab (moi dong = 1 tu).
+        if cur["items"]:
+            sp, _ = parse_speaker(line)
+            if sp is None:
+                prev = cur["items"][-1]
+                prev_sp, _ = parse_speaker(prev)
+                # noi tiep neu: item truoc co nhan (hoi thoai) HOAC chua ket thuc bang dau cau
+                if cur["type"] != "vocab" and (prev_sp is not None or not _ends_terminal(prev)):
+                    cur["items"][-1] = _smart_join(prev, line)
+                    continue
         cur["items"].append(line)
+
+    # ---- tu nhan dien hoi thoai: section nao co >=2 nguoi noi -> doi sang dialogue ----
+    for sec in sections:
+        if sec["type"] != "dialogue":
+            sps = []
+            for it in sec["items"]:
+                sp, _ = parse_speaker(it)
+                if sp and sp not in sps:
+                    sps.append(sp)
+            if len(sps) >= 2:
+                sec["type"] = "dialogue"
 
     # ---- dung segments ----
     segs = [{"type": "title"}]
