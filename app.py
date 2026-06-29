@@ -506,6 +506,177 @@ def yt_upload():
         traceback.print_exc()
         return jsonify(error=str(e)), 500
 
+# ---------- Lan toa MXH (organic marketing) — Giai doan 1: Facebook ----------
+import social_upload, social_seo
+
+social_tasks = {}          # task_id -> {done, results:{platform:{state,url,msg,caption}}}
+_fb_page_cache = {}        # channel_id -> [{id,name,access_token}] (tam, sau khi liet ke Page)
+
+def _yt_name(cid):
+    for c in youtube_upload.list_channels():
+        if c["id"] == cid:
+            return c["title"]
+    return ""
+
+@app.route("/social/links/<channel_id>")
+def social_links(channel_id):
+    try:
+        return jsonify(social_upload.public_links(channel_id, yt_name=_yt_name(channel_id)))
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+@app.route("/social/toggle/<channel_id>/<platform>", methods=["POST"])
+def social_toggle(channel_id, platform):
+    d = request.get_json(force=True)
+    social_upload.set_enabled(channel_id, platform, bool(d.get("enabled")))
+    return jsonify(ok=True)
+
+@app.route("/social/mode/<channel_id>/<platform>", methods=["POST"])
+def social_mode(channel_id, platform):
+    d = request.get_json(force=True)
+    social_upload.set_mode(channel_id, platform, d.get("mode", "native"))
+    return jsonify(ok=True)
+
+@app.route("/social/content/<channel_id>/<platform>", methods=["POST"])
+def social_content(channel_id, platform):
+    """Dat 'kieu noi dung' (content profile) cho 1 nen tang."""
+    d = request.get_json(force=True)
+    social_upload.set_content(channel_id, platform,
+                              style=d.get("style"), custom_prompt=d.get("custom_prompt"))
+    return jsonify(ok=True)
+
+@app.route("/social/ai_caption/<job_id>/<channel_id>/<platform>", methods=["POST"])
+def social_ai_caption(job_id, channel_id, platform):
+    """Sinh 1 caption bang AI theo content_style cua nen tang (cho nut '✨ Sinh AI')."""
+    import social_ai
+    if not social_ai.is_configured():
+        return jsonify(error="Chưa cấu hình Anthropic API key. " +
+                       social_ai.setup_hint().replace("<code>", "").replace("</code>", "")), 400
+    d = request.get_json(force=True)
+    idx = social_upload.load_index(channel_id)
+    st = idx["platforms"].get(platform, {})
+    seo_data = jobs.get(job_id, {}).get("seo", {})
+    try:
+        text = social_seo.caption(
+            seo_data, platform, lang=idx.get("lang", "zh"), yt_url=d.get("yt_url", ""),
+            style=d.get("style") or st.get("content_style", "vocab_grammar"),
+            custom_prompt=d.get("custom_prompt", st.get("custom_prompt", "")),
+            channel_name=idx.get("yt_channel_name", ""))
+        return jsonify(caption=text)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+@app.route("/social/ai_status")
+def social_ai_status():
+    import social_ai
+    return jsonify(configured=social_ai.is_configured(), styles=social_ai.CONTENT_STYLES)
+
+@app.route("/social/disconnect/<channel_id>/<platform>", methods=["POST"])
+def social_disconnect(channel_id, platform):
+    social_upload.disconnect(channel_id, platform)
+    return jsonify(ok=True)
+
+@app.route("/social/fb/pages", methods=["POST"])
+def social_fb_pages():
+    """Buoc 1 ket noi FB: dan User token -> liet ke Page (khong tra token ra UI)."""
+    d = request.get_json(force=True)
+    cid = d.get("channel_id", "")
+    try:
+        pages = social_upload.fb_list_pages(d.get("token", ""))
+        _fb_page_cache[cid] = pages
+        return jsonify(pages=[{"id": p["id"], "name": p["name"]} for p in pages])
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+
+@app.route("/social/fb/save", methods=["POST"])
+def social_fb_save():
+    """Buoc 2 ket noi FB: chon Page -> luu page token."""
+    d = request.get_json(force=True)
+    cid, page_id = d.get("channel_id", ""), d.get("page_id", "")
+    pages = _fb_page_cache.get(cid, [])
+    page = next((p for p in pages if p["id"] == page_id), None)
+    if not page or not page.get("access_token"):
+        return jsonify(error="Phiên kết nối hết hạn, hãy dán lại token."), 400
+    info = social_upload.fb_save_page(cid, page_id, page["name"], page["access_token"])
+    _fb_page_cache.pop(cid, None)
+    return jsonify(ok=True, **info)
+
+@app.route("/social/fields/<job_id>")
+def social_fields(job_id):
+    """Trả về các TRƯỜNG soạn bài (hook/body/cta/hashtags/link) cho từng nền tảng."""
+    seo_data = jobs.get(job_id, {}).get("seo", {})
+    yt_url = request.args.get("yt_url", "")
+    lang = request.args.get("lang", "zh")
+    return jsonify(social_seo.all_fields(seo_data, lang=lang, yt_url=yt_url))
+
+@app.route("/social/post", methods=["POST"])
+def social_post():
+    """Dang nen song song len cac nen tang enabled+connected. Tra task_id ngay."""
+    d = request.get_json(force=True)
+    cid = d.get("channel_id", "")
+    job = jobs.get(d.get("job_id"))
+    if not job:
+        return jsonify(error="Không tìm thấy phiên video."), 400
+    yt_url = d.get("yt_url", "")
+    plats = d.get("platforms", {})           # {fb:{on,caption,mode}, ...}
+    # che do auto (dung cho dang nhieu kenh YT): tu lay nen tang da bat+ket noi cua kenh
+    # va tu sinh caption chuan SEO theo lang cua kenh.
+    if d.get("auto"):
+        idx = social_upload.load_index(cid)
+        seo_data = job.get("seo", {})
+        lang = idx.get("lang", "zh")
+        cname = idx.get("yt_channel_name", "")
+        plats = {}
+        for p, st in idx["platforms"].items():
+            if st.get("enabled") and st.get("connected"):
+                plats[p] = {"on": True, "mode": st.get("mode", "native"),
+                            "caption": social_seo.caption(
+                                seo_data, p, lang=lang, yt_url=yt_url,
+                                style=st.get("content_style", "video_promo"),
+                                custom_prompt=st.get("custom_prompt", ""),
+                                channel_name=cname)}
+    video_path = os.path.join(OUT, job["video"]) if job.get("video") else None
+    task_id = str(int(time.time() * 1000))
+    targets = [p for p, cfg in plats.items() if cfg.get("on")]
+    social_tasks[task_id] = {"done": False,
+                             "results": {p: {"state": "pending"} for p in targets}}
+    threading.Thread(target=_run_social, args=(task_id, cid, targets, plats,
+                                               yt_url, video_path), daemon=True).start()
+    return jsonify(task_id=task_id, targets=targets), 202
+
+def _run_social(task_id, cid, targets, plats, yt_url, video_path):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    res = social_tasks[task_id]["results"]
+
+    def _one(platform):
+        cfg = plats.get(platform, {})
+        res[platform] = {"state": "running"}
+        mode = cfg.get("mode", "native")
+        media = ({"kind": "native", "video_path": video_path}
+                 if mode == "native" and video_path else {"kind": "link", "url": yt_url})
+        out = social_upload.post_to(cid, platform, cfg.get("caption", ""), media)
+        if out.get("ok"):
+            res[platform] = {"state": "ok", "url": out.get("post_url", ""),
+                             "msg": "Đã đăng" + (" (video)" if out.get("kind") == "native" else " (link)")}
+        else:
+            res[platform] = {"state": "error", "msg": out.get("error", "lỗi"),
+                             "hint": out.get("hint", "")}
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = [ex.submit(_one, p) for p in targets]
+            for _ in as_completed(futs):
+                pass
+    finally:
+        social_tasks[task_id]["done"] = True
+
+@app.route("/social/status/<task_id>")
+def social_status(task_id):
+    t = social_tasks.get(task_id)
+    if not t:
+        return jsonify(error="task không tồn tại"), 404
+    return jsonify(t)
+
 @app.route("/srt/<job_id>/<kind>")
 def srt_download(job_id, kind):
     """Tai phu de .srt: kind = hanzi | pinyin | viet."""

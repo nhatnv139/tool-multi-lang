@@ -38,6 +38,29 @@
   .ok { color:#27ae60; } .err { color:#c0392b; }
   .warn { background:#fff7e6; border:1px solid #ffe0a3; border-radius:10px; padding:12px; font-size:13px; color:#8a6d3b; }
   .muted { color:var(--soft); font-size:13px; }
+  .plat-row { border:1px solid #f0dde2; border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+  .plat-head { display:flex; align-items:center; gap:10px; }
+  .plat-name { font-weight:600; flex:1; }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .dot.on { background:#27ae60; } .dot.off { background:#cbb; }
+  .switch { display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+  .cap-box { margin-top:10px; }
+  .cap-box textarea { min-height:90px; font-size:13px; }
+  .modes { margin-top:8px; font-size:13px; display:flex; gap:16px; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:20px; background:#eef1f4; color:#666; }
+  .st-line { padding:5px 0; font-size:14px; border-bottom:1px dashed #f0dde2; }
+  .st-run { color:#d68910; } .st-skip { color:var(--soft); }
+  .seo-form label { font-size:13px; font-weight:600; margin:10px 0 4px; }
+  .seo-form input[type=text], .seo-form textarea { font-size:13px; padding:8px 10px; }
+  .seo-form textarea { min-height:70px; }
+  .tagchips { margin:6px 0 0; }
+  .tagchip { cursor:pointer; background:#eef1f4; color:#555; border:none; padding:3px 9px;
+             border-radius:20px; font-size:12px; margin:0 4px 4px 0; }
+  .tagchip:hover { background:#fbe9ee; color:var(--pink); }
+  .prevhead { display:flex; justify-content:space-between; align-items:center; margin-top:10px; }
+  .ccount { font-size:12px; color:var(--soft); } .ccount.over { color:#c0392b; font-weight:600; }
+  .preview { white-space:pre-wrap; background:#fafafa; border:1px dashed #e3cdd4; border-radius:10px;
+             padding:10px 12px; font-size:13px; line-height:1.5; margin-top:4px; color:#333; }
 </style>
 </head>
 <body>
@@ -66,14 +89,23 @@
   <!-- KENH -->
   <div class="card">
     <div class="lblrow">
-      <label style="margin:0">📺 Kênh đăng</label>
+      <label style="margin:0">📺 Kênh đăng <span class="hint">(tick nhiều kênh để đăng cùng lúc)</span></label>
       <button class="btn-ghost" onclick="connectChannel()">+ Kết nối kênh mới</button>
     </div>
-    <select id="channel" class="mt"><option value="">— Đang tải danh sách kênh… —</option></select>
+    <div id="channelList" class="mt"><div class="muted">— Đang tải danh sách kênh… —</div></div>
     <div id="chanWarn" class="warn mt" style="display:none">
       Chưa kết nối kênh nào. Bấm <b>“+ Kết nối kênh mới”</b> để đăng nhập Google & cấp quyền đăng video (làm 1 lần cho mỗi kênh).
       <div class="muted mt" id="setupNote"></div>
     </div>
+  </div>
+
+  <!-- KENH MANG XA HOI (organic marketing) -->
+  <div class="card" id="socialCard">
+    <div class="lblrow">
+      <label style="margin:0">🌐 Kênh mạng xã hội <span class="hint" id="socialFor"></span></label>
+    </div>
+    <div class="muted" style="margin:2px 0 10px">Sau khi đăng YouTube, tự lan toả bài chuẩn SEO sang các kênh MXH gắn với kênh này.</div>
+    <div id="socialList"><div class="muted">— chọn kênh YouTube để xem —</div></div>
   </div>
 
   <!-- THONG TIN SEO -->
@@ -133,8 +165,9 @@
     <textarea id="pin" style="min-height:200px">{{ seo.pinned_comment }}</textarea>
   </div>
 
-  <button class="btn-go" id="uploadBtn" onclick="doUpload()">🚀 Đăng lên YouTube</button>
+  <button class="btn-go" id="uploadBtn" onclick="doUpload()">🚀 Đăng YouTube + lan toả MXH</button>
   <div id="status"></div>
+  <div id="socialStatus" class="mt"></div>
 </div>
 
 <script>
@@ -160,21 +193,59 @@ function copyVal(id){ const el=document.getElementById(id); navigator.clipboard.
   event.target.textContent='✓ Đã copy'; setTimeout(()=>event.target.textContent='Copy',1200); }
 
 async function loadChannels(){
+  const list = document.getElementById('channelList');
   try{
     const r = await fetch('/yt/channels'); const j = await r.json();
-    const sel = document.getElementById('channel');
     if(j.channels && j.channels.length){
-      sel.innerHTML = j.channels.map(c=>`<option value="${c.id}">${c.title}</option>`).join('');
+      const all = j.channels.length>1
+        ? `<label class="switch" style="display:flex;margin-bottom:6px;font-weight:600"><input type="checkbox" id="chanAll" onchange="toggleAllChans(this.checked)"> Chọn tất cả (${j.channels.length} kênh)</label>` : '';
+      list.innerHTML = all + j.channels.map((c,i)=>
+        `<label class="switch" style="display:flex;padding:4px 0">
+           <input type="checkbox" class="chanChk" value="${c.id}" data-name="${c.title}" ${i===0?'checked':''} onchange="onChanChange()"> ${c.title}
+         </label>`).join('');
       document.getElementById('chanWarn').style.display='none';
+      onChanChange();
     } else {
-      sel.innerHTML = '<option value="">(chưa có kênh)</option>';
+      list.innerHTML = '<div class="muted">(chưa có kênh)</div>';
       document.getElementById('chanWarn').style.display='block';
       if(j.setup) document.getElementById('setupNote').innerHTML = j.setup;
     }
   }catch(e){
-    document.getElementById('channel').innerHTML='<option value="">(chưa cấu hình)</option>';
+    list.innerHTML = '<div class="muted">(chưa cấu hình)</div>';
     document.getElementById('chanWarn').style.display='block';
   }
+}
+function getSelectedChannels(){
+  return [...document.querySelectorAll('.chanChk:checked')].map(c=>({id:c.value, name:c.dataset.name}));
+}
+function toggleAllChans(on){
+  document.querySelectorAll('.chanChk').forEach(c=>c.checked=on);
+  onChanChange();
+}
+function onChanChange(){
+  const sel = getSelectedChannels();
+  if(sel.length===1){
+    loadSocial(sel[0].id);                 // 1 kênh: card MXH chi tiết (sửa caption)
+  } else if(sel.length>1){
+    loadSocialMulti(sel);                  // nhiều kênh: tóm tắt, caption tự sinh
+  } else {
+    document.getElementById('socialList').innerHTML = '<div class="muted">— chọn kênh YouTube để xem —</div>';
+    document.getElementById('socialFor').textContent='';
+  }
+}
+async function loadSocialMulti(channels){
+  document.getElementById('socialFor').textContent = `— ${channels.length} kênh`;
+  const list = document.getElementById('socialList');
+  list.innerHTML = '<div class="muted">⏳ đang tải…</div>';
+  const rows = await Promise.all(channels.map(async ch=>{
+    try{
+      const j = await (await fetch('/social/links/'+ch.id)).json();
+      const on = Object.keys(j.platforms||{}).filter(p=>j.platforms[p].connected && j.platforms[p].enabled);
+      const txt = on.length ? on.map(p=>PLAT_META[p].icon+' '+PLAT_META[p].label).join(', ') : '— chưa bật/kết nối MXH —';
+      return `<div class="plat-row"><b>${ch.name}</b><div class="muted mt">Sẽ lan toả: ${txt}</div></div>`;
+    }catch(e){ return `<div class="plat-row"><b>${ch.name}</b><div class="err">lỗi tải</div></div>`; }
+  }));
+  list.innerHTML = `<div class="warn" style="margin-bottom:10px">Đăng cùng video lên <b>${channels.length} kênh YouTube</b>. Mỗi kênh tự lan toả sang các MXH đã bật & kết nối của nó, caption tự sinh chuẩn SEO. (Muốn sửa caption tay thì chỉ chọn 1 kênh.)</div>` + rows.join('');
 }
 function connectChannel(){ window.open('/yt/connect','_blank');
   setStatus('Sau khi đăng nhập xong, quay lại đây và bấm tải lại danh sách kênh.', '');
@@ -183,36 +254,263 @@ function connectChannel(){ window.open('/yt/connect','_blank');
 function setStatus(msg, cls){ const s=document.getElementById('status'); s.className=cls||''; s.textContent=msg; }
 
 async function doUpload(){
-  const ch = document.getElementById('channel').value;
-  if(!ch){ setStatus('⚠️ Hãy chọn (hoặc kết nối) kênh trước.', 'err'); return; }
-  const btn=document.getElementById('uploadBtn'); btn.disabled=true; btn.textContent='⏳ Đang tải lên YouTube…';
-  setStatus('Đang tải video lên YouTube, vui lòng đợi…','');
-  try{
-    const body = { job_id:JOB, channel:ch,
-      title:document.getElementById('title').value,
-      description:document.getElementById('desc').value,
-      tags:document.getElementById('tags').value,
-      privacy:document.getElementById('privacy').value,
-      category:document.getElementById('category').value,
-      captions:document.getElementById('capToggle').checked,
-      post_comment:document.getElementById('postComment').checked,
-      comment:document.getElementById('pin').value,
-      set_thumb:(document.getElementById('setThumb')||{checked:false}).checked };
-    const r = await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const j = await r.json();
-    if(j.url){
-      let cap = '';
-      if(j.caption_ok && j.caption_ok.length) cap += '<br>📑 Đã đăng phụ đề: ' + j.caption_ok.join(', ');
-      if(j.caption_err && j.caption_err.length) cap += '<br>⚠️ Phụ đề lỗi: ' + j.caption_err.join('; ');
-      if(j.thumb_ok) cap += '<br>🖼️ Đã đặt ảnh bìa';
-      if(j.thumb_err) cap += '<br>⚠️ Ảnh bìa lỗi (kênh chưa bật ảnh bìa tuỳ chỉnh?): ' + j.thumb_err;
-      if(j.comment_ok) cap += '<br>📌 Đã đăng comment từ vựng (nhớ vào video bấm Ghim nhé)';
-      if(j.comment_err) cap += '<br>⚠️ Comment lỗi: ' + j.comment_err;
-      document.getElementById('status').className='ok';
-      document.getElementById('status').innerHTML = '✅ Đăng thành công! <a href="'+j.url+'" target="_blank">Mở video trên YouTube ↗</a>' + cap;
-    } else { setStatus('❌ Lỗi: '+(j.error||'không rõ'), 'err'); btn.disabled=false; btn.textContent='🚀 Đăng lên YouTube'; }
-  }catch(e){ setStatus('❌ Lỗi mạng: '+e, 'err'); btn.disabled=false; btn.textContent='🚀 Đăng lên YouTube'; }
+  const chans = getSelectedChannels();
+  if(!chans.length){ setStatus('⚠️ Hãy tick (hoặc kết nối) ít nhất 1 kênh.', 'err'); return; }
+  const multi = chans.length>1;
+  const btn=document.getElementById('uploadBtn'); btn.disabled=true;
+  const meta = {
+    title:document.getElementById('title').value,
+    description:document.getElementById('desc').value,
+    tags:document.getElementById('tags').value,
+    privacy:document.getElementById('privacy').value,
+    category:document.getElementById('category').value,
+    captions:document.getElementById('capToggle').checked,
+    post_comment:document.getElementById('postComment').checked,
+    comment:document.getElementById('pin').value,
+    set_thumb:(document.getElementById('setThumb')||{checked:false}).checked };
+  const statusBox=document.getElementById('status'); statusBox.className='';
+  statusBox.innerHTML = chans.map(c=>`<div class="st-line" id="ch_${c.id}">⏳ <b>${c.name}</b>: chờ đăng…</div>`).join('');
+  document.getElementById('socialStatus').innerHTML='';
+
+  for(const c of chans){
+    btn.textContent = `⏳ Đăng "${c.name}"…`;
+    const line=document.getElementById('ch_'+c.id);
+    line.className='st-line st-run'; line.innerHTML=`⏳ <b>${c.name}</b>: đang tải lên YouTube…`;
+    try{
+      const body = Object.assign({job_id:JOB, channel:c.id}, meta);
+      const r = await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const j = await r.json();
+      if(j.url){
+        let cap='';
+        if(j.caption_ok&&j.caption_ok.length) cap+=' · CC: '+j.caption_ok.join(',');
+        if(j.thumb_ok) cap+=' · 🖼️';
+        if(j.comment_ok) cap+=' · 📌 comment';
+        if(j.thumb_err) cap+=' · ⚠️ảnh bìa lỗi';
+        line.className='st-line'; line.innerHTML=`✅ <b>${c.name}</b>: <a href="${j.url}" target="_blank">Mở video ↗</a><span class="muted">${cap}</span>`;
+        startSocialFor(c, j.url, multi);   // multi -> auto caption; single -> caption đã sửa tay
+      } else {
+        line.className='st-line err'; line.innerHTML=`❌ <b>${c.name}</b>: ${j.error||'lỗi'}`;
+      }
+    }catch(e){ line.className='st-line err'; line.innerHTML=`❌ <b>${c.name}</b>: lỗi mạng ${e}`; }
+  }
+  btn.textContent='✅ Hoàn tất';
 }
+// ---------- Mang xa hoi ----------
+const PLAT_META = {
+  facebook:{icon:'📘', label:'Facebook'}, x:{icon:'𝕏', label:'X (Twitter)'},
+  tiktok:{icon:'🎵', label:'TikTok'}, instagram:{icon:'📸', label:'Instagram'}
+};
+let SOCIAL = { cid:'', platforms:{} };
+let FIELDS = {};            // {platform: {hook,body,cta,hashtags,all_hashtags,link,allow_link,limit,tag_limit}}
+let LINK_URL = '';          // điền sau khi upload YouTube xong
+
+async function loadSocial(cid){
+  if(!cid) return;
+  SOCIAL.cid = cid;
+  const list = document.getElementById('socialList');
+  list.innerHTML = '<div class="muted">⏳ đang tải kênh MXH…</div>';
+  try{
+    const [lr, fr] = await Promise.all([
+      fetch('/social/links/'+cid).then(r=>r.json()),
+      fetch('/social/fields/'+JOB).then(r=>r.json())
+    ]);
+    SOCIAL.platforms = lr.platforms || {};
+    FIELDS = fr || {};
+    document.getElementById('socialFor').textContent = lr.yt_channel_name ? '— '+lr.yt_channel_name : '';
+    renderSocial();
+  }catch(e){ list.innerHTML = '<div class="err">Lỗi tải kênh MXH: '+e+'</div>'; }
+}
+
+function renderSocial(){
+  const list = document.getElementById('socialList');
+  const order = ['facebook','x','tiktok','instagram'];
+  list.innerHTML = order.map(p=>{
+    const st = SOCIAL.platforms[p] || {};
+    const m = PLAT_META[p];
+    const connected = st.connected;
+    const f = FIELDS[p] || {};
+    const dot = `<span class="dot ${connected?'on':'off'}"></span>`;
+    const who = connected ? (st.name||'(đã kết nối)') : 'Chưa kết nối';
+    const warnPill = st.warn ? `<span class="pill" title="${st.warn}">⚠ lưu ý</span>` : '';
+    const btn = connected
+      ? `<button class="btn-copy" onclick="disconnectPlat('${p}')">Ngắt</button>`
+      : (st.configured
+          ? `<button class="btn-ghost" onclick="connectPlat('${p}')">Kết nối</button>`
+          : `<span class="pill">sắp có</span>`);
+    const toggle = `<label class="switch"><input type="checkbox" ${st.enabled?'checked':''}
+        ${connected?'':'disabled'} onchange="togglePlat('${p}',this.checked)"> đăng</label>`;
+    let detail = '';
+    if(connected){
+      detail = seoForm(p, st, f);
+    }
+    return `<div class="plat-row" id="row_${p}">
+        <div class="plat-head">${m.icon} ${dot}<span class="plat-name">${m.label}</span>
+          <span class="muted">${who}</span> ${warnPill} ${connected?toggle:''} ${btn}</div>
+        <div id="extra_${p}"></div>
+        ${detail}
+      </div>`;
+  }).join('');
+  // cập nhật preview lần đầu cho các nền tảng đã kết nối
+  Object.keys(SOCIAL.platforms).forEach(p=>{ if(SOCIAL.platforms[p].connected) preview(p); });
+}
+
+// ----- Form nội dung chuẩn SEO cho 1 nền tảng -----
+function seoForm(p, st, f){
+  const esc = s => (s||'').replace(/</g,'&lt;');
+  const tagsStr = (f.hashtags||[]).map(t=>t.startsWith('#')?t:'#'+t).join(' ');
+  const chips = (f.all_hashtags||[]).map(t=>
+    `<button type="button" class="tagchip" onclick="addTag('${p}','${t.replace(/'/g,"")}')">${t}</button>`).join('');
+  const linkRow = f.allow_link
+    ? `<label class="switch" style="margin-top:10px"><input type="checkbox" id="f_link_${p}" checked onchange="preview('${p}')"> 🔗 Đính kèm link YouTube vào bài</label>`
+    : `<div class="muted" style="margin-top:8px">⚠ ${PLAT_META[p].label} không cho link click — nhớ ghi “link ở bio”.</div>`;
+  const modeRow = (p==='facebook') ? `<div class="modes">
+      <label class="switch"><input type="radio" name="mode_${p}" value="native" ${st.mode!=='link'?'checked':''} onchange="modePlat('${p}','native')"> Đăng kèm video (native)</label>
+      <label class="switch"><input type="radio" name="mode_${p}" value="link" ${st.mode==='link'?'checked':''} onchange="modePlat('${p}','link')"> Chỉ đăng link YouTube</label>
+    </div>` : '';
+  return `<div class="cap-box seo-form">
+      <label>📌 Tiêu đề / Hook</label>
+      <input type="text" id="f_hook_${p}" value="${esc(f.hook)}" oninput="preview('${p}')">
+      <label>📄 Nội dung</label>
+      <textarea id="f_body_${p}" oninput="preview('${p}')">${esc(f.body)}</textarea>
+      <label>📣 Kêu gọi hành động (CTA)</label>
+      <input type="text" id="f_cta_${p}" value="${esc(f.cta)}" oninput="preview('${p}')">
+      <label>🏷️ Hashtag <span class="hint">(cách nhau bởi dấu cách — gợi ý ≤ ${f.tag_limit})</span></label>
+      <input type="text" id="f_tags_${p}" value="${esc(tagsStr)}" oninput="preview('${p}')">
+      <div class="tagchips">${chips}</div>
+      ${linkRow}
+      ${modeRow}
+      <div class="prevhead"><span class="hint">👁️ Xem trước bài đăng</span>
+        <span class="ccount" id="cc_${p}"></span></div>
+      <div class="preview" id="prev_${p}"></div>
+    </div>`;
+}
+
+function buildPost(p, url){
+  const g = id => { const e=document.getElementById(id); return e ? e.value : ''; };
+  const parts = [];
+  const hook=g('f_hook_'+p).trim(), body=g('f_body_'+p).trim(), cta=g('f_cta_'+p).trim();
+  if(hook) parts.push(hook);
+  if(body) parts.push(body);
+  if(cta)  parts.push(cta);
+  const linkChk=document.getElementById('f_link_'+p);
+  if(linkChk && linkChk.checked) parts.push('▶️ Xem full: '+(url||'youtu.be/…'));
+  const tagsRaw=g('f_tags_'+p).trim();
+  if(tagsRaw){
+    const tags=tagsRaw.split(/\s+/).filter(Boolean).map(t=>t.startsWith('#')?t:'#'+t).join(' ');
+    parts.push(tags);
+  }
+  return parts.join('\n\n');
+}
+
+function preview(p){
+  const text=buildPost(p,'');
+  const box=document.getElementById('prev_'+p); if(box) box.textContent=text;
+  const cc=document.getElementById('cc_'+p);
+  const limit=(FIELDS[p]||{}).limit||2000;
+  if(cc){ cc.textContent=`${text.length} / ${limit} ký tự`; cc.className='ccount'+(text.length>limit?' over':''); }
+}
+
+function addTag(p, tag){
+  const inp=document.getElementById('f_tags_'+p); if(!inp) return;
+  const t = tag.startsWith('#')?tag:'#'+tag;
+  const cur=inp.value.split(/\s+/).filter(Boolean);
+  if(!cur.includes(t)){ cur.push(t); inp.value=cur.join(' '); preview(p); }
+}
+
+async function connectPlat(p){
+  if(p!=='facebook'){ alert('Nền tảng này sẽ có ở giai đoạn sau.'); return; }
+  const token = prompt('Dán Facebook User Access Token (từ Graph API Explorer, có quyền pages_show_list + pages_manage_posts):');
+  if(!token) return;
+  const extra = document.getElementById('extra_'+p);
+  extra.innerHTML = '<div class="muted">⏳ đang lấy danh sách Page…</div>';
+  try{
+    const r = await fetch('/social/fb/pages',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({channel_id:SOCIAL.cid, token})});
+    const j = await r.json();
+    if(j.error){ extra.innerHTML = '<div class="err">❌ '+j.error+'</div>'; return; }
+    if(j.pages.length===1){ await saveFbPage(j.pages[0].id); return; }
+    extra.innerHTML = `<div class="mt"><select id="fbPageSel">`+
+      j.pages.map(pg=>`<option value="${pg.id}">${pg.name}</option>`).join('')+
+      `</select> <button class="btn-ghost" onclick="saveFbPage(document.getElementById('fbPageSel').value)">Chọn Page này</button></div>`;
+  }catch(e){ extra.innerHTML = '<div class="err">❌ '+e+'</div>'; }
+}
+
+async function saveFbPage(pageId){
+  const r = await fetch('/social/fb/save',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({channel_id:SOCIAL.cid, page_id:pageId})});
+  const j = await r.json();
+  if(j.error){ document.getElementById('extra_facebook').innerHTML='<div class="err">❌ '+j.error+'</div>'; return; }
+  loadSocial(SOCIAL.cid);
+}
+
+async function disconnectPlat(p){
+  if(!confirm('Ngắt kết nối '+PLAT_META[p].label+'?')) return;
+  await fetch('/social/disconnect/'+SOCIAL.cid+'/'+p,{method:'POST'});
+  loadSocial(SOCIAL.cid);
+}
+async function togglePlat(p,on){
+  await fetch('/social/toggle/'+SOCIAL.cid+'/'+p,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({enabled:on})});
+  if(SOCIAL.platforms[p]) SOCIAL.platforms[p].enabled = on;
+}
+async function modePlat(p,mode){
+  await fetch('/social/mode/'+SOCIAL.cid+'/'+p,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mode})});
+  if(SOCIAL.platforms[p]) SOCIAL.platforms[p].mode = mode;
+}
+
+function collectSocialTargets(yt_url){
+  const platforms = {};
+  let any = false;
+  for(const p of Object.keys(SOCIAL.platforms)){
+    const st = SOCIAL.platforms[p];
+    if(!(st.connected && st.enabled)) continue;
+    const caption = buildPost(p, yt_url);   // ráp từ form chuẩn SEO, chèn link thật
+    platforms[p] = { on:true, caption, mode: st.mode || 'native' };
+    any = true;
+  }
+  return any ? platforms : null;
+}
+
+async function startSocialFor(channel, yt_url, auto){
+  const box = document.getElementById('socialStatus');
+  let sub = document.getElementById('soc_'+channel.id);
+  if(!sub){ sub=document.createElement('div'); sub.id='soc_'+channel.id; sub.className='plat-row'; box.appendChild(sub); }
+  let bodyExtra;
+  if(auto){ bodyExtra={auto:true}; }
+  else {
+    const platforms = collectSocialTargets(yt_url);
+    if(!platforms){ sub.innerHTML=`<b>${channel.name}</b> <span class="muted">— không bật MXH nào</span>`; return; }
+    bodyExtra={platforms};
+  }
+  sub.innerHTML = `<b>${channel.name}</b> <span class="muted">— đang lan toả MXH…</span>`;
+  try{
+    const r = await fetch('/social/post',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({job_id:JOB, channel_id:channel.id, yt_url}, bodyExtra))});
+    const j = await r.json();
+    if(j.task_id) pollSocialInto(j.task_id, sub, channel.name);
+    else sub.innerHTML = `<b>${channel.name}</b>: <span class="err">${j.error||'lỗi'}</span>`;
+  }catch(e){ sub.innerHTML = `<b>${channel.name}</b>: <span class="err">${e}</span>`; }
+}
+
+async function pollSocialInto(taskId, el, name){
+  const ICON = {pending:'•',running:'⏳',ok:'✅',error:'❌',skipped:'⛔'};
+  try{
+    const j = await (await fetch('/social/status/'+taskId)).json();
+    const res = j.results||{}; const keys = Object.keys(res);
+    const inner = keys.length ? keys.map(p=>{
+      const r = res[p], m = PLAT_META[p];
+      let txt = r.msg||r.state;
+      if(r.state==='ok' && r.url) txt = `<a href="${r.url}" target="_blank">${r.msg||'đã đăng'} ↗</a>`;
+      if(r.state==='error' && r.hint) txt += ' — '+r.hint;
+      const cls = r.state==='running'?'st-run':(r.state==='ok'?'ok':(r.state==='error'?'err':'st-skip'));
+      return `<div class="st-line">${ICON[r.state]||'•'} ${m.label}: <span class="${cls}">${txt}</span></div>`;
+    }).join('') : '<div class="muted">— không bật MXH nào —</div>';
+    el.innerHTML = `<b>${name}</b>${inner}`;
+    if(!j.done) setTimeout(()=>pollSocialInto(taskId, el, name), 2000);
+  }catch(e){ el.innerHTML = `<b>${name}</b><div class="err">${e}</div>`; }
+}
+
 loadChannels();
 </script>
 </body>

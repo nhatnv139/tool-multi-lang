@@ -6,6 +6,8 @@ uploads/
 # Cache Python
 __pycache__/
 *.pyc
+.venv/
+venv/
 
 # Tai lieu tham khao nang (bo dong duoi neu muon giu lai)
 ref/
@@ -17,6 +19,10 @@ yt_tokens/
 # Bi mat API key giong doc — TUYET DOI khong commit
 eleven_config.json
 azure_config.json
+
+# Bi mat mang xa hoi (token Page FB, app secret...) — TUYET DOI khong commit
+social_secrets/
+social_tokens/
 
 # Clip intro/outro nguoi dung tai len (nang, re-upload duoc) — giu logo/banner png
 brand/*.mp4

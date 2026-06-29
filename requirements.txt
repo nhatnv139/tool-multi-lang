@@ -10,3 +10,6 @@ requests
 google-api-python-client
 google-auth-oauthlib
 google-auth
+
+# Sinh nội dung MXH bằng AI (Claude)
+anthropic
