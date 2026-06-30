@@ -100,6 +100,9 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <optgroup label="⚡ Tự nhiên nhất (Azure - cần key free)">
             {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
+          <optgroup label="✨ Google Gemini (AI Studio - rất tự nhiên, key free)">
+            {% for v,lbl in gemini_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
           <optgroup label="💎 Cao cấp nhất (ElevenLabs - trả phí, cần key)">
             {% for v,lbl in eleven_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
@@ -226,6 +229,12 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <div><input type="text" id="azure_region" placeholder="Region (vd: southeastasia)" value="{{azure_region}}"></div>
         </div>
         <p class="hint" style="margin:8px 0 0">Lấy key free: portal.azure.com → tạo "Speech service" (free F0) → Keys and Endpoint.</p>
+      </div>
+      <div class="mt" style="background:#f3fbf5;border:1px solid #cdeede;border-radius:10px;padding:14px">
+        <label>✨ Giọng Google Gemini — nhập 1 lần, tự lưu
+          <span class="hint">(chọn giọng nhóm "Gemini" ở trên mới cần)</span></label>
+        <div><input type="password" id="gemini_key" placeholder="Gemini API key (AI Studio)" value="{{gemini_key}}"></div>
+        <p class="hint" style="margin:8px 0 0">Lấy key free: <b>aistudio.google.com</b> → <b>Get API key</b>. 1 giọng đọc được cả tiếng Trung + Việt; tốc độ chỉnh bằng thanh "Tốc độ đọc" ở trên.</p>
       </div>
       <div class="mt" style="background:#faf5ff;border:1px solid #e6d6fb;border-radius:10px;padding:14px">
         <label>💎 Giọng cao cấp (ElevenLabs) — nhập 1 lần, tự lưu
@@ -433,11 +442,12 @@ function fillVoiceSelect(el, sel){
     : '<option value="">— Tải giọng để chọn, hoặc gõ Voice ID bên dưới —</option>';
 }
 
-// danh sách giọng MS free (edge) — dùng cho hội thoại khi engine không phải ElevenLabs
-let MS_VOICES = [];
+// danh sách giọng MS free (edge) + Gemini — dùng cho hội thoại theo engine giọng chính
+let MS_VOICES = [], GM_VOICES = [];
 (function(){
   document.querySelectorAll('#voice option').forEach(o=>{
     if(o.value.startsWith('edge:')) MS_VOICES.push({id:o.value.slice(5), name:o.textContent.trim()});
+    if(o.value.startsWith('gemini:')) GM_VOICES.push({id:o.value.slice(7), name:o.textContent.trim()});
   });
 })();
 // engine đang dùng: nếu đã nhập key ElevenLabs + (chọn giọng chính HOẶC đã tải giọng)
@@ -450,7 +460,7 @@ function voiceEngine(){
 }
 function dialogueOptions(sel){
   const engine = voiceEngine();
-  const list = (engine==='eleven') ? EL_VOICES : MS_VOICES;
+  const list = (engine==='eleven') ? EL_VOICES : (engine==='gemini') ? GM_VOICES : MS_VOICES;
   let o = '<option value="">— Giọng mặc định (giọng chính) —</option>';
   for(const v of list) o += `<option value="${v.id}"${v.id===sel?' selected':''}>${v.name}</option>`;
   if(engine==='eleven' && !EL_VOICES.length)
@@ -560,6 +570,7 @@ async function generate(){
     eleven_key:   document.getElementById('eleven_key').value,
     eleven_model: document.getElementById('eleven_model').value,
     eleven_voice: document.getElementById('eleven_voice').value,
+    gemini_key:   document.getElementById('gemini_key').value,
     dialogue_map: collectDialogueVoices(),
     character: document.getElementById('character').checked,
     bg_image:  uploaded.bg,

@@ -212,7 +212,7 @@ def tts_for(seg, ctx):
                 f'Nhớ đăng ký kênh để học tiếp bài {num.get(n+1,n+1)}. Tạm biệt!', vv)
     return (None, None)
 
-import hashlib, urllib.request, urllib.parse, urllib.error
+import hashlib, urllib.request, urllib.parse, urllib.error, base64
 TTS_CACHE = os.path.join(TMP, "tts_cache")
 os.makedirs(TTS_CACHE, exist_ok=True)
 
@@ -338,6 +338,55 @@ def synth_eleven(text, voice_id, path, key, rate="-8%", model=None):
     with open(path, "wb") as f:
         f.write(data)
 
+# ---- Google Gemini TTS (AI Studio "Generate speech") ----
+GEMINI_MODEL = "gemini-3.1-flash-tts-preview"   # giong AI Studio, da ngu (Trung + Viet)
+
+def _rate_to_atempo(rate):
+    """edge rate (vd -8%) -> ffmpeg atempo (0.5..2.0; giu cao do). -8% -> 0.92."""
+    try:
+        pct = int(str(rate).replace("%", ""))
+    except ValueError:
+        pct = -8
+    return max(0.5, min(2.0, round(1.0 + pct / 100.0, 2)))
+
+def synth_gemini(text, voice, path, key, rate="-8%", model=GEMINI_MODEL):
+    """Gemini TTS (Google AI Studio). Tra ve PCM 16-bit/24kHz/mono base64 -> mp3.
+       voice = ten giong prebuilt (Kore, Puck, Zephyr...). 1 giong doc ca Trung + Viet."""
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent")
+    payload = {
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}
+            },
+        },
+    }
+    headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+                                 headers=headers, method="POST")
+    try:
+        raw = urllib.request.urlopen(req, timeout=120).read()
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        raise RuntimeError(f"Gemini TTS loi {e.code}: {detail or e.reason}")
+    resp = json.loads(raw)
+    try:
+        b64 = resp["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
+    except (KeyError, IndexError):
+        raise RuntimeError(f"Gemini TTS khong tra ve audio: {str(resp)[:300]}")
+    pcm = base64.b64decode(b64)
+    # PCM raw (s16le, 24kHz, mono) -> mp3 qua ffmpeg, chinh toc do bang atempo
+    cmd = ["ffmpeg", "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", "pipe:0",
+           "-filter:a", f"atempo={_rate_to_atempo(rate)}",
+           "-c:a", "libmp3lame", "-q:a", "2", path]
+    subprocess.run(cmd, input=pcm, check=True, capture_output=True)
+
 def _rate_to_speed(rate):
     """edge rate (vd -10%) -> ChatTTS speed token 0-9 (cang nho cang cham)."""
     try:
@@ -363,11 +412,13 @@ def _edge_voice(voice):
     """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh."""
     return voice if (voice and "-" in voice and "Neural" in voice) else VOICE_ZH
 
-def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None):
+def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
+          gemini=None):
     """Giong doc co cache. chattts -> ChatTTS local; eleven=key -> ElevenLabs;
-       azure=(key,region) -> Azure; con lai -> edge-tts. ChatTTS loi -> fallback edge."""
+       gemini=key -> Gemini TTS; azure=(key,region) -> Azure; con lai -> edge-tts.
+       ChatTTS loi -> fallback edge."""
     eng = ("ct-" + str(chattts)) if chattts else \
-          ("el" if eleven else ("az" if azure else "ed"))
+          ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
     c = os.path.join(TTS_CACHE, _tts_key(eng + text, voice, rate) + ".mp3")
     if not os.path.exists(c):
         if chattts:
@@ -379,6 +430,8 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None)
             except Exception as e:
                 print(f"[ChatTTS khong dung duoc -> chuyen sang edge-tts] {e}")
                 _synth_edge(text, _edge_voice(voice), c, rate)
+        elif gemini:
+            synth_gemini(text, voice, c, gemini, rate)
         elif eleven:
             synth_eleven(text, voice, c, eleven, rate)
         elif azure:
@@ -387,11 +440,12 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None)
             _synth_edge(text, voice, c, rate)
     shutil.copyfile(c, path)
 
-def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None):
+def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
+                gemini=None):
     """Ghi mp3 + tra ve list (start,end) cac cau. Co cache.
-       chattts/azure/eleven: khong co moc cau -> [] (fallback rai deu chu)."""
+       chattts/azure/eleven/gemini: khong co moc cau -> [] (fallback rai deu chu)."""
     eng = ("ct-" + str(chattts)) if chattts else \
-          ("el" if eleven else ("az" if azure else "ed"))
+          ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
     key = _tts_key(eng + text, voice, rate)
     c = os.path.join(TTS_CACHE, key + ".mp3")
     cj = os.path.join(TTS_CACHE, key + ".sents.json")
@@ -399,7 +453,7 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
         shutil.copyfile(c, path)
         return json.load(open(cj, encoding="utf-8"))
 
-    if chattts or azure or eleven:  # khong co moc cau -> [] (rai deu chu)
+    if chattts or azure or eleven or gemini:  # khong co moc cau -> [] (rai deu chu)
         if chattts:
             try:
                 import chattts_engine
@@ -413,6 +467,8 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
                 json.dump(sents, open(cj, "w", encoding="utf-8"))
                 shutil.copyfile(c, path)
                 return sents
+        elif gemini:
+            synth_gemini(text, voice, c, gemini, rate)
         elif eleven:
             synth_eleven(text, voice, c, eleven, rate)
         else:
@@ -660,7 +716,7 @@ def make_static_segment(seg, ctx, i):
         ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
         synth(text, voice, ap, rate=ctx.get("rate", "-8%"),
               azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
-              eleven=ctx.get("_eleven"))
+              eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
         adur = dur_of(ap)
     else:
         ap, adur = None, 1.6
@@ -727,13 +783,14 @@ def synth_dialogue(rows, ctx, out_mp3, vmap):
     eleven = ctx.get("_eleven")
     azure = ctx.get("_azure")
     chattts = ctx.get("_chattts", False)
+    gemini = ctx.get("_gemini")
     rate = ctx.get("rate", "-8%")
     parts, starts, t = [], [], 0.0
     for k, r in enumerate(rows):
         v = vmap.get(r.get("sp", ""), default_v)
         rp = os.path.join(AUDIO, f"_dlg_{k:02d}.mp3")
         synth(r["hanzi"], v, rp, rate=rate, azure=azure,
-              chattts=chattts, eleven=eleven)                # co cache theo (giong,text)
+              chattts=chattts, eleven=eleven, gemini=gemini)  # co cache theo (giong,text)
         d = dur_of(rp)
         starts.append(t)
         parts.append(rp)
@@ -776,7 +833,7 @@ def make_anim_segment(seg, ctx, i):
     text, voice = tts_for(seg, ctx)
     sents = synth_timed(text, voice, ap, rate=ctx.get("rate", "-8%"),
                         azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
-                        eleven=ctx.get("_eleven"))
+                        eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
     adur = dur_of(ap)
     total = adur + pad
 
