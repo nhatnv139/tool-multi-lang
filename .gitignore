@@ -17,6 +17,7 @@ yt_tokens/
 # Bi mat API key giong doc — TUYET DOI khong commit
 eleven_config.json
 azure_config.json
+gemini_config.json
 
 # Clip intro/outro nguoi dung tai len (nang, re-upload duoc) — giu logo/banner png
 brand/*.mp4

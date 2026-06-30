@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """App web tao video hoc tieng Trung.
-Chay:  python app.py   ->  mo http://127.0.0.1:5000
+Chay:  python app.py   ->  mo http://127.0.0.1:5001
 Ban chi can: dien NOI DUNG + chon GIONG DOC -> bam Tao video. Con lai tu dong.
 """
 import os, sys, threading, time, traceback, re
@@ -108,6 +108,29 @@ CHATTTS_STYLES = [
     ("story", "Kể chuyện - nhiều cảm xúc"),
 ]
 
+# Giong Google Gemini TTS (AI Studio "Generate speech") — value tien to "gemini:<voiceName>"
+# Da ngu: 1 giong doc duoc ca tieng Trung + tieng Viet. Can Gemini API key (free).
+GEMINI_VOICES = [
+    ("gemini:Kore",       "Kore — Nữ, chắc chắn, ấm ⭐ (Gemini)"),
+    ("gemini:Aoede",      "Aoede — Nữ, nhẹ nhàng, dễ nghe ⭐ (Gemini)"),
+    ("gemini:Leda",       "Leda — Nữ, trẻ trung (Gemini)"),
+    ("gemini:Zephyr",     "Zephyr — Nữ, tươi sáng (Gemini)"),
+    ("gemini:Callirrhoe", "Callirrhoe — Nữ, thoải mái (Gemini)"),
+    ("gemini:Autonoe",    "Autonoe — Nữ, sáng (Gemini)"),
+    ("gemini:Despina",    "Despina — Nữ, mượt (Gemini)"),
+    ("gemini:Vindemiatrix","Vindemiatrix — Nữ, dịu dàng (Gemini)"),
+    ("gemini:Sulafat",    "Sulafat — Nữ, ấm (Gemini)"),
+    ("gemini:Puck",       "Puck — Nam, lạc quan, vui (Gemini)"),
+    ("gemini:Charon",     "Charon — Nam, cung cấp thông tin (Gemini)"),
+    ("gemini:Fenrir",     "Fenrir — Nam, hoạt náo (Gemini)"),
+    ("gemini:Orus",       "Orus — Nam, chắc chắn (Gemini)"),
+    ("gemini:Iapetus",    "Iapetus — Nam, rõ ràng (Gemini)"),
+    ("gemini:Enceladus",  "Enceladus — Nam, thì thầm nhẹ (Gemini)"),
+    ("gemini:Algenib",    "Algenib — Nam, trầm (Gemini)"),
+    ("gemini:Rasalgethi", "Rasalgethi — Nam, nhiều thông tin (Gemini)"),
+    ("gemini:Achird",     "Achird — Nam, thân thiện (Gemini)"),
+]
+
 AZURE_CFG = os.path.join(ROOT, "azure_config.json")
 def load_azure():
     try:
@@ -130,6 +153,17 @@ def load_eleven():
 def save_eleven(key):
     import json as _j
     _j.dump({"key": key}, open(ELEVEN_CFG, "w", encoding="utf-8"))
+
+GEMINI_CFG = os.path.join(ROOT, "gemini_config.json")
+def load_gemini():
+    try:
+        import json as _j
+        return _j.load(open(GEMINI_CFG, encoding="utf-8")).get("key", "")
+    except Exception:
+        return ""
+def save_gemini(key):
+    import json as _j
+    _j.dump({"key": key}, open(GEMINI_CFG, "w", encoding="utf-8"))
 RATES = [("-20%", "Chậm (người mới)"), ("-10%", "Hơi chậm"),
          ("-8%", "Vừa (khuyên)"), ("+0%", "Bình thường")]
 THEMES = [("pink", "Hồng pastel"), ("mint", "Xanh mint"), ("sky", "Xanh da trời"),
@@ -155,10 +189,10 @@ def index():
     return render_template("index.html", edge_voices=EDGE_VOICES,
                            azure_voices=AZURE_VOICES, chattts_voices=CHATTTS_VOICES,
                            chattts_styles=CHATTTS_STYLES, eleven_voices=ELEVEN_VOICES,
-                           edge_ml_voices=EDGE_ML_VOICES,
+                           edge_ml_voices=EDGE_ML_VOICES, gemini_voices=GEMINI_VOICES,
                            rates=RATES, themes=THEMES, mascots=MASCOTS, moods=MOODS,
                            azure_key=akey, azure_region=aregion,
-                           eleven_key=load_eleven())
+                           eleven_key=load_eleven(), gemini_key=load_gemini())
 
 @app.route("/eleven/voices")
 def eleven_voices_list():
@@ -273,6 +307,7 @@ def run_job(job_id, data):
             engine, _, vname = (data.get("voice") or "edge:zh-CN-XiaoxiaoNeural").partition(":")
             azure_tuple = None
             eleven_key = None
+            gemini_key = None
             voice_vi = generate.VOICE_VI            # mac dinh: giong Viet edge-tts
             if engine == "azure":
                 akey = (data.get("azure_key") or "").strip()
@@ -296,6 +331,13 @@ def run_job(job_id, data):
                 if custom:
                     vname = custom
                 voice_vi = vname                       # 1 giong da ngu: doc ca Trung + Viet
+            elif engine == "gemini":
+                gemini_key = (data.get("gemini_key") or "").strip() or load_gemini()
+                if not gemini_key:
+                    raise RuntimeError("Giọng Gemini cần API key. "
+                                       "Hãy nhập ở mục 'Giọng Google Gemini'.")
+                save_gemini(gemini_key)                # luu de lan sau khoi nhap
+                voice_vi = vname                       # 1 giong da ngu: doc ca Trung + Viet
 
             # Hoi thoai nhieu giong (MOI engine): map {nguoi_noi: voice}
             # voice = ten giong edge (vd zh-CN-YunjianNeural) hoac voice_id ElevenLabs,
@@ -308,6 +350,7 @@ def run_job(job_id, data):
                 "voice_vi": voice_vi,
                 "_azure":   azure_tuple,
                 "_eleven":  eleven_key,
+                "_gemini":  gemini_key,
                 "_dialogue_map": dialogue_map,
                 "_chattts": (data.get("chattts_style", "warm")
                              if engine == "chattts" else None),
@@ -491,5 +534,5 @@ def srt_download(job_id, kind):
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 if __name__ == "__main__":
-    print("\n  ✅ Mở trình duyệt: http://127.0.0.1:5000\n")
-    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
+    print("\n  ✅ Mở trình duyệt: http://127.0.0.1:5001\n")
+    app.run(host="127.0.0.1", port=5001, debug=False, threaded=True)
