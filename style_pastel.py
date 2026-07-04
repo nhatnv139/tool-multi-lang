@@ -712,7 +712,99 @@ def _thumb_blob(size, color, alpha):
     dd.ellipse([0, 0, size, size], fill=color + (alpha,))
     return im.filter(ImageFilter.GaussianBlur(size // 5))
 
+_AI_THUMB_CACHE = os.path.join(_HERE, "assets", "ai_thumb")
+
+def _ai_thumb_bg(prompt, tw, th):
+    """Tai nen AI 16:9 tu Pollinations (cache theo prompt). Nem loi neu fail."""
+    import hashlib, urllib.request, urllib.parse
+    os.makedirs(_AI_THUMB_CACHE, exist_ok=True)
+    key = hashlib.md5(f"{prompt}|{tw}x{th}".encode("utf-8")).hexdigest()
+    out = os.path.join(_AI_THUMB_CACHE, key + ".jpg")
+    if not os.path.exists(out):
+        url = ("https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt)
+               + f"?width={tw}&height={th}&nologo=true")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        data = urllib.request.urlopen(req, timeout=120).read()
+        with open(out, "wb") as f:
+            f.write(data)
+    im = Image.open(out).convert("RGB")
+    if im.size != (tw, th):
+        im = im.resize((tw, th), Image.LANCZOS)
+    return im
+
+def _outline_text(d, xy, text, fnt, fill, outline=(20, 20, 24), w=4):
+    x, y = xy
+    for dx in range(-w, w + 1, max(1, w // 2)):
+        for dy in range(-w, w + 1, max(1, w // 2)):
+            if dx or dy:
+                d.text((x + dx, y + dy), text, font=fnt, fill=outline)
+    d.text((x, y), text, font=fnt, fill=fill)
+
+def make_thumbnail_ai(ctx, path):
+    """Anh bia v2: nen AI theo chu de + hook TIENG VIET LON (nguoi xem chua doc duoc
+       chu Han -> hook Viet phai la thu to nhat), chu Han nho lam trang tri,
+       badge ngay/series de nhan dien binge-watch."""
+    from seo import split_title
+    TW, TH = 1280, 720
+    han, viet = split_title(ctx.get("title", ""))
+    hook = (ctx.get("thumb_hook") or viet or ctx.get("title", "")).strip()
+    prompt = (ctx.get("thumb_prompt") or ctx.get("image_prompt") or "").strip()
+    if not prompt:
+        raise ValueError("khong co image_prompt cho nen AI")
+    full_prompt = (prompt + ", beautiful cinematic illustration, warm cozy light, "
+                   "soft colors, chinese aesthetic, no text, no words, no letters")
+    im = _ai_thumb_bg(full_prompt, TW, TH)
+    # lop toi gradient ben trai -> chu noi tren moi loai nen
+    ov = Image.new("RGBA", (TW, TH), (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    for x in range(TW):
+        a = int(190 * max(0.0, 1.0 - x / (TW * 0.72)))
+        od.line([(x, 0), (x, TH)], fill=(15, 15, 22, a))
+    for y in range(TH - 220, TH):                       # them dai toi duoi day
+        a = int(150 * (y - (TH - 220)) / 220)
+        od.line([(0, y), (TW, y)], fill=(15, 15, 22, a))
+    im = Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB")
+    d = ImageDraw.Draw(im)
+    # badge ngay/series (vd "NGÀY 3/7") — goc tren trai, vang noi bat
+    badge = (ctx.get("thumb_badge") or "").strip()
+    if badge:
+        bf = font("badge", 40)
+        bw = text_w(d, badge, bf)
+        d.rounded_rectangle([46, 42, 46 + bw + 56, 42 + 66], radius=16, fill=(255, 200, 40))
+        d.text((74, 54), badge, font=bf, fill=(40, 30, 10))
+    # hook tieng Viet — thu TO NHAT tren anh
+    hf = font("viet", 104)
+    lines = wrap_text(d, hook, hf, int(TW * 0.62))
+    if len(lines) > 3:
+        hf = font("viet", 84)
+        lines = wrap_text(d, hook, hf, int(TW * 0.62))
+    y = max(150, (TH - len(lines) * (hf.size + 18) - 90) // 2)
+    for ln in lines:
+        _outline_text(d, (64, y), ln, hf, fill=(255, 255, 255), w=5)
+        y += hf.size + 18
+    # chu Han nho ben duoi (trang tri + tin hieu "hoc tieng Trung")
+    if han:
+        zf = font("zh", 54)
+        _outline_text(d, (66, y + 14), han, zf, fill=(255, 210, 90), w=3)
+    # tagline kenh duoi day
+    d.text((66, TH - 58), (ctx.get("channel", "") + "  ·  Luyện nghe tiếng Trung có phụ đề").strip(" ·"),
+           font=font("sansb", 28), fill=(235, 235, 235))
+    lg = brand_logo(120)
+    if lg:
+        im.paste(lg, (TW - lg.width - 40, TH - lg.height - 34), lg)
+    im.save(path, "JPEG", quality=92)
+    return path
+
 def make_thumbnail(ctx, path):
+    """Uu tien anh bia AI (hook Viet lon); loi/thieu prompt -> fallback ban pastel."""
+    if ctx.get("thumb_ai", True):
+        try:
+            return make_thumbnail_ai(ctx, path)
+        except Exception as e:
+            print("  [thumbnail AI] loi, dung ban pastel:", e)
+    return make_thumbnail_pastel(ctx, path)
+
+def make_thumbnail_pastel(ctx, path):
     """Anh bia dep: nen gradient am + dom trang tri + cau Viet (cam) + chu Han + pinyin + logo."""
     from seo import split_title, pinyin_of
     TW, TH = 1280, 720

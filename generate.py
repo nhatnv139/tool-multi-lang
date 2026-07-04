@@ -263,17 +263,33 @@ def setup_mascot(ctx):
     except Exception as e:
         print("  (AI mascot loi, dung emoji thay the):", e)
         ctx["_mascot_img"] = None
-def _tts_key(text, voice, rate):
-    return hashlib.md5(f"{voice}|{rate}|{text}".encode("utf-8")).hexdigest()
+def _tts_key(text, voice, rate, expressive=0, engine=""):
+    return hashlib.md5(
+        f"{voice}|{rate}|{expressive}|{engine}|{text}".encode("utf-8")
+    ).hexdigest()
 
 def _ssml_escape(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-def synth_azure(text, voice, path, key, region, rate="-8%"):
-    """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path."""
-    ssml = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
-            f'xml:lang="zh-CN"><voice name="{voice}">'
-            f'<prosody rate="{_norm_rate(rate)}">{_ssml_escape(text)}</prosody></voice></speak>')
+def synth_azure(text, voice, path, key, region, rate="-8%", mood=None):
+    """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path.
+       mood -> mstts:express-as style (bieu cam); HTTP 400 -> fallback SSML thuong."""
+    inner = (f'<prosody rate="{_norm_rate(rate)}">{_ssml_escape(text)}</prosody>')
+    # chon style theo mood (calm->calm, sad->sad, warm->chat, gentle->gentle,
+    # story/night->narration-relaxed; mac dinh narration-relaxed)
+    style = {"calm": "calm", "sad": "sad", "warm": "chat", "gentle": "gentle",
+             "story": "narration-relaxed", "night": "narration-relaxed"}.get(
+        mood, "narration-relaxed")
+    ssml_x = (f'<speak version="1.0" '
+              f'xmlns="http://www.w3.org/2001/10/synthesis" '
+              f'xmlns:mstts="https://www.w3.org/2001/mstts" '
+              f'xml:lang="zh-CN"><voice name="{voice}">'
+              f'<mstts:express-as style="{style}">{inner}</mstts:express-as>'
+              f'</voice></speak>')
+    ssml_plain = (f'<speak version="1.0" '
+                  f'xmlns="http://www.w3.org/2001/10/synthesis" '
+                  f'xml:lang="zh-CN"><voice name="{voice}">'
+                  f'{inner}</voice></speak>')
     url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
     headers = {
         "Ocp-Apim-Subscription-Key": key,
@@ -281,14 +297,25 @@ def synth_azure(text, voice, path, key, region, rate="-8%"):
         "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
         "User-Agent": "chinese-youtube",
     }
-    req = urllib.request.Request(url, data=ssml.encode("utf-8"),
-                                 headers=headers, method="POST")
-    data = urllib.request.urlopen(req, timeout=60).read()
+
+    def _post(ssml):
+        req = urllib.request.Request(url, data=ssml.encode("utf-8"),
+                                     headers=headers, method="POST")
+        return urllib.request.urlopen(req, timeout=60).read()
+
+    try:
+        data = _post(ssml_x)
+    except urllib.error.HTTPError as e:
+        if e.code == 400:               # giong/style khong ho tro express-as -> SSML thuong
+            data = _post(ssml_plain)
+        else:
+            raise
     with open(path, "wb") as f:
         f.write(data)
 
 ELEVEN_MODEL = "eleven_multilingual_v2"   # da ngon ngu: 1 giong doc ca Trung + Viet
 _eleven_model_override = None             # build() dat theo lua chon nguoi dung
+_expressive = 60                          # 0..100, build() dat theo ctx (do bieu cam)
 
 def _rate_to_eleven_speed(rate):
     """edge rate (vd -8%) -> ElevenLabs speed (0.7..1.2; 1.0 = binh thuong)."""
@@ -298,18 +325,69 @@ def _rate_to_eleven_speed(rate):
         pct = -8
     return max(0.7, min(1.2, round(1.0 + pct / 100.0, 2)))
 
+def _eleven_breaks(text, expressive):
+    """ElevenLabs: chen <break> SAU dau lang (… hoac em/en dash) cho ngat nghi tu nhien.
+       Chi danh cho engine eleven (SSML-like break tag). An toan: khong co dau lang -> tra nguyen."""
+    try:
+        if not text:
+            return text
+        t = text
+        # chuan hoa "..." / "。。。" -> "…" ; "……" giu nguyen (2 ky tu lang lien tiep cung ok)
+        t = t.replace("。。。", "…").replace("...", "…")
+        if not any(ch in t for ch in ("…", "—", "–")):
+            return t
+        x = round(0.30 + 0.0040 * max(0, min(100, int(expressive))), 2)
+        x = min(0.70, x)
+        brk = f'<break time="{x}s"/>'
+        out = []
+        for ch in t:
+            out.append(ch)
+            if ch in ("…", "—", "–"):
+                out.append(brk)
+        return "".join(out)
+    except Exception:
+        return text
+
+def _reflective_bonus(seg_text, expressive):
+    """Khoang lang phan tu (dam chieu) SAU cau cam xuc -> cong vao pad per-segment (moi engine)."""
+    try:
+        if not seg_text:
+            return 0.0
+        t = seg_text.strip()
+        if not t:
+            return 0.0
+        # uu tien: ket thuc bang … — ? ! -> beat sau hon; chi 。/. -> nho
+        deep = t.endswith(('…', '—', '–', '?', '？', '!', '！'))
+        ends_reflective = t.endswith(
+            ('…', '—', '–', '?', '？', '!', '！', '。', '.')
+        ) and any(c in t for c in '…—–?？!！')
+        if not (deep or ends_reflective):
+            return 0.0
+        base = 0.45 if deep else 0.15
+        e = max(0, min(100, int(expressive))) / 100.0
+        return round(base * (0.4 + 0.6 * e), 2)   # cap tu nhien ~<=0.45
+    except Exception:
+        return 0.0
+
 def synth_eleven(text, voice_id, path, key, rate="-8%", model=None):
     """ElevenLabs TTS (tra phi, chat luong cao). Ghi mp3 ra path.
        voice_id lay tu ElevenLabs (Voice Lab / Voices). 1 giong da ngu noi ca Trung+Viet.
        model: None -> dung lua chon nguoi dung (_eleven_model_override) hoac mac dinh."""
     model = model or _eleven_model_override or ELEVEN_MODEL
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    # thong so dong theo do bieu cam (_expressive 0..100)
+    try:
+        e = max(0, min(100, int(_expressive))) / 100.0
+    except Exception:
+        e = 0.6
+    stability = round(0.60 - 0.35 * e, 3)   # 0.60 (tinh) -> 0.25 (cam xuc)
+    style = round(0.55 * e, 3)              # 0.0 -> 0.55
     payload = {
         "text": text,
         "model_id": model,
         "voice_settings": {
-            "stability": 0.5, "similarity_boost": 0.75,
-            "style": 0.0, "use_speaker_boost": True,
+            "stability": stability, "similarity_boost": 0.8,
+            "style": style, "use_speaker_boost": True,
             "speed": _rate_to_eleven_speed(rate),
         },
     }
@@ -354,8 +432,24 @@ def synth_gemini(text, voice, path, key, rate="-8%", model=GEMINI_MODEL):
        voice = ten giong prebuilt (Kore, Puck, Zephyr...). 1 giong doc ca Trung + Viet."""
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"{model}:generateContent")
+    # PREPEND chi dan phong cach (Gemini doc noi dung theo phong cach, khong doc chi dan)
+    try:
+        ex = max(0, min(100, int(_expressive)))
+        if ex < 33:
+            tone = "tram am, nhe nhang, thong tha"
+        elif ex <= 66:
+            tone = "am ap, truyen cam, doi luc ngam nghi lang lai"
+        else:
+            tone = "giau cam xuc, luc lang dong dam chieu luc tha thiet, nhan nha co chieu sau"
+        directive = (
+            f"Doc doan sau bang giong ke chuyen {tone}, ngat nghi tu nhien giua cac y. "
+            f"Chi doc noi dung ben duoi, KHONG doc dong huong dan nay:\n\n"
+        )
+        text_send = directive + text
+    except Exception:
+        text_send = text
     payload = {
-        "contents": [{"parts": [{"text": text}]}],
+        "contents": [{"parts": [{"text": text_send}]}],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
             "speechConfig": {
@@ -419,7 +513,11 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
        ChatTTS loi -> fallback edge."""
     eng = ("ct-" + str(chattts)) if chattts else \
           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
-    c = os.path.join(TTS_CACHE, _tts_key(eng + text, voice, rate) + ".mp3")
+    # ElevenLabs: chen <break> trong cau (chi engine nay) -> text khac -> key khac
+    text_el = _eleven_breaks(text, _expressive) if eleven else text
+    key_text = text_el if eleven else text
+    c = os.path.join(TTS_CACHE,
+                     _tts_key(eng + key_text, voice, rate, _expressive, eng) + ".mp3")
     if not os.path.exists(c):
         if chattts:
             try:
@@ -433,7 +531,7 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
         elif gemini:
             synth_gemini(text, voice, c, gemini, rate)
         elif eleven:
-            synth_eleven(text, voice, c, eleven, rate)
+            synth_eleven(text_el, voice, c, eleven, rate)
         elif azure:
             synth_azure(text, voice, c, azure[0], azure[1], rate)
         else:
@@ -446,7 +544,10 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
        chattts/azure/eleven/gemini: khong co moc cau -> [] (fallback rai deu chu)."""
     eng = ("ct-" + str(chattts)) if chattts else \
           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
-    key = _tts_key(eng + text, voice, rate)
+    # ElevenLabs: chen <break> trong cau (chi engine nay) -> text khac -> key khac
+    text_el = _eleven_breaks(text, _expressive) if eleven else text
+    key_text = text_el if eleven else text
+    key = _tts_key(eng + key_text, voice, rate, _expressive, eng)
     c = os.path.join(TTS_CACHE, key + ".mp3")
     cj = os.path.join(TTS_CACHE, key + ".sents.json")
     if os.path.exists(c) and os.path.exists(cj):
@@ -470,7 +571,7 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
         elif gemini:
             synth_gemini(text, voice, c, gemini, rate)
         elif eleven:
-            synth_eleven(text, voice, c, eleven, rate)
+            synth_eleven(text_el, voice, c, eleven, rate)
         else:
             synth_azure(text, voice, c, azure[0], azure[1], rate)
         json.dump([], open(cj, "w", encoding="utf-8"))
@@ -721,6 +822,11 @@ def make_static_segment(seg, ctx, i):
     else:
         ap, adur = None, 1.6
     pad = seg.get("_pad", ctx.get("pad", PAD))
+    # "dam chieu": them khoang lang phan tu sau cau cam xuc (moi engine)
+    try:
+        pad = pad + _reflective_bonus(text, _expressive)
+    except Exception:
+        pass
     seg_total = adur + pad
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     vf = (f"scale={W}:{H},format=yuv420p,"
@@ -821,6 +927,11 @@ def make_anim_segment(seg, ctx, i):
         rows = seg["rows"]; n = len(rows)
         vmap = dialogue_voice_map(rows, ctx)
         starts, adur = synth_dialogue(rows, ctx, ap, vmap)
+        # "dam chieu": them khoang lang phan tu sau cau cam xuc
+        try:
+            pad = pad + _reflective_bonus(tts_for(seg, ctx)[0], _expressive)
+        except Exception:
+            pass
         total = adur + pad
         times = [0.0] + list(starts)
         for k in range(n + 1):
@@ -835,6 +946,11 @@ def make_anim_segment(seg, ctx, i):
                         azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
                         eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
     adur = dur_of(ap)
+    # "dam chieu": them khoang lang phan tu sau cau cam xuc (moi engine)
+    try:
+        pad = pad + _reflective_bonus(text, _expressive)
+    except Exception:
+        pass
     total = adur + pad
 
     # Cau/tu vung: hien CA CAU ngay tu dau (1 state tinh) -> text luon khop voi giong doc.
@@ -852,6 +968,11 @@ def build(lesson, progress=None):
     ctx = json.load(open(lesson, encoding="utf-8")) if isinstance(lesson, str) else lesson
     global _eleven_model_override
     _eleven_model_override = ctx.get("_eleven_model")     # model ElevenLabs nguoi dung chon
+    global _expressive
+    try:
+        _expressive = int(ctx.get("expressive", 60) or 60)
+    except Exception:
+        _expressive = 60
     segs = ctx["segments"]
     if ctx.get("podcast"):
         # podcast: bo intro/outro + cac doan noi tieng Viet, chi giu noi dung Trung

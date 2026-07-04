@@ -1,0 +1,225 @@
+@title 师傅，去这儿！(Ngày 2 — Đi taxi không sợ bị chém)
+@hanzi 打车
+@topic ngày thứ hai của A Minh ở Trung Quốc: bắt taxi vào thành phố, đưa địa chỉ trên điện thoại cho bác tài, hỏi giá và xuống xe an toàn
+@hsk HSK1
+@image cute warm illustration of a young Vietnamese man showing his phone with a map to a friendly Chinese taxi driver, green taxi on a sunny Beijing street, soft pastel colors
+@objectives Nói điểm đến và đưa địa chỉ trên điện thoại cho tài xế xem; Hỏi giá và quãng đường: bao nhiêu tiền, xa không, mấy phút; Bảo tài xế dừng xe và trả tiền: đến rồi, dừng ở đây, gửi bác tiền
+
+# MỞ ĐẦU
+出租车来了！ | Taxi đến rồi!
+师傅说话很快，你听不懂。 | Bác tài nói nhanh như gió, nghe chẳng hiểu gì.
+多少钱？你也不会问。 | Hết bao nhiêu tiền — sợ bị chém mà không biết hỏi.
+没关系，手机给他看！ | Đừng lo, cứ chìa điện thoại ra cho bác tài xem là xong!
+昨天阿明到了中国，今天他坐出租车，我们跟他一起去！ | Hôm qua A Minh vừa hạ cánh, hôm nay cậu ấy bắt taxi vào thành phố — mình theo chân cậu ấy nhé!
+
+# TỪ VỰNG
+出租车 | Taxi
+师傅 | Bác tài
+坐 | Ngồi, đi (xe)
+车 | Xe
+地址 | Địa chỉ
+手机 | Điện thoại
+看 | Xem, nhìn
+给 | Đưa, cho
+到 | Đến
+停 | Dừng
+钱 | Tiền
+多少 | Bao nhiêu
+块 | Đồng, tệ (tiền)
+远 | Xa
+近 | Gần
+快 | Nhanh
+慢 | Chậm
+分钟 | Phút
+
+# MẪU CÂU
+师傅，你好！ | Chào bác tài!
+我坐出租车。 | Tôi đi taxi.
+你去哪儿？ | Anh đi đâu?
+我去王府井。 | Tôi đi Vương Phủ Tỉnh.
+我去这儿，请看。 | Tôi đến chỗ này, bác xem giúp.
+地址在手机上。 | Địa chỉ ở trên điện thoại.
+给你看地址。 | Tôi đưa bác xem địa chỉ.
+王府井远吗？ | Vương Phủ Tỉnh có xa không?
+不远，很近。 | Không xa đâu, gần lắm.
+多少分钟？ | Đi mất mấy phút?
+二十分钟。 | Hai mươi phút.
+到王府井多少钱？ | Đến Vương Phủ Tỉnh hết bao nhiêu tiền?
+三十块。 | Ba mươi tệ.
+太快了，请慢一点儿。 | Nhanh quá, bác chậm lại chút ạ.
+到了吗？ | Đến chưa ạ?
+到了。 | Đến rồi.
+停在这儿吧。 | Bác dừng ở đây nhé.
+请停一下。 | Bác dừng lại chút ạ.
+多少钱？ | Bao nhiêu tiền?
+给你钱。 | Gửi bác tiền.
+我听不懂。 | Tôi nghe không hiểu.
+请再说一遍。 | Xin nói lại lần nữa.
+请慢一点儿说。 | Xin nói chậm một chút.
+谢谢师傅！ | Cảm ơn bác tài!
+我的手机呢？ | Điện thoại của tôi đâu rồi?
+
+# HỘI THOẠI 1 — LÊN TAXI
+阿明: 师傅，你好！ | Chào bác tài ạ!
+王刚: 你好！你去哪儿？ | Chào cậu! Cậu đi đâu?
+阿明: 对不起，请慢一点儿说。 | Xin lỗi, bác nói chậm một chút ạ.
+王刚: 你，去，哪儿？ | Cậu — đi — đâu?
+阿明: 我去这儿，请看。 | Cháu đến chỗ này, bác xem giúp ạ.
+王刚: 手机给我看看。 | Đưa điện thoại đây bác xem nào.
+阿明: 好的，地址在手机上。 | Vâng, địa chỉ ở trên điện thoại ạ.
+王刚: 王府井，是吗？ | Vương Phủ Tỉnh phải không?
+阿明: 是的，我去王府井。 | Đúng rồi, cháu đi Vương Phủ Tỉnh.
+王刚: 好，上车吧！ | Được, lên xe đi!
+阿明: 谢谢师傅！ | Cảm ơn bác tài!
+王刚: 你是哪国人？ | Cậu là người nước nào?
+阿明: 我是越南人。 | Cháu là người Việt Nam.
+王刚: 你的中文很好！ | Tiếng Trung của cậu khá phết đấy!
+阿明: 谢谢！我会说一点儿。 | Cảm ơn bác! Cháu mới nói được chút xíu thôi.
+王刚: 你来北京做什么？ | Cậu đến Bắc Kinh làm gì?
+阿明: 我来旅游。 | Cháu đến du lịch ạ.
+阿明: 师傅，王府井远吗？ | Bác ơi, Vương Phủ Tỉnh có xa không?
+王刚: 不远，很近。 | Không xa đâu, gần lắm.
+阿明: 多少分钟？ | Đi mất mấy phút ạ?
+王刚: 二十分钟。 | Hai mươi phút thôi.
+阿明: 到王府井多少钱？ | Đến Vương Phủ Tỉnh hết bao nhiêu tiền ạ?
+王刚: 三十块。 | Ba mươi tệ.
+阿明: 对不起，我听不懂。 | Xin lỗi, cháu nghe không hiểu.
+王刚: 三，十，块。 | Ba — mươi — tệ.
+阿明: 三十块，好的！ | Ba mươi tệ, được ạ!
+王刚: 好，我们走吧！ | Rồi, mình chạy thôi!
+阿明: 师傅，太快了！ | Bác ơi, nhanh quá nhanh quá!
+王刚: 哈哈，好，我慢一点儿。 | Haha, được rồi, bác chạy chậm lại.
+阿明: 谢谢师傅！ | Cảm ơn bác tài!
+
+# NGHE LẠI CÂU VÀNG
+现在，一句一句，慢慢听。 | Giờ nghe lại thật chậm, từng câu một nhé.
+师傅，你好！ | Chào bác tài!
+师傅，你好！ | Nghe lại lần nữa: chào bác tài!
+我去这儿，请看。 | Tôi đến chỗ này, bác xem giúp.
+我去这儿，请看。 | Nghe lại lần nữa: tôi đến chỗ này, bác xem giúp.
+到王府井多少钱？ | Đến Vương Phủ Tỉnh hết bao nhiêu tiền?
+到王府井多少钱？ | Nghe lại lần nữa: đến Vương Phủ Tỉnh hết bao nhiêu tiền?
+王府井远吗？ | Vương Phủ Tỉnh có xa không?
+王府井远吗？ | Nghe lại lần nữa: Vương Phủ Tỉnh có xa không?
+太快了，请慢一点儿。 | Nhanh quá, bác chậm lại chút ạ.
+太快了，请慢一点儿。 | Nghe lại lần nữa: nhanh quá, bác chậm lại chút ạ.
+到了吗？ | Đến chưa ạ?
+到了吗？ | Nghe lại lần nữa: đến chưa ạ?
+停在这儿吧。 | Bác dừng ở đây nhé.
+停在这儿吧。 | Nghe lại lần nữa: bác dừng ở đây nhé.
+多少钱？ | Bao nhiêu tiền?
+多少钱？ | Nghe lại lần nữa: bao nhiêu tiền?
+给你钱。 | Gửi bác tiền.
+给你钱。 | Nghe lại lần nữa: gửi bác tiền.
+我听不懂，请再说一遍。 | Tôi nghe không hiểu, xin nói lại lần nữa.
+我听不懂，请再说一遍。 | Nghe lại lần nữa: tôi nghe không hiểu, xin nói lại lần nữa.
+
+# HỘI THOẠI 2 — TRẢ TIỀN VÀ XUỐNG XE
+阿明: 师傅，到了吗？ | Bác ơi, đến chưa ạ?
+王刚: 快到了，前面是王府井。 | Sắp đến rồi, phía trước là Vương Phủ Tỉnh đấy.
+阿明: 对不起，请再说一遍。 | Xin lỗi, bác nói lại lần nữa ạ.
+王刚: 前面，是，王府井。 | Phía trước — là — Vương Phủ Tỉnh.
+阿明: 懂了！太好了！ | Hiểu rồi! Tuyệt quá!
+王刚: 你在哪儿下车？ | Cậu xuống xe ở chỗ nào?
+阿明: 停在这儿吧。 | Bác dừng ở đây nhé.
+王刚: 好的，停这儿。 | Được, dừng đây.
+阿明: 多少钱？ | Bao nhiêu tiền ạ?
+王刚: 二十八块。 | Hai mươi tám tệ.
+阿明: 对不起，请慢一点儿说。 | Xin lỗi, bác nói chậm một chút ạ.
+王刚: 二，十，八，块。 | Hai — mươi — tám — tệ.
+阿明: 二十八块，好的。 | Hai mươi tám tệ, vâng ạ.
+阿明: 给你钱。 | Gửi bác tiền ạ.
+王刚: 这是三十块。 | Cậu đưa những ba mươi tệ này.
+王刚: 给你两块。 | Trả lại cậu hai tệ nhé.
+阿明: 谢谢师傅！ | Cảm ơn bác tài!
+王刚: 不客气！ | Không có gì!
+阿明: 再见！ | Tạm biệt bác!
+王刚: 你的手机！手机！ | Điện thoại của cậu! Điện thoại kìa!
+阿明: 什么？我听不懂。 | Sao cơ ạ? Cháu nghe không hiểu.
+王刚: 你看，你的手机在车上！ | Nhìn này, điện thoại của cậu còn nằm trên xe kìa!
+阿明: 我的手机！ | Ôi, điện thoại của mình!
+王刚: 给你。 | Của cậu đây.
+阿明: 谢谢，谢谢师傅！ | Cảm ơn, cảm ơn bác nhiều lắm!
+王刚: 没关系，看好手机！ | Không sao, nhớ giữ điện thoại cẩn thận nhé!
+阿明: 好的，谢谢您！ | Vâng, cháu cảm ơn bác ạ!
+王刚: 你的中文很好！ | Tiếng Trung của cậu khá lắm đấy!
+阿明: 谢谢！我很开心。 | Cảm ơn bác! Cháu vui lắm.
+王刚: 好了，再见！ | Rồi, tạm biệt cậu nhé!
+阿明: 再见，师傅！ | Tạm biệt bác tài!
+阿明: 今天我会坐出租车了！ | Hôm nay mình tự đi taxi được rồi!
+
+# LUYỆN TẬP
+? "Chào bác tài" nói thế nào?
+师傅，你好！ | Chào bác tài!
+? Bác tài hỏi mình đi đâu, câu đó nghe thế nào?
+你去哪儿？ | Anh đi đâu?
+? Chìa điện thoại có địa chỉ cho bác tài xem, nói sao?
+我去这儿，请看。 | Tôi đến chỗ này, bác xem giúp.
+? "Tôi đi Vương Phủ Tỉnh" nói thế nào?
+我去王府井。 | Tôi đi Vương Phủ Tỉnh.
+? Hỏi "Có xa không?" thế nào?
+远吗？ | Có xa không?
+? "Không xa, gần lắm" nói thế nào?
+不远，很近。 | Không xa đâu, gần lắm.
+? Hỏi đi mất mấy phút thế nào?
+多少分钟？ | Đi mất mấy phút?
+? Sợ bị chém, hỏi giá trước khi lên xe thế nào?
+到王府井多少钱？ | Đến Vương Phủ Tỉnh hết bao nhiêu tiền?
+? Xe chạy nhanh quá, kêu bác tài thế nào?
+太快了，请慢一点儿。 | Nhanh quá, bác chậm lại chút ạ.
+? Hỏi "Đến chưa?" thế nào?
+到了吗？ | Đến chưa ạ?
+? "Bác dừng ở đây nhé" nói thế nào?
+停在这儿吧。 | Bác dừng ở đây nhé.
+? Xuống xe, hỏi "Bao nhiêu tiền?" thế nào?
+多少钱？ | Bao nhiêu tiền?
+? Đưa tiền cho bác tài, nói sao?
+给你钱。 | Gửi bác tiền.
+? "Ba mươi tệ" nói thế nào?
+三十块。 | Ba mươi tệ.
+? Nghe không hiểu, kêu cứu thế nào?
+我听不懂。 | Tôi nghe không hiểu.
+? Muốn người ta nói chậm lại, nói sao?
+请慢一点儿说。 | Xin nói chậm một chút.
+
+# ÔN MẪU CÂU
+最后，我们再听一次。 | Cuối bài, mình nghe lại một lượt nữa nhé.
+师傅，你好！ | Chào bác tài!
+我去这儿，请看。 | Tôi đến chỗ này, bác xem giúp.
+到王府井多少钱？ | Đến Vương Phủ Tỉnh hết bao nhiêu tiền?
+王府井远吗？ | Vương Phủ Tỉnh có xa không?
+不远，二十分钟。 | Không xa đâu, hai mươi phút thôi.
+太快了，请慢一点儿。 | Nhanh quá, bác chậm lại chút ạ.
+到了吗？停在这儿吧。 | Đến chưa ạ? Bác dừng ở đây nhé.
+多少钱？给你钱。 | Bao nhiêu tiền? Gửi bác tiền.
+我听不懂，请再说一遍。 | Tôi nghe không hiểu, xin nói lại lần nữa.
+今天你会坐出租车了！ | Hôm nay bạn tự đi taxi được rồi đấy!
+师傅说话很快？没关系！ | Bác tài nói nhanh như gió? Không sao hết!
+你会说：请慢一点儿说。 | Bạn đã có câu cứu nguy: xin nói chậm một chút.
+第二天，阿明很开心。 | Ngày thứ hai, A Minh vui lắm.
+
+# ÔN TỪ VỰNG
+出租车 | Taxi
+师傅 | Bác tài
+坐 | Ngồi, đi (xe)
+车 | Xe
+地址 | Địa chỉ
+手机 | Điện thoại
+看 | Xem, nhìn
+给 | Đưa, cho
+到 | Đến
+停 | Dừng
+钱 | Tiền
+多少 | Bao nhiêu
+块 | Đồng, tệ (tiền)
+远 | Xa
+近 | Gần
+快 | Nhanh
+慢 | Chậm
+分钟 | Phút
+
+# HẸN NGÀY MAI
+明天，阿明去酒店。 | Ngày mai, A Minh đến khách sạn nhận phòng.
+房间里有wifi吗？ | Trong phòng có wifi không — hỏi thế nào đây?
+明天见！ | Hẹn gặp lại ngày mai!
+再见！ | Tạm biệt!

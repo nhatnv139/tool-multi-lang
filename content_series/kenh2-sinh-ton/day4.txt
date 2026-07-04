@@ -1,0 +1,225 @@
+@title 这是什么菜？(Ngày 4 — Đói meo mà không dám vào quán ăn Trung Quốc)
+@hanzi 吃饭
+@topic ngày thứ tư của A Minh: đói bụng xuống phố, gọi món bằng cách chỉ tay, chặn món cay và tự tin tính tiền
+@hsk HSK2
+@image cute warm illustration of a young Vietnamese man in a cozy Chinese restaurant pointing at a menu full of Chinese characters, friendly young waitress smiling with notepad, steaming bowls of rice and noodles on the table, red lanterns, soft pastel colors
+@objectives Gọi món bằng cách chỉ tay: món này là gì, cho tôi món này; Chặn món cay từ đầu: không cay, tôi không ăn cay; Xin thêm cơm thêm nước, khen ngon và gọi tính tiền gọn gàng
+
+# MỞ ĐẦU
+阿明在酒店，很饿很饿！ | A Minh nằm ở khách sạn mà bụng sôi ùng ục vì đói!
+楼下有饭馆，可是…… | Dưới phố có quán ăn đấy, nhưng mà...
+菜单都是汉字，没有图！ | Menu toàn chữ Hán, không có lấy một cái hình!
+点错了，太辣怎么办？ | Nhỡ gọi nhầm món cay xé lưỡi thì biết làm sao?
+不要怕！今天十个句子，你就敢进去！ | Đừng sợ! Học mười câu hôm nay là bạn dám đẩy cửa bước vào luôn!
+
+# TỪ VỰNG
+服务员 | Nhân viên phục vụ
+菜单 | Thực đơn
+菜 | Món ăn
+辣 | Cay
+米饭 | Cơm
+面条 | Mì sợi
+鸡肉 | Thịt gà
+鱼 | Cá
+水 | Nước
+茶 | Trà
+杯 | Cốc, ly
+碗 | Bát, tô
+好吃 | Ngon
+饿 | Đói
+要 | Muốn, lấy (gọi món)
+吃 | Ăn
+买单 | Tính tiền
+多少钱 | Bao nhiêu tiền
+
+# MẪU CÂU
+服务员！ | Em ơi, cho gọi món!
+你好，有菜单吗？ | Xin chào, quán có thực đơn không?
+请给我菜单。 | Cho tôi xin thực đơn.
+这是什么菜？ | Món này là món gì?
+我要这个。 | Cho tôi món này.
+我要一个这个。 | Cho tôi một phần món này.
+这个菜辣吗？ | Món này có cay không?
+不要辣！ | Đừng cho cay nhé!
+我不吃辣。 | Tôi không ăn cay được.
+我要米饭。 | Cho tôi cơm.
+我要一碗面条。 | Cho tôi một bát mì.
+有鸡肉吗？ | Có món gà không?
+我不吃鱼。 | Tôi không ăn cá.
+请给我一杯水。 | Cho tôi một cốc nước.
+请给我一杯茶。 | Cho tôi một cốc trà.
+再来一碗米饭。 | Thêm một bát cơm nữa nhé.
+很好吃！ | Ngon quá!
+太辣了！ | Cay quá trời!
+我很饿。 | Tôi đói lắm rồi.
+我吃好了。 | Tôi ăn xong rồi.
+买单！ | Tính tiền!
+多少钱？ | Bao nhiêu tiền?
+一共多少钱？ | Tất cả hết bao nhiêu tiền?
+这是什么？ | Đây là cái gì?
+我听不懂，请再说一遍。 | Tôi nghe không hiểu, xin nói lại lần nữa.
+
+# HỘI THOẠI 1 — GỌI MÓN
+小芳: 你好！几位？ | Xin chào! Anh đi mấy người ạ?
+阿明: 你好，一个人。 | Chào em, một mình anh thôi.
+小芳: 好的，请坐。 | Vâng, mời anh ngồi.
+阿明: 谢谢。请给我菜单。 | Cảm ơn em. Cho anh xin thực đơn nhé.
+小芳: 好的，菜单在这儿。 | Vâng, thực đơn đây ạ.
+阿明: 这……我看不懂。 | Ôi... toàn chữ là chữ, anh chịu không đọc nổi.
+小芳: 没关系，我说给你听。 | Không sao đâu, để em giới thiệu cho anh nghe.
+阿明: 请慢一点儿说。 | Em nói chậm một chút giúp anh nhé.
+小芳: 好的。这个是鸡肉。 | Vâng ạ. Món này là thịt gà.
+阿明: 这是什么菜？ | Thế còn món này là món gì?
+小芳: 这个是鱼。 | Món này là cá ạ.
+阿明: 我不吃鱼。这个呢？ | Anh không ăn cá. Còn món này thì sao?
+小芳: 这个是面条，很好吃。 | Món này là mì, ngon lắm anh.
+阿明: 这个菜辣吗？ | Món này có cay không em?
+小芳: 有一点儿辣。 | Hơi cay một chút ạ.
+阿明: 我不吃辣。不要辣！ | Anh không ăn cay được đâu. Đừng cho cay nhé!
+小芳: 好的，不要辣。 | Vâng, không cho cay ạ.
+阿明: 我要这个鸡肉。 | Cho anh món gà này.
+小芳: 好的，一个鸡肉。 | Vâng, một phần gà ạ.
+阿明: 再要一个米饭。 | Thêm một cơm nữa em nhé.
+小芳: 要不要面条？ | Anh có lấy thêm mì không ạ?
+阿明: 对不起，我听不懂。 | Xin lỗi, anh nghe không hiểu.
+小芳: 面条，要不要？ | Mì ấy ạ — anh có lấy không?
+阿明: 不要，谢谢。我要水。 | Thôi không lấy, cảm ơn em. Cho anh nước.
+小芳: 好的，一杯水。 | Vâng, một cốc nước ạ.
+阿明: 我很饿，请快一点儿。 | Anh đói lắm rồi, em làm nhanh giúp anh nhé.
+小芳: 好的，请等一下。 | Vâng, anh chờ em một chút ạ.
+阿明: 谢谢你！ | Cảm ơn em!
+小芳: 不客气，菜很快就来。 | Không có gì, món ra ngay bây giờ ạ.
+阿明: 太好了！ | Tuyệt quá!
+
+# NGHE LẠI CÂU VÀNG
+现在，一句一句，慢慢听。 | Giờ nghe lại thật chậm, từng câu một nhé.
+服务员！ | Em ơi, cho gọi món!
+服务员！ | Nghe lại lần nữa: em ơi, cho gọi món!
+这是什么菜？ | Món này là món gì?
+这是什么菜？ | Nghe lại lần nữa: món này là món gì?
+我要这个。 | Cho tôi món này.
+我要这个。 | Nghe lại lần nữa: cho tôi món này.
+不要辣！ | Đừng cho cay nhé!
+不要辣！ | Nghe lại lần nữa: đừng cho cay nhé!
+我不吃辣。 | Tôi không ăn cay được.
+我不吃辣。 | Nghe lại lần nữa: tôi không ăn cay được.
+再来一碗米饭。 | Thêm một bát cơm nữa nhé.
+再来一碗米饭。 | Nghe lại lần nữa: thêm một bát cơm nữa nhé.
+请给我一杯水。 | Cho tôi một cốc nước.
+请给我一杯水。 | Nghe lại lần nữa: cho tôi một cốc nước.
+很好吃！ | Ngon quá!
+很好吃！ | Nghe lại lần nữa: ngon quá!
+买单！ | Tính tiền!
+买单！ | Nghe lại lần nữa: tính tiền!
+多少钱？ | Bao nhiêu tiền?
+多少钱？ | Nghe lại lần nữa: bao nhiêu tiền?
+
+# HỘI THOẠI 2 — ĂN XONG, TÍNH TIỀN
+阿明: 服务员！ | Em ơi!
+小芳: 来了！什么事？ | Dạ đây! Anh cần gì ạ?
+阿明: 这个菜很好吃！ | Món này ngon quá em ơi!
+小芳: 谢谢！你喜欢就好。 | Em cảm ơn! Anh thích là em vui rồi ạ.
+阿明: 再来一碗米饭。 | Cho anh thêm một bát cơm nữa.
+小芳: 好的，一碗米饭。 | Vâng, một bát cơm ạ.
+阿明: 请问，这是什么？ | Cho hỏi, đĩa này là cái gì thế em?
+小芳: 这是我们的小菜。 | Đây là đĩa đồ chua quán mời anh ạ.
+阿明: 我吃一下……啊，太辣了！ | Để anh nếm thử... ối, cay quá trời!
+小芳: 哈哈，你不吃辣吗？ | Haha, anh không ăn được cay à?
+阿明: 我不吃辣！水，水！ | Anh chịu cay dở lắm! Nước, nước mau em ơi!
+小芳: 好的，给你一杯水。 | Đây ạ, nước của anh đây.
+阿明: 谢谢……好多了。 | Cảm ơn em... đỡ hơn nhiều rồi.
+小芳: 再要一杯吗？ | Anh lấy thêm cốc nữa không ạ?
+阿明: 好的，再来一杯水。 | Ừ, cho anh thêm cốc nước nữa.
+小芳: 要不要茶？茶很好。 | Hay anh dùng trà nhé? Trà quán ngon lắm ạ.
+阿明: 好，一杯茶，谢谢。 | Được, một cốc trà, cảm ơn em.
+小芳: 菜怎么样？ | Đồ ăn hôm nay anh thấy thế nào ạ?
+阿明: 对不起，请再说一遍。 | Xin lỗi, em nói lại lần nữa nhé.
+小芳: 菜，好吃吗？ | Món ăn — có ngon không ạ?
+阿明: 很好吃！鸡肉很好吃！ | Ngon lắm! Nhất là món gà, ngon tuyệt!
+小芳: 谢谢你！ | Em cảm ơn anh!
+阿明: 我吃好了。买单！ | Anh ăn xong rồi. Tính tiền em nhé!
+小芳: 好的，请等一下。 | Vâng, anh chờ em một chút ạ.
+阿明: 一共多少钱？ | Tất cả hết bao nhiêu tiền em?
+小芳: 一共四十五块。 | Tổng cộng bốn mươi lăm tệ ạ.
+阿明: 对不起，请慢一点儿说。 | Xin lỗi, em nói chậm một chút nhé.
+小芳: 四，十，五，块。 | Bốn — mươi — lăm — tệ ạ.
+阿明: 好的。可以用手机吗？ | Hiểu rồi. Anh trả bằng điện thoại được không?
+小芳: 可以，请看这儿。 | Được ạ, anh quét mã ở đây.
+阿明: 好了。今天很好吃，谢谢！ | Xong rồi. Hôm nay ăn ngon lắm, cảm ơn em!
+小芳: 谢谢！欢迎再来！再见！ | Em cảm ơn! Lần sau anh lại ghé nhé! Tạm biệt anh!
+
+# LUYỆN TẬP
+? Muốn gọi phục vụ thì kêu thế nào?
+服务员！ | Em ơi, cho gọi món!
+? "Cho tôi xin thực đơn" nói thế nào?
+请给我菜单。 | Cho tôi xin thực đơn.
+? Không biết món gì, hỏi thế nào?
+这是什么菜？ | Món này là món gì?
+? Cứ chỉ tay vào món và nói gì?
+我要这个。 | Cho tôi món này.
+? Sợ cay thì dặn ngay câu gì?
+不要辣！ | Đừng cho cay nhé!
+? "Tôi không ăn cay được" nói thế nào?
+我不吃辣。 | Tôi không ăn cay được.
+? Muốn hỏi món có cay không?
+这个菜辣吗？ | Món này có cay không?
+? Muốn thêm một bát cơm nữa?
+再来一碗米饭。 | Thêm một bát cơm nữa nhé.
+? "Cho tôi một bát mì" nói thế nào?
+我要一碗面条。 | Cho tôi một bát mì.
+? Cay quá, xin cốc nước thế nào?
+请给我一杯水。 | Cho tôi một cốc nước.
+? Ăn thấy ngon, khen thế nào?
+很好吃！ | Ngon quá!
+? "Tôi đói lắm rồi" nói thế nào?
+我很饿。 | Tôi đói lắm rồi.
+? "Tôi ăn xong rồi" nói thế nào?
+我吃好了。 | Tôi ăn xong rồi.
+? Muốn tính tiền thì hô thế nào?
+买单！ | Tính tiền!
+? "Bao nhiêu tiền?" hỏi thế nào?
+多少钱？ | Bao nhiêu tiền?
+? Nghe không hiểu thì kêu cứu thế nào?
+我听不懂，请再说一遍。 | Tôi nghe không hiểu, xin nói lại lần nữa.
+
+# ÔN MẪU CÂU
+最后，我们再听一次。 | Cuối bài, mình nghe lại một lượt nữa nhé.
+服务员！请给我菜单。 | Em ơi! Cho tôi xin thực đơn.
+这是什么菜？ | Món này là món gì?
+我要这个，不要辣！ | Cho tôi món này, đừng cho cay nhé!
+我不吃辣。 | Tôi không ăn cay được.
+我要米饭和一杯水。 | Cho tôi cơm và một cốc nước.
+再来一碗米饭。 | Thêm một bát cơm nữa nhé.
+很好吃！ | Ngon quá!
+我吃好了，买单！ | Tôi ăn xong rồi, tính tiền!
+一共多少钱？ | Tất cả hết bao nhiêu tiền?
+我听不懂，请慢一点儿说。 | Tôi nghe không hiểu, xin nói chậm một chút.
+今天你说了很多中文！ | Hôm nay bạn nói được cả rổ câu tiếng Trung rồi đấy!
+怕辣？你会说：不要辣！ | Sợ cay ư? Bạn đã có câu hộ thân: đừng cho cay!
+第四天，阿明吃得很开心。 | Ngày thứ tư, A Minh được một bữa no nê sung sướng.
+
+# ÔN TỪ VỰNG
+服务员 | Nhân viên phục vụ
+菜单 | Thực đơn
+菜 | Món ăn
+辣 | Cay
+米饭 | Cơm
+面条 | Mì sợi
+鸡肉 | Thịt gà
+鱼 | Cá
+水 | Nước
+茶 | Trà
+杯 | Cốc, ly
+碗 | Bát, tô
+好吃 | Ngon
+饿 | Đói
+要 | Muốn, lấy (gọi món)
+吃 | Ăn
+买单 | Tính tiền
+多少钱 | Bao nhiêu tiền
+
+# HẸN NGÀY MAI
+明天，阿明去买东西。 | Ngày mai, A Minh đi dạo phố mua quà.
+他想买礼物，可是太贵了！ | Quà thì ưng mà nhìn giá muốn xỉu!
+明天学：便宜一点儿！ | Mai học ngay chiêu mặc cả: bớt chút đi mà!
+明天见！再见！ | Hẹn mai gặp lại! Tạm biệt!

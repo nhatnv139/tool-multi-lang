@@ -51,6 +51,18 @@
   <p class="sub">Bạn chỉ cần <b>điền nội dung</b> + <b>chọn giọng đọc</b>. Còn lại
      (slide, pinyin, chữ chạy theo giọng, nhạc, mascot, ghép & xuất video) app tự làm.</p>
 
+  <div class="topnav" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 20px">
+    <a href="/library"
+       style="display:inline-block;background:#fbe9ee;color:var(--pink);font-weight:600;
+              padding:9px 16px;border-radius:10px;text-decoration:none;font-size:15px">
+      📚 Thư viện video đã tạo
+    </a>
+    <button type="button" class="btn-ghost" onclick="importExistingVideo()"
+            style="padding:9px 16px;font-size:15px">📤 Đăng video có sẵn</button>
+    <span id="importSt" class="hint"></span>
+    <input type="file" accept="video/mp4" hidden id="importFile" onchange="doImportVideo()">
+  </div>
+
   <div class="card">
     <div class="toolbar">
       <label style="margin:0">📝 Nội dung <span class="hint">— mỗi dòng: <code>汉字 | nghĩa tiếng Việt</code></span></label>
@@ -115,10 +127,17 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <div class="ends"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
       </div>
       <div>
-        <label>⏸️ Khoảng ngắt giữa câu: <span id="pad_lbl" class="hint">0.8s</span></label>
+        <label>⏸️ Nhịp nghỉ giữa câu: <span id="pad_lbl" class="hint">0.8s</span></label>
         <input type="range" id="pad" min="0" max="25" step="1" value="8" style="width:100%"
                oninput="document.getElementById('pad_lbl').textContent=(this.value/10).toFixed(1)+'s'">
         <div class="ends"><span>Liền mạch</span><span>Nghỉ lâu</span></div>
+      </div>
+      <div>
+        <label>🎭 Độ biểu cảm: <span id="expressive_lbl" class="hint">60</span>
+          <span class="hint">— 0 = trầm tĩnh · 100 = nhiều cảm xúc, đăm chiêu, nhấn nhá</span></label>
+        <input type="range" id="expressive" min="0" max="100" step="5" value="60" style="width:100%"
+               oninput="document.getElementById('expressive_lbl').textContent=this.value">
+        <div class="ends"><span>Trầm tĩnh</span><span>Cảm xúc 🎭</span></div>
       </div>
       <div>
         <label>🎹 Nhạc nền (tâm trạng)</label>
@@ -544,6 +563,7 @@ async function generate(){
                                                    : document.getElementById('voice').value,
     rate:   rateValue(),
     pad:    document.getElementById('pad').value/10,
+    expressive: parseInt(document.getElementById('expressive').value,10),
     theme:  document.getElementById('theme').value,
     mascot: document.getElementById('mascot').value,
     channel:document.getElementById('channel').value,
@@ -592,6 +612,18 @@ async function generate(){
 }
 
 function setFill(p){ document.getElementById('fill').style.width = p+'%'; }
+// render lai panel "Hoan tat" (dung khi job done, hoac khi quay ve trang)
+function renderDonePanel(id, video, autoplay){
+  const p = document.getElementById('panel'); if(p) p.style.display = 'block';
+  setFill(100);
+  const pl = document.getElementById('plabel'); if(pl) pl.textContent = '✅ Hoàn tất!';
+  const r = document.getElementById('result'); if(r) r.innerHTML =
+    '<video controls'+(autoplay?' autoplay':'')+' src="/video/'+video+'"></video>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">' +
+      '<a class="dl" href="/download/'+video+'">⬇️ Tải video về</a>' +
+      '<a class="dl" style="background:#e63462;color:#fff" href="/youtube/'+id+'">🚀 Next → Đăng YouTube</a>' +
+    '</div>';
+}
 function fail(msg){
   document.getElementById('plabel').textContent = '❌ ' + msg;
   const go = document.getElementById('go');
@@ -612,14 +644,8 @@ async function poll(id){
     setFill(pct);
     document.getElementById('plabel').textContent = (s.label||'Đang xử lý...') + '  ('+pct+'%)';
     if(s.status === 'done'){
-      setFill(100);
-      document.getElementById('plabel').textContent = '✅ Hoàn tất!';
-      document.getElementById('result').innerHTML =
-        '<video controls autoplay src="/video/'+s.video+'"></video>' +
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">' +
-          '<a class="dl" href="/download/'+s.video+'">⬇️ Tải video về</a>' +
-          '<a class="dl" style="background:#e63462;color:#fff" href="/youtube/'+id+'">🚀 Next → Đăng YouTube</a>' +
-        '</div>';
+      renderDonePanel(id, s.video, true);
+      try{ if(window.tmlSaveLastJob) window.tmlSaveLastJob(id, s.video); }catch(e){}
       const go = document.getElementById('go');
       go.disabled = false; go.textContent = '🎬 Tạo video mới';
       return;
@@ -627,6 +653,103 @@ async function poll(id){
     if(s.status === 'error'){ fail(s.error || 'Có lỗi xảy ra'); return; }
     setTimeout(()=>poll(id), 1000);
   }catch(e){ setTimeout(()=>poll(id), 1500); }
+}
+
+// ===== Cache localStorage cho form tao video (autosave + restore) =====
+(function(){
+  var KEY='tml:index', LKEY='tml:index:lastjob', TTL=14*864e5;
+  var FIELDS=['content','header','voice','rate','pad','expressive','mood','chattts_style',
+    'podcast','show_title','show_outro','podcast_layout','panel_alpha','tone_colors',
+    'podcast_frame','theme','character','mascot','channel','infobar','music','music_vol',
+    'eleven_model','eleven_voice','mascot_motion','ai_mascot','image_prompt',
+    'intro_outro','use_intro','use_outro'];
+  function $(id){return document.getElementById(id);}
+  function isChk(el){return el&&el.type==='checkbox';}
+
+  function save(){
+    try{
+      var d={};
+      FIELDS.forEach(function(id){var el=$(id); if(!el)return;
+        d[id]= isChk(el)? !!el.checked : el.value;});
+      localStorage.setItem(KEY, JSON.stringify({at:Date.now(), data:d}));
+    }catch(e){}
+  }
+
+  function restore(){
+    var raw; try{raw=localStorage.getItem(KEY);}catch(e){return;}
+    if(!raw)return; var obj; try{obj=JSON.parse(raw);}catch(e){try{localStorage.removeItem(KEY);}catch(_){}return;}
+    if(!obj||(Date.now()-(obj.at||0))>TTL){try{localStorage.removeItem(KEY);}catch(e){}return;}
+    var d=obj.data||{};
+    FIELDS.forEach(function(id){
+      if(!(id in d))return; var el=$(id); if(!el)return;
+      if(isChk(el)){ el.checked=!!d[id]; }
+      else { el.value=d[id]; }
+    });
+    // dong bo cac listener phu thuoc
+    try{ var pl=$('podcast_layout'); if(pl) pl.dispatchEvent(new Event('change')); }catch(e){}
+    try{ var v=$('voice'); if(v) v.dispatchEvent(new Event('change')); }catch(e){}
+    try{ if(typeof rateLabel==='function' && $('rate')) rateLabel($('rate').value); }catch(e){}
+    try{ if(typeof toggleChar==='function') toggleChar(); }catch(e){}
+    // cap nhat cac nhan range khac (range co inline oninput cap nhat label)
+    ['rate','pad','expressive','music_vol','panel_alpha'].forEach(function(id){
+      var el=$(id); if(el){ try{el.dispatchEvent(new Event('input'));}catch(e){} }
+    });
+  }
+
+  var t;
+  document.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(save,400); });
+  document.addEventListener('change', save);
+
+  restore();
+
+  // ----- nho job vua tao xong de quay lai van thay panel Next->Dang -----
+  window.tmlSaveLastJob=function(job_id, video){
+    try{ localStorage.setItem(LKEY, JSON.stringify({job_id:job_id, video:video, at:Date.now()})); }catch(e){}
+  };
+  // khi load: neu co last job con han, hoi server xem job con song khong
+  (function(){
+    var raw; try{raw=localStorage.getItem(LKEY);}catch(e){return;}
+    if(!raw)return; var lj; try{lj=JSON.parse(raw);}catch(e){try{localStorage.removeItem(LKEY);}catch(_){}return;}
+    if(!lj||!lj.job_id||(Date.now()-(lj.at||0))>TTL){try{localStorage.removeItem(LKEY);}catch(e){}return;}
+    fetch('/api/seo/'+lj.job_id).then(function(r){return r.json();}).then(function(j){
+      if(j && j.seo && Object.keys(j.seo).length){
+        if(typeof renderDonePanel==='function') renderDonePanel(lj.job_id, j.video||lj.video, false);
+      } else { try{localStorage.removeItem(LKEY);}catch(e){} }
+    }).catch(function(){});
+  })();
+})();
+</script>
+
+<script>
+// ===== Đăng video có sẵn (import mp4 -> /import_video -> sang trang đăng) =====
+function importExistingVideo(){
+  var inp = document.getElementById('importFile');
+  if(inp){ inp.value = ''; inp.click(); }
+}
+async function doImportVideo(){
+  var inp = document.getElementById('importFile');
+  var st  = document.getElementById('importSt');
+  var f = inp && inp.files && inp.files[0];
+  if(!f){ return; }
+  var title = '';
+  try{ title = (window.prompt('Tiêu đề video (để trống = tự đặt):', f.name.replace(/\.mp4$/i,'')) || '').trim(); }
+  catch(e){ title = ''; }
+  if(st) st.textContent = '— ⏳ đang tải lên...';
+  try{
+    var fd = new FormData();
+    fd.append('file', f);
+    fd.append('title', title);
+    var r = await fetch('/import_video', {method:'POST', body:fd});
+    var j = await r.json();
+    if(j && j.job_id){
+      if(st) st.textContent = '— ✅ đã tải lên, chuyển sang trang đăng...';
+      window.location = '/youtube/' + j.job_id;
+    } else {
+      if(st) st.textContent = '— ❌ ' + ((j && j.error) || 'lỗi tải lên');
+    }
+  }catch(e){
+    if(st) st.textContent = '— ❌ lỗi tải lên: ' + e;
+  }
 }
 </script>
 </body>

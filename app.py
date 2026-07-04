@@ -3,7 +3,7 @@
 Chay:  python app.py   ->  mo http://127.0.0.1:5001
 Ban chi can: dien NOI DUNG + chon GIONG DOC -> bam Tao video. Con lai tu dong.
 """
-import os, sys, threading, time, traceback, re
+import os, sys, threading, time, traceback, re, json
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -16,6 +16,41 @@ OUT = os.path.join(ROOT, "output")
 app = Flask(__name__)
 
 jobs = {}
+JOBS_DB = os.path.join(OUT, "jobs.json")    # persist metadata job 'done' ra disk
+
+def _save_job(job_id):
+    """Ghi metadata cua MOT job done vao jobs.json (doc-merge-ghi). Nuot loi IO."""
+    try:
+        j = jobs.get(job_id) or {}
+        if j.get("status") != "done":
+            return                          # chi persist job done, bo qua running/error
+        data = {}
+        try:
+            with open(JOBS_DB, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception:
+            data = {}
+        data[job_id] = {"video": j.get("video"), "thumb": j.get("thumb"),
+                        "seo": j.get("seo"), "status": "done"}
+        os.makedirs(OUT, exist_ok=True)
+        with open(JOBS_DB, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        traceback.print_exc()
+
+# Nap lai cac job done con file video tren disk (sau restart)
+try:
+    with open(JOBS_DB, "r", encoding="utf-8") as f:
+        _saved = json.load(f) or {}
+    for _jid, _v in _saved.items():
+        try:
+            if _v.get("video") and os.path.exists(os.path.join(OUT, _v["video"])):
+                jobs[_jid] = _v
+        except Exception:
+            pass
+except Exception:
+    pass
+
 _build_lock = threading.Lock()      # render tuan tu (ffmpeg nang)
 
 # Giong edge-tts (mien phi, khong can key) — value tien to "edge:"
@@ -194,6 +229,95 @@ MASCOTS = [("", "Tự đổi theo bài"), ("🐼", "Gấu trúc"), ("🐱", "Mè
 def slugify(s):
     s = re.sub(r'[\\/:*?"<>|]', "", s).strip().replace(" ", "_")
     return s[:40] or "video"
+
+# ---------- Thu vien video tren disk ----------
+def _job_id_from_fn(fn):
+    """Tach job_id (timestamp ms) tu ten file mp4."""
+    m = re.search(r'_(\d+)\.mp4$', fn)
+    return m.group(1) if m else os.path.splitext(fn)[0]
+
+def _read_meta(fn):
+    """Doc <fn>.meta.json (vd <file>.mp4.meta.json). Tra dict (rong neu loi)."""
+    try:
+        with open(os.path.join(OUT, fn + ".meta.json"), "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def list_library():
+    """Quet output/ -> danh sach video sort theo mtime giam dan.
+    Moi item: job_id, title, video, thumb, date, size_mb, has_seo."""
+    items = []
+    try:
+        names = os.listdir(OUT)
+    except Exception:
+        return items
+    for fn in names:
+        if not fn.lower().endswith(".mp4"):
+            continue
+        try:
+            path = os.path.join(OUT, fn)
+            if not os.path.isfile(path):
+                continue
+            job_id = _job_id_from_fn(fn)
+            base = fn[:-4]
+            thumb_name = base + ".thumb.jpg"
+            thumb = thumb_name if os.path.exists(os.path.join(OUT, thumb_name)) else None
+            st = os.stat(path)
+            # title: jobs[job_id].seo.title -> meta.json title -> ten file
+            jseo = (jobs.get(job_id, {}) or {}).get("seo") or {}
+            title = (jseo.get("title")
+                     or _read_meta(fn).get("title")
+                     or base)
+            seo_d = jobs.get(job_id, {}).get("seo") or {}
+            has_seo = bool(seo_d.get("description") or seo_d.get("tags"))
+            items.append({
+                "job_id": job_id,
+                "title": title,
+                "video": fn,
+                "thumb": thumb,
+                "date": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                "size_mb": round(st.st_size / (1024 * 1024), 1),
+                "has_seo": has_seo,
+                "_mtime": st.st_mtime,
+            })
+        except Exception:
+            continue
+    items.sort(key=lambda x: x.get("_mtime", 0), reverse=True)
+    for it in items:
+        it.pop("_mtime", None)
+    return items
+
+def _job_from_disk(job_id):
+    """Tim video tren disk theo job_id -> dung job dict toi thieu (status done).
+    None neu khong tim thay file mp4."""
+    try:
+        names = os.listdir(OUT)
+    except Exception:
+        return None
+    target = None
+    suffix = f"_{job_id}.mp4"
+    exact = f"{job_id}.mp4"
+    for fn in names:
+        if not fn.lower().endswith(".mp4"):
+            continue
+        if fn.endswith(suffix) or fn == exact:
+            target = fn
+            break
+    if not target:
+        return None
+    base = target[:-4]
+    thumb_name = base + ".thumb.jpg"
+    thumb = thumb_name if os.path.exists(os.path.join(OUT, thumb_name)) else None
+    title = _read_meta(target).get("title") or base
+    return {
+        "video": target,
+        "thumb": thumb,
+        "seo": {"title": title, "titles": [title], "description": "",
+                "tags": [], "hashtags": [], "pinned_comment": "",
+                "privacy": "public"},
+        "status": "done",
+    }
 
 @app.route("/")
 def index():
@@ -379,6 +503,7 @@ def run_job(job_id, data):
                              if engine == "chattts" else None),
                 "rate":     data.get("rate", "-8%"),
                 "pad":      float(data.get("pad", 0.8)),
+                "expressive": int(data.get("expressive", 60)),
                 "theme":    data.get("theme", "pink"),
                 "music":    bool(data.get("music", True)),
                 "music_vol": float(data.get("music_vol", 0.5)),
@@ -420,6 +545,7 @@ def run_job(job_id, data):
             jobs[job_id].update(status="done", video=os.path.basename(final),
                                 thumb=(thumb if os.path.exists(os.path.join(OUT, thumb)) else None),
                                 seo=seo_meta, label="Hoàn tất!")
+            _save_job(job_id)               # persist metadata job done ra jobs.json
     except Exception as e:
         traceback.print_exc()
         jobs[job_id].update(status="error", error=str(e), label="Lỗi: " + str(e))
@@ -464,15 +590,90 @@ def upload_thumb(job_id):
 def youtube_page(job_id):
     job = jobs.get(job_id)
     if not job or job.get("status") != "done":
-        return "Video chưa sẵn sàng. Hãy tạo video trước.", 404
+        j = _job_from_disk(job_id)              # fallback: video co tren disk
+        if j:
+            jobs[job_id] = j                    # cache lai vao RAM
+            job = j
+        else:
+            return "Video chưa sẵn sàng. Hãy tạo video trước.", 404
     return render_template("youtube.html", job_id=job_id,
                            video=job["video"], thumb=job.get("thumb"),
                            seo=job.get("seo", {}))
 
 @app.route("/api/seo/<job_id>")
 def api_seo(job_id):
-    job = jobs.get(job_id, {})
+    job = jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        j = _job_from_disk(job_id)              # fallback: video co tren disk
+        if j:
+            jobs[job_id] = j                    # cache lai vao RAM
+            job = j
+        else:
+            job = {}
     return jsonify(video=job.get("video"), seo=job.get("seo", {}))
+
+# ---------- Thu vien video da tao ----------
+@app.route("/library")
+def library_page():
+    return render_template("library.html", videos=list_library())
+
+@app.route("/library/delete/<job_id>", methods=["POST"])
+def library_delete(job_id):
+    """Xoa file mp4 + thumb + meta.json cua job_id, go khoi jobs + jobs.json."""
+    j = _job_from_disk(job_id)
+    if not j:
+        return jsonify(ok=False, error="not found"), 404
+    video = j["video"]
+    base = video[:-4]
+    for name in (video, base + ".thumb.jpg", video + ".meta.json"):
+        try:
+            p = os.path.join(OUT, name)
+            if os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            traceback.print_exc()
+    jobs.pop(job_id, None)
+    # doc-merge-xoa-ghi jobs.json
+    try:
+        data = {}
+        try:
+            with open(JOBS_DB, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception:
+            data = {}
+        if job_id in data:
+            data.pop(job_id, None)
+            os.makedirs(OUT, exist_ok=True)
+            with open(JOBS_DB, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        traceback.print_exc()
+    return jsonify(ok=True)
+
+@app.route("/import_video", methods=["POST"])
+def import_video():
+    """Dang video co san (multipart 'file' mp4 + 'title' optional) vao thu vien."""
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(error="thiếu file"), 400
+    title = (request.form.get("title") or "").strip()
+    job_id = str(int(time.time() * 1000))
+    slug = slugify(title or "video-co-san")
+    fname = f"{slug}_{job_id}.mp4"
+    os.makedirs(OUT, exist_ok=True)
+    f.save(os.path.join(OUT, fname))
+    try:
+        with open(os.path.join(OUT, fname + ".meta.json"), "w", encoding="utf-8") as mf:
+            json.dump({"title": title or slug, "segments": [], "imported": True},
+                      mf, ensure_ascii=False)
+    except Exception:
+        traceback.print_exc()
+    jobs[job_id] = {"status": "done", "video": fname, "thumb": None,
+                    "seo": {"title": title or slug, "titles": [title or slug],
+                            "description": "", "tags": [], "hashtags": [],
+                            "pinned_comment": "", "privacy": "public"}}
+    _save_job(job_id)
+    return jsonify(job_id=job_id)
 
 # ---------- YouTube upload (OAuth) ----------
 import youtube_upload

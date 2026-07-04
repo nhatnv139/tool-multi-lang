@@ -204,6 +204,7 @@ async function loadChannels(){
            <input type="checkbox" class="chanChk" value="${c.id}" data-name="${c.title}" ${i===0?'checked':''} onchange="onChanChange()"> ${c.title}
          </label>`).join('');
       document.getElementById('chanWarn').style.display='none';
+      try{ if(window.tmlRestoreChannels) window.tmlRestoreChannels(); }catch(e){}
       onChanChange();
     } else {
       list.innerHTML = '<div class="muted">(chưa có kênh)</div>';
@@ -294,6 +295,7 @@ async function doUpload(){
     }catch(e){ line.className='st-line err'; line.innerHTML=`❌ <b>${c.name}</b>: lỗi mạng ${e}`; }
   }
   btn.textContent='✅ Hoàn tất';
+  btn.disabled=false;
 }
 // ---------- Mang xa hoi ----------
 const PLAT_META = {
@@ -352,6 +354,7 @@ function renderSocial(){
   }).join('');
   // cập nhật preview lần đầu cho các nền tảng đã kết nối
   Object.keys(SOCIAL.platforms).forEach(p=>{ if(SOCIAL.platforms[p].connected) preview(p); });
+  try{ if(window.tmlRestoreSocial) window.tmlRestoreSocial(); }catch(e){}
 }
 
 // ----- Form nội dung chuẩn SEO cho 1 nền tảng -----
@@ -510,6 +513,78 @@ async function pollSocialInto(taskId, el, name){
     if(!j.done) setTimeout(()=>pollSocialInto(taskId, el, name), 2000);
   }catch(e){ el.innerHTML = `<b>${name}</b><div class="err">${e}</div>`; }
 }
+
+// ===== Cache localStorage cho trang Dang (theo job_id) =====
+(function(){
+  var KEY='tml:yt:'+JOB, TTL=14*864e5;
+  var TXT=['title','desc','privacy','tags','pin'];
+  var CHK=['capToggle','postComment','setThumb'];
+  var PLATS=['facebook','x','tiktok','instagram'];
+  function $(id){return document.getElementById(id);}
+  function load(){ try{var r=localStorage.getItem(KEY); if(!r)return null; var o=JSON.parse(r);
+    if(!o||(Date.now()-(o.at||0))>TTL){localStorage.removeItem(KEY);return null;} return o.data||{}; }catch(e){return null;} }
+  function persist(d){ try{ localStorage.setItem(KEY, JSON.stringify({at:Date.now(), data:d})); }catch(e){} }
+
+  function save(){
+    try{
+      var d={};
+      TXT.forEach(function(id){var el=$(id); if(el) d[id]=el.value;});
+      CHK.forEach(function(id){var el=$(id); if(el) d[id]=!!el.checked;});
+      // kenh da tick
+      var cks=document.querySelectorAll('#channelList .chanChk');
+      if(cks.length){ d.__channels=[].filter.call(cks,function(c){return c.checked;}).map(function(c){return c.value;}); }
+      var ca=$('chanAll'); if(ca) d.__chanAll=!!ca.checked;
+      // caption MXH theo platform (chi cac o dang hien)
+      d.social={};
+      PLATS.forEach(function(p){
+        var h=$('f_hook_'+p), b=$('f_body_'+p), c=$('f_cta_'+p), t=$('f_tags_'+p), lk=$('f_link_'+p);
+        if(h||b||c||t||lk){
+          d.social[p]={hook:h?h.value:'', body:b?b.value:'', cta:c?c.value:'',
+            tags:t?t.value:'', link:lk?!!lk.checked:undefined};
+        }
+      });
+      persist(d);
+    }catch(e){}
+  }
+
+  // ---- restore field tinh ngay khi DOM load (chi khi co cache => job cu) ----
+  var CACHE=load();
+  if(CACHE){
+    TXT.forEach(function(id){ if(id in CACHE){var el=$(id); if(el) el.value=CACHE[id];} });
+    CHK.forEach(function(id){ if(id in CACHE){var el=$(id); if(el) el.checked=!!CACHE[id];} });
+  }
+
+  // ---- restore kenh da tick: goi SAU khi #channelList co .chanChk ----
+  window.tmlRestoreChannels=function(){
+    if(!CACHE || !CACHE.__channels) return false;
+    var cks=document.querySelectorAll('#channelList .chanChk');
+    if(!cks.length) return false;
+    var want=CACHE.__channels;
+    [].forEach.call(cks,function(c){ c.checked = want.indexOf(c.value)>-1; });
+    var ca=$('chanAll'); if(ca && typeof CACHE.__chanAll==='boolean') ca.checked=CACHE.__chanAll;
+    return true;
+  };
+
+  // ---- restore caption MXH: goi SAU moi renderSocial() ----
+  window.tmlRestoreSocial=function(){
+    if(!CACHE || !CACHE.social) return;
+    PLATS.forEach(function(p){
+      var s=CACHE.social[p]; if(!s) return;
+      var h=$('f_hook_'+p), b=$('f_body_'+p), c=$('f_cta_'+p), t=$('f_tags_'+p), lk=$('f_link_'+p);
+      if(h && s.hook!=null) h.value=s.hook;
+      if(b && s.body!=null) b.value=s.body;
+      if(c && s.cta!=null)  c.value=s.cta;
+      if(t && s.tags!=null) t.value=s.tags;
+      if(lk && typeof s.link==='boolean') lk.checked=s.link;
+      if(typeof preview==='function') try{preview(p);}catch(e){}
+    });
+  };
+
+  // ---- wiring: delegation bat ca field sinh sau (MXH) ----
+  var t;
+  document.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(save,400); });
+  document.addEventListener('change', save);
+})();
 
 loadChannels();
 </script>

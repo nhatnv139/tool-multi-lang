@@ -201,23 +201,26 @@ def generate(ctx):
     seg_meta = ctx.get("_seg_meta") or []
     han_title, viet_title = split_title(ctx.get("title", ""))
     hsk = str(ctx.get("hsk", "") or "HSK1").replace("HSK", "").strip() or "1"
-    ep = ctx.get("episode") or ctx.get("id") or 1
+    # chi hien so tap khi user chu dong dat (lesson_parser mac dinh id=1 cho moi bai)
+    ep = ctx.get("episode")
+    ep_sfx = f" #{ep}" if ep else ""
     channel = ctx.get("channel", "Học Tiếng Trung")
 
-    base = f"{han_title} {viet_title}".strip()
+    # nguoi xem muc tieu la nguoi Viet moi hoc -> hook tieng Viet dung TRUOC, chu Han sau
+    hook = viet_title or han_title
     titles = [
-        f"{base} | Luyện nghe tiếng Trung HSK{hsk} #{ep} (phụ đề Việt + pinyin)",
-        f"{han_title} | Học tiếng Trung cho người Việt HSK{hsk} #{ep} — Nghe hiểu cơ bản",
-        f"{viet_title} {han_title} | Tiếng Trung cho người mới HSK{hsk} #{ep} + pinyin",
-        f"{han_title} {viet_title} | Luyện nghe tiếng Trung HSK{hsk} có phụ đề #{ep}",
+        f"{hook} {han_title} | Luyện nghe tiếng Trung HSK{hsk}{ep_sfx} (phụ đề Việt + pinyin)",
+        f"{hook} | Học tiếng Trung cho người Việt HSK{hsk}{ep_sfx} — Nghe hiểu cơ bản",
+        f"{hook} {han_title} | Tiếng Trung cho người mới HSK{hsk}{ep_sfx} + pinyin",
+        f"{han_title} {viet_title} | Luyện nghe tiếng Trung HSK{hsk} có phụ đề{ep_sfx}",
     ]
 
     ch_txt = chapters_text(seg_meta)
     tr_txt = transcript_text(seg_meta)
     hashtags = ["#luyennghetiengtrung", "#hoctiengtrung", f"#HSK{hsk}",
                 "#tiengtrungchonguoiviet", "#nghehieutiengtrung"]
-    next_ep = (int(ep) + 1) if str(ep).isdigit() else ep
-    next_ep_txt = f"#{next_ep}" if str(next_ep).isdigit() else str(next_ep)
+    next_ep = (int(ep) + 1) if ep and str(ep).isdigit() else None
+    next_ep_txt = f"#{next_ep}" if next_ep else "sẽ lên sóng ngày mai"
     doc_link = (ctx.get("doc_link") or "").strip()
     # khoi tai lieu Google Drive chi hien khi co link (tu an khi rong)
     doc_block = (f"📄 TÀI LIỆU (chữ Hán + pinyin + nghĩa Việt) — tải miễn phí:\n{doc_link}\n\n"
