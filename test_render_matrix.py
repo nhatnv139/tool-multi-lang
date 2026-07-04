@@ -94,7 +94,14 @@ for v in ["inkwash", "daily"]:
                         ({"podcast_frame": False}, "noframe"),
                         ({"show_progress": False}, "noprog"),
                         ({"tone_colors": False}, "notone"),
-                        ({"pinyin_top": False}, "pybottom")]:
+                        ({"pinyin_top": False}, "pybottom"),
+                        ({"bottom_bar": True, "bar_left": "Học 中文 mỗi ngày",
+                          "bar_badge": "PODCAST", "bar_bg": "#14161e"}, "botbar"),
+                        ({"bottom_bar": True, "bar_left": "", "bar_badge": "",
+                          "bar_bg": ""}, "botbar_empty"),
+                        ({"zh_color": "#8b1a1a", "py_color": "#7a4fc0",
+                          "vi_color": "#d2691e", "panel_color": "#fff3d6"}, "colors"),
+                        ({"zh_color": "xx", "py_color": "#zz9", "panel_color": 5}, "badcolors")]:
         n += 1
         ctx = base_ctx(v); ctx.update(patch)
         try:

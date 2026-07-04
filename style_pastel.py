@@ -165,6 +165,16 @@ def draw_mascot(im, d, ctx):
 def has_hanzi(ch):
     return '一' <= ch <= '鿿'
 
+def hex2rgb(h):
+    """'#rrggbb' -> (r,g,b); sai/rong -> None (dung mau mac dinh)."""
+    try:
+        h = (h or "").strip().lstrip("#")
+        if len(h) != 6:
+            return None
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except (ValueError, AttributeError):
+        return None
+
 def text_w(d, t, f):
     bb = d.textbbox((0, 0), t, font=f); return bb[2]-bb[0]
 
@@ -466,9 +476,10 @@ def _draw_hanzi_wrapped(d, text, cx, top, size, max_w,
         y += lh
     return len(lines) * lh
 
-def _draw_pinyin_line(d, text, cx, y, max_w, size=46, gap=10, tone=False):
+def _draw_pinyin_line(d, text, cx, y, max_w, size=46, gap=10, tone=False, neutral=None):
     """Ve dong pinyin ca cau, canh giua. Dau cau (，。"") ve bang font Han de KHONG bi tofu.
-       tone=True: to mau tung am tiet theo thanh dieu. Tu thu nho neu dai qua max_w."""
+       tone=True: to mau tung am tiet theo thanh dieu. neutral: mau khi KHONG to thanh dieu."""
+    neutral = neutral or PC_PINYIN
     toks = []
     for ch, p, h in flatten(text):
         if ch.strip() == "":
@@ -487,7 +498,7 @@ def _draw_pinyin_line(d, text, cx, y, max_w, size=46, gap=10, tone=False):
     x = cx - total // 2
     for t, isc, w in ws:
         f = zf if isc else pf
-        col = PC_PINYIN if (isc or not tone) else TONE_COLORS[_tone_of(t)]
+        col = neutral if (isc or not tone) else TONE_COLORS[_tone_of(t)]
         d.text((x, y), t, font=f, fill=col)
         x += w + gap
     return size + 12
@@ -516,7 +527,8 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
         mask = Image.new("L", (W, H), 0)
         ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=26, fill=alpha)
         mask = mask.filter(ImageFilter.GaussianBlur(16))     # mo mep -> khong vet cung
-        white = Image.new("RGBA", (W, H), (255, 253, 248, 255))
+        panel_c = hex2rgb(ctx.get("panel_color")) or (255, 253, 248)
+        white = Image.new("RGBA", (W, H), tuple(panel_c) + (255,))
         im = Image.composite(white, im, mask)
     # vien co dien + goc trang tri (net sac)
     if ctx.get("podcast_frame", True):
@@ -537,6 +549,10 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
     cx = W // 2
     box_w = x1 - x0
     max_w = int(box_w * 0.90)
+    # mau tuy chinh tung dong (nguoi dung chon trong app; rong = mac dinh)
+    ink_c = hex2rgb(ctx.get("zh_color")) or INK
+    py_c = hex2rgb(ctx.get("py_color")) or PC_PINYIN
+    vi_c = hex2rgb(ctx.get("vi_color")) or PC_VIET
 
     # --- chip ten nguoi noi (hoi thoai nhieu giong) ---
     sp = seg.get("_sp")
@@ -569,9 +585,10 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
         d.text((cx - lw // 2, y + (2 if has_cjk else 6)), label, font=cf, fill=(255, 255, 255))
         y += chip_h
     tone = bool(ctx.get("tone_colors", True))
-    y += _draw_hanzi_wrapped(d, text, cx, y, zsize, max_w, reveal_t=reveal_t, t_now=t_now)
+    y += _draw_hanzi_wrapped(d, text, cx, y, zsize, max_w, reveal_t=reveal_t, t_now=t_now,
+                             color=ink_c)
     y += gap1
-    y += _draw_pinyin_line(d, text, cx, y, int(box_w * 0.94), tone=tone)
+    y += _draw_pinyin_line(d, text, cx, y, int(box_w * 0.94), tone=tone, neutral=py_c)
     if vie_h:
         # gach trang tri mảnh + cham ngoc giua Han/pinyin va nghia Viet
         dy = y + gap2 // 2
@@ -581,7 +598,7 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
         y += gap2 + 8
         for ln in vwraps:
             tw = text_w(d, ln, vf)
-            d.text((cx - tw // 2, y), ln, font=vf, fill=PC_VIET); y += 56 + 12
+            d.text((cx - tw // 2, y), ln, font=vf, fill=vi_c); y += 56 + 12
 
     im.save(path)
     return im

@@ -151,7 +151,20 @@ CHIP_DARK  = [(96, 150, 245), (238, 116, 166), (243, 176, 84), (108, 200, 140), 
 
 def _cfg(ctx):
     v = str(ctx.get("podcast_variant") or "inkwash")
-    return VARIANTS.get(v, VARIANTS["inkwash"])
+    cfg = VARIANTS.get(v, VARIANTS["inkwash"])
+    # nguoi dung tu chon mau: chu tung dong (zh/py/vi_color) + nen panel (panel_color)
+    over = {}
+    for ck, key in (("ink", "zh_color"), ("pinyin", "py_color"), ("viet", "vi_color")):
+        c = SP.hex2rgb(ctx.get(key))
+        if c:
+            over[ck] = c
+    pc = SP.hex2rgb(ctx.get("panel_color"))
+    if pc:
+        over["panel"] = pc      # lop nen chu (panel variants)
+        over["bgfill"] = pc     # nen phang khi KHONG co anh nen (free/flat/song...)
+    if over:
+        cfg = dict(cfg); cfg.update(over)   # copy — KHONG sua bang VARIANTS goc
+    return cfg
 
 
 # ---------- NEN ----------
@@ -677,13 +690,75 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
         st = _seal_text(ctx)
         ssz = 40 * S
         _draw_seal(im, d, st, 40 * S, H * S - 40 * S - ssz * max(1, len(st)), ssz)
+    bar_h = _draw_bottom_bar(im, d, ctx)
     if ctx.get("show_progress", True):
         _draw_counter(d, seg, dark)
-        _draw_progress(d, seg)
+        _draw_progress(d, seg, off=bar_h)
 
     out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
+
+
+# ---------- BOTTOM BAR (thanh chan kieu Chinese Daily) ----------
+def _mixed_w(d, text, size):
+    """Be rong chuoi khi ve tron: chu Han dung font Han, Latin/Viet dung font dam."""
+    return sum(SP.text_w(d, ch, SP.font("zh" if SP._is_cjk(ch) else "badge", size))
+               for ch in text)
+
+
+def _mixed_text(d, x, y, text, size, fill):
+    """Ve chuoi tron Han + Latin/Viet (khong tofu). Tra ve x sau khi ve."""
+    for ch in text:
+        cjk = SP._is_cjk(ch)
+        f = SP.font("zh" if cjk else "badge", size)
+        d.text((x, y - (int(size * 0.08) if cjk else 0)), ch, font=f, fill=fill)
+        x += SP.text_w(d, ch, f)
+    return x
+
+
+def _luma(c):
+    return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+
+
+BAR_H = 64  # chieu cao bottom bar (px 1x)
+
+def _draw_bottom_bar(im, d, ctx):
+    """Thanh chan day man hinh: hook TRAI + ten kenh & badge PHAI.
+       Mau nen tuy chinh ctx['bar_bg'] ('#rrggbb'); chu tu dong den/trang theo do sang.
+       Tra ve chieu cao bar (2x) de day thanh tien do len tren."""
+    if not ctx.get("bottom_bar"):
+        return 0
+    bar_h = BAR_H * S
+    bg = SP.hex2rgb(ctx.get("bar_bg")) or (244, 241, 234)
+    fg = (34, 32, 30) if _luma(bg) > 140 else (250, 248, 244)
+    y0 = H * S - bar_h
+    d.rectangle([0, y0, W * S, H * S], fill=tuple(bg) + (255,))
+    d.line([(0, y0), (W * S, y0)], fill=(0, 0, 0, 45), width=S)
+    ty = y0 + (bar_h - 30 * S) // 2 - 2 * S
+    # trai: cau hook (tu dong VIET HOA cho manh)
+    left = (ctx.get("bar_left") or "").strip()
+    if left:
+        _mixed_text(d, 56 * S, ty, left.upper(), 30 * S, fg)
+    # phai: badge pill (PODCAST...) roi den ten kenh
+    x = W * S - 56 * S
+    badge = (ctx.get("bar_badge") or "PODCAST").strip()
+    if badge:
+        bf30 = 26 * S
+        bw = _mixed_w(d, badge, bf30)
+        pw = bw + 44 * S
+        x -= pw
+        d.rounded_rectangle([x, y0 + 12 * S, x + pw, H * S - 12 * S],
+                            radius=(bar_h - 24 * S) // 2, fill=(28, 28, 32, 255))
+        # cham mic vang ben phai trong pill
+        _mixed_text(d, x + 20 * S, y0 + (bar_h - bf30) // 2 - 2 * S, badge, bf30,
+                    (255, 255, 255))
+        x -= 22 * S
+    ch = (ctx.get("channel") or "").strip()
+    if ch:
+        cw = _mixed_w(d, ch.upper(), 30 * S)
+        _mixed_text(d, x - cw, ty, ch.upper(), 30 * S, fg)
+    return bar_h
 
 
 # ---------- BO DEM CAU + THANH TIEN DO ----------
@@ -701,14 +776,16 @@ def _draw_counter(d, seg, dark):
     d.text((x1 - lw - 22 * S, y0 + 9 * S), label, font=f, fill=(255, 246, 224))
 
 
-def _draw_progress(d, seg):
-    """Thanh tien do manh (6px) day man hinh — mau vang accent tren track mo."""
+def _draw_progress(d, seg, off=0):
+    """Thanh tien do manh (6px) day man hinh — mau vang accent tren track mo.
+       off: day len tren (khi co bottom bar)."""
     idx, n = seg.get("_idx"), seg.get("_n")
     if not idx or not n:
         return
     h = 6 * S
-    d.rectangle([0, H * S - h, W * S, H * S], fill=(255, 255, 255, 34))
-    d.rectangle([0, H * S - h, int(W * S * idx / n), H * S], fill=(227, 179, 65, 235))
+    yb = H * S - off
+    d.rectangle([0, yb - h, W * S, yb], fill=(255, 255, 255, 34))
+    d.rectangle([0, yb - h, int(W * S * idx / n), yb], fill=(227, 179, 65, 235))
 
 
 # ---------- RENDER CHINH ----------
@@ -902,9 +979,10 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
                 _shadow_text(d, (cx - tw // 2, y), ln, vf, cfg["viet"], dark)
                 y += vsz + 12 * S
 
+    bar_h = _draw_bottom_bar(im, d, ctx)
     if ctx.get("show_progress", True):
         _draw_counter(d, seg, dark)
-        _draw_progress(d, seg)
+        _draw_progress(d, seg, off=bar_h)
 
     out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
@@ -943,6 +1021,7 @@ def render_section(seg, ctx, path):
     ink = cfg["ink"]
     _shadow_text(d, (cx - tw // 2, cy - (108 * S) // 2 - 12 * S), lbl, lf, ink, dark)
     _divider(d, cx, cy + (108 * S) // 2 + 26 * S, div_style, cfg["border"])
+    _draw_bottom_bar(im, d, ctx)
     out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out

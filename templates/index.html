@@ -260,6 +260,63 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <input type="number" id="vi_px" min="20" max="200" step="2" placeholder="tự động">
         </div>
       </div>
+      <div class="mt switch">
+        <input type="checkbox" id="bottom_bar" onchange="document.getElementById('bar_row').style.display=this.checked?'flex':'none'">
+        <label for="bottom_bar" style="margin:0">📛 Thanh chân trang (bottom bar)
+          <span class="hint">(hook bên trái · tên kênh + badge bên phải — kiểu Chinese Daily)</span></label>
+      </div>
+      <div class="row mt" id="bar_row" style="display:none">
+        <div style="flex:2">
+          <label>✍️ Chữ bên trái <span class="hint">(câu hook — tự VIẾT HOA)</span></label>
+          <input type="text" id="bar_left" placeholder="vd: Học tiếng Trung như pha một ấm trà">
+        </div>
+        <div>
+          <label>🏷️ Chữ trong badge</label>
+          <input type="text" id="bar_badge" value="PODCAST">
+        </div>
+        <div>
+          <label>🎨 Màu nền thanh <span class="hint">(điền mã #rrggbb)</span></label>
+          <div style="display:flex;gap:6px">
+            <input type="color" id="bar_bg_pick" value="#f4f1ea" style="width:52px;height:42px;border:1.5px solid #ecd4da;border-radius:10px;background:#fff;padding:2px">
+            <input type="text" id="bar_bg" value="#f4f1ea" style="flex:1">
+          </div>
+        </div>
+      </div>
+      <div class="mt switch">
+        <input type="checkbox" id="custom_colors" onchange="document.getElementById('color_row').style.display=this.checked?'flex':'none'">
+        <label for="custom_colors" style="margin:0">🎨 Tự chọn MÀU từng dòng chữ
+          <span class="hint">(tắt = màu đẹp có sẵn theo biến thể)</span></label>
+      </div>
+      <div class="row mt" id="color_row" style="display:none">
+        <div>
+          <label>🈶 Màu chữ Hán</label>
+          <div style="display:flex;gap:6px">
+            <input type="color" id="zh_color_pick" value="#2c2826" style="width:52px;height:42px;border:1.5px solid #ecd4da;border-radius:10px;background:#fff;padding:2px">
+            <input type="text" id="zh_color" placeholder="trống = mặc định" style="flex:1">
+          </div>
+        </div>
+        <div>
+          <label>🔡 Màu pinyin <span class="hint">(áp khi TẮT tô thanh điệu)</span></label>
+          <div style="display:flex;gap:6px">
+            <input type="color" id="py_color_pick" value="#7a746c" style="width:52px;height:42px;border:1.5px solid #ecd4da;border-radius:10px;background:#fff;padding:2px">
+            <input type="text" id="py_color" placeholder="trống = mặc định" style="flex:1">
+          </div>
+        </div>
+        <div>
+          <label>🇻🇳 Màu nghĩa Việt</label>
+          <div style="display:flex;gap:6px">
+            <input type="color" id="vi_color_pick" value="#266e4e" style="width:52px;height:42px;border:1.5px solid #ecd4da;border-radius:10px;background:#fff;padding:2px">
+            <input type="text" id="vi_color" placeholder="trống = mặc định" style="flex:1">
+          </div>
+        </div>
+        <div>
+          <label>🩹 Màu NỀN lớp chữ (panel/bg) <span class="hint">(nền phẳng khi không có ảnh)</span></label>
+          <div style="display:flex;gap:6px">
+            <input type="color" id="panel_color_pick" value="#fffdf6" style="width:52px;height:42px;border:1.5px solid #ecd4da;border-radius:10px;background:#fff;padding:2px">
+            <input type="text" id="panel_color" placeholder="trống = mặc định" style="flex:1">
+          </div>
+        </div>
+      </div>
       <label class="mt">🩹 Độ mờ lớp nền chữ: <span id="panel_alpha_lbl" class="hint">150</span> <span class="hint">(0 = không có lớp nền, 255 = đặc; nhóm "trên tranh" không dùng)</span></label>
       <input type="range" id="panel_alpha" min="0" max="255" step="5" value="150" style="width:100%"
              oninput="document.getElementById('panel_alpha_lbl').textContent=this.value">
@@ -645,6 +702,16 @@ const PC_VARIANT_ALPHA = {inkwash:165, scroll:210, album:228, minimal:0, night:2
                           daily:0, flat:0, clean:0, top:0,
                           lantern:240, porcelain:242, board:248, card:255,
                           song:246, bamboo:255, paper:255};
+// dong bo o hex <-> bang chon mau (2 chieu)
+function bindColor(id){
+  var t=document.getElementById(id), p=document.getElementById(id+'_pick');
+  if(!t||!p) return;
+  p.addEventListener('input', function(){ t.value = p.value; });
+  t.addEventListener('input', function(){
+    var v=t.value.trim(); if(/^#[0-9a-fA-F]{6}$/.test(v)) p.value=v;
+  });
+}
+['zh_color','py_color','vi_color','panel_color','bar_bg'].forEach(bindColor);
 function pcVariantChanged(){
   const v = document.getElementById('podcast_variant').value;
   const a = PC_VARIANT_ALPHA[v]; if(a===undefined) return;
@@ -694,6 +761,14 @@ async function generate(){
     waveform: document.getElementById('waveform').value,
     fx: document.getElementById('fx').value,
     zh_px: document.getElementById('zh_px').value,
+    bottom_bar: document.getElementById('bottom_bar').checked,
+    bar_left: document.getElementById('bar_left').value.trim(),
+    bar_badge: document.getElementById('bar_badge').value.trim(),
+    bar_bg: document.getElementById('bar_bg').value,
+    zh_color: document.getElementById('custom_colors').checked ? document.getElementById('zh_color').value : '',
+    py_color: document.getElementById('custom_colors').checked ? document.getElementById('py_color').value : '',
+    vi_color: document.getElementById('custom_colors').checked ? document.getElementById('vi_color').value : '',
+    panel_color: document.getElementById('custom_colors').checked ? document.getElementById('panel_color').value : '',
     py_px: document.getElementById('py_px').value,
     vi_px: document.getElementById('vi_px').value,
     seal_text: document.getElementById('seal_text').value.trim(),
@@ -789,7 +864,8 @@ async function poll(id){
     'eleven_model','eleven_voice','mascot_motion','ai_mascot','image_prompt',
     'intro_outro','use_intro','use_outro',
     'podcast_variant','seal_text','pinyin_top','show_progress','repeat_slow','replay_loop',
-    'pinyin_mode','waveform','fx','zh_px','py_px','vi_px','emotion_auto'];
+    'pinyin_mode','waveform','fx','zh_px','py_px','vi_px','emotion_auto',
+    'custom_colors','zh_color','py_color','vi_color','panel_color','bottom_bar','bar_left','bar_badge','bar_bg'];
   function $(id){return document.getElementById(id);}
   function isChk(el){return el&&el.type==='checkbox';}
 
@@ -814,6 +890,8 @@ async function poll(id){
     });
     // dong bo cac listener phu thuoc
     try{ var pl=$('podcast_layout'); if(pl) pl.dispatchEvent(new Event('change')); }catch(e){}
+    try{ var cc=$('custom_colors'); if(cc) cc.dispatchEvent(new Event('change')); }catch(e){}
+    try{ var bb=$('bottom_bar'); if(bb) bb.dispatchEvent(new Event('change')); }catch(e){}
     try{ var v=$('voice'); if(v) v.dispatchEvent(new Event('change')); }catch(e){}
     try{ if(typeof rateLabel==='function' && $('rate')) rateLabel($('rate').value); }catch(e){}
     try{ if(typeof toggleChar==='function') toggleChar(); }catch(e){}

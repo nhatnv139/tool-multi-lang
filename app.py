@@ -230,6 +230,11 @@ def slugify(s):
     s = re.sub(r'[\\/:*?"<>|]', "", s).strip().replace(" ", "_")
     return s[:40] or "video"
 
+def _hex_opt(v):
+    """Mau '#rrggbb' tu form; sai dinh dang -> '' (dung mau mac dinh)."""
+    v = str(v or "").strip()
+    return v if re.fullmatch(r"#[0-9a-fA-F]{6}", v) else ""
+
 def _px_opt(v):
     """Co chu px nguoi dung nhap (chuoi tu form). Rong/khong hop le -> None (tu dong)."""
     try:
@@ -535,6 +540,14 @@ def run_job(job_id, data):
                 "waveform": (data.get("waveform") or "auto").strip(),
                 "fx": (data.get("fx") or "").strip(),
                 "zh_px": _px_opt(data.get("zh_px")),
+                "bottom_bar": bool(data.get("bottom_bar", False)),
+                "bar_left": (data.get("bar_left") or "").strip(),
+                "bar_badge": (data.get("bar_badge") or "PODCAST").strip(),
+                "bar_bg": _hex_opt(data.get("bar_bg")),
+                "zh_color": _hex_opt(data.get("zh_color")),
+                "py_color": _hex_opt(data.get("py_color")),
+                "vi_color": _hex_opt(data.get("vi_color")),
+                "panel_color": _hex_opt(data.get("panel_color")),
                 "py_px": _px_opt(data.get("py_px")),
                 "vi_px": _px_opt(data.get("vi_px")),
                 "pinyin_top": bool(data.get("pinyin_top", True)),
