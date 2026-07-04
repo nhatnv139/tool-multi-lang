@@ -230,6 +230,14 @@ def slugify(s):
     s = re.sub(r'[\\/:*?"<>|]', "", s).strip().replace(" ", "_")
     return s[:40] or "video"
 
+def _px_opt(v):
+    """Co chu px nguoi dung nhap (chuoi tu form). Rong/khong hop le -> None (tu dong)."""
+    try:
+        n = int(str(v).strip())
+        return n if 20 <= n <= 320 else None
+    except (TypeError, ValueError):
+        return None
+
 # ---------- Thu vien video tren disk ----------
 def _job_id_from_fn(fn):
     """Tach job_id (timestamp ms) tu ten file mp4."""
@@ -518,10 +526,23 @@ def run_job(job_id, data):
                 "show_title":  bool(data.get("show_title", False)),
                 "show_outro":  bool(data.get("show_outro", False)),
                 "podcast_layout": bool(data.get("podcast_layout", False)),
+                "podcast_variant": data.get("podcast_variant", "inkwash"),
                 "panel_alpha": int(data.get("panel_alpha", 150)),
                 "tone_colors": bool(data.get("tone_colors", True)),
                 "podcast_frame": bool(data.get("podcast_frame", True)),
+                "seal_text": (data.get("seal_text") or "").strip(),
+                "pinyin_mode": (data.get("pinyin_mode") or "").strip(),
+                "waveform": (data.get("waveform") or "auto").strip(),
+                "fx": (data.get("fx") or "").strip(),
+                "zh_px": _px_opt(data.get("zh_px")),
+                "py_px": _px_opt(data.get("py_px")),
+                "vi_px": _px_opt(data.get("vi_px")),
+                "pinyin_top": bool(data.get("pinyin_top", True)),
+                "show_progress": bool(data.get("show_progress", True)),
+                "repeat_slow": bool(data.get("repeat_slow", False)),
+                "replay_loop": bool(data.get("replay_loop", False)),
                 "podcast":   bool(data.get("podcast", False)),
+                "emotion_auto": bool(data.get("emotion_auto", True)),
                 "mood":      data.get("mood", "calm"),
                 "bg_image":  (data.get("bg_image") or "").strip(),
                 "music_file": (data.get("music_file") or "").strip(),

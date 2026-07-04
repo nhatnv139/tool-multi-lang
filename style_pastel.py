@@ -332,8 +332,13 @@ def base_slide(ctx, header=None):
     if header is None:
         header = ctx.get("header") or f'BÀI {int(ctx["id"])} · {ctx["title"]}'
     hf = font("head", 44)
-    tw = text_w(d, header.upper(), hf)
-    d.text(((W-tw)//2, 58), header.upper(), font=hf, fill=HEADER)
+    # ve tung ky tu: chu Han dung font Han (KHONG tofu), Latin/Viet dung Lexend
+    _hchars = [(ch, (font("zh", 44) if _is_cjk(ch) else hf)) for ch in header.upper()]
+    tw = sum(text_w(d, ch, f) for ch, f in _hchars)
+    _hx = (W - tw) // 2
+    for ch, f in _hchars:
+        d.text((_hx, 58), ch, font=f, fill=HEADER)
+        _hx += text_w(d, ch, f)
     cy = 84
     d.line([(W-tw)//2-180, cy, (W-tw)//2-40, cy], fill=LINE, width=3)
     d.line([(W+tw)//2+40, cy, (W+tw)//2+180, cy], fill=LINE, width=3)
@@ -590,7 +595,18 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
     t = seg["type"]
     # Layout podcast: chi ve khoi noi dung chinh (Han+pinyin+Viet) tren nen nguoi dung
     if ctx.get("podcast_layout") and t in ("sentence", "vocab", "practice_a"):
-        render_podcast_main(seg, ctx, path, reveal_t=reveal_t, t_now=t_now)
+        # v2 (bien the tham my Trung Hoa, render 2x): mac dinh; "classic" = ban cu
+        if (ctx.get("podcast_variant") or "inkwash") == "classic":
+            render_podcast_main(seg, ctx, path, reveal_t=reveal_t, t_now=t_now)
+        else:
+            import style_podcast
+            style_podcast.render(seg, ctx, path, reveal_t=reveal_t, t_now=t_now)
+        return
+    # The chuyen muc trong podcast layout: dong bo tham my voi bien the da chon
+    if ctx.get("podcast_layout") and t == "section" \
+            and (ctx.get("podcast_variant") or "inkwash") != "classic":
+        import style_podcast
+        style_podcast.render_section(seg, ctx, path)
         return
 
     if t == "title":

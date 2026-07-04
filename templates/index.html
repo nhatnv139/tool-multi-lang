@@ -155,6 +155,12 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
     </div>
 
     <div class="mt switch">
+      <input type="checkbox" id="emotion_auto" checked>
+      <label for="emotion_auto" style="margin:0">💗 Giọng đọc theo CẢM XÚC câu
+        <span class="hint">(tự nhận diện vui/buồn/dịu dàng/phấn khích → đổi tốc độ, cao độ, ngữ điệu từng câu — mọi engine)</span></label>
+    </div>
+
+    <div class="mt switch">
       <input type="checkbox" id="podcast">
       <label for="podcast" style="margin:0">🎧 Chế độ Podcast
         <span class="hint">(chỉ đọc tiếng Trung + hiện dịch Việt, bỏ phần mở đầu/kết thúc — nghe thụ động)</span></label>
@@ -175,7 +181,86 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <span class="hint">(Hán to + pinyin + Việt trên nền bạn tự làm — nhớ upload ảnh nền người dẫn/tranh)</span></label>
     </div>
     <div class="mt" id="panel_alpha_wrap" style="display:none">
-      <label>🩹 Độ mờ lớp nền chữ: <span id="panel_alpha_lbl" class="hint">150</span> <span class="hint">(0 = không có lớp nền, 255 = đặc)</span></label>
+      <div class="row">
+        <div>
+          <label>🏮 Biến thể layout <span class="hint">(thẩm mỹ Trung Hoa)</span></label>
+          <select id="podcast_variant" onchange="pcVariantChanged()">
+            <optgroup label="── Có khung panel ──">
+              <option value="inkwash" selected>🖌️ Thủy mặc — giấy xuyến chỉ + triện đỏ (khuyên dùng)</option>
+              <option value="scroll">📜 Cuộn thư — trục gỗ hai đầu</option>
+              <option value="album">📖 Sách cổ — trang kinh, kẻ đỏ dọc</option>
+              <option value="minimal">🎬 Tối giản điện ảnh — không khung, chữ trên scrim tối</option>
+              <option value="night">🌙 Dạ thoại — nền mực đen, chữ ngà vàng (truyện đêm)</option>
+            </optgroup>
+            <optgroup label="── Chữ trực tiếp trên tranh (kiểu Chinese Daily) ──">
+              <option value="daily">🍵 Daily — pinyin trên từng chữ, giữa tranh + nghĩa Việt dưới đáy</option>
+              <option value="flat">🟪 Phẳng — chữ trắng trên nền màu/tranh tối, khối chữ phía trên</option>
+              <option value="clean">🤍 Thanh sạch — khối chữ dưới, dải trắng mờ ôm chân tranh</option>
+              <option value="top">🔝 Đỉnh tranh — khối chữ sát mép trên, nghĩa màu cam</option>
+            </optgroup>
+            <optgroup label="── Lễ hội / hiện đại ──">
+              <option value="lantern">🏮 Đèn lồng — panel đỏ + viền vàng + hồi văn (Tết, lễ hội)</option>
+              <option value="porcelain">🏺 Sứ Thanh Hoa — trắng xanh cobalt sang trọng</option>
+              <option value="board">🧑‍🏫 Bảng phấn — chalkboard xanh, chữ phấn ấm cúng</option>
+              <option value="card">🃏 Thẻ học hiện đại — card trắng đổ bóng, accent đỏ san hô</option>
+              <option value="song">🌌 Tống vận — xanh trà trầm + viền kim (đêm sang trọng)</option>
+              <option value="bamboo">🎋 Thẻ tre cổ thư — bó trúc giản buộc dây</option>
+              <option value="paper">📓 Vở kẻ ô — giấy caro + bút dạ quang + băng washi</option>
+            </optgroup>
+            <option value="classic">⬜ Bản cũ (classic)</option>
+          </select>
+        </div>
+        <div>
+          <label>🈴 Chữ khắc triện đỏ <span class="hint">(2-4 chữ Hán — trống = lấy từ tên kênh)</span></label>
+          <input type="text" id="seal_text" placeholder="乐学">
+        </div>
+      </div>
+      <div class="row mt">
+        <div>
+          <label>🔤 Kiểu pinyin</label>
+          <select id="pinyin_mode">
+            <option value="" selected>Tự động theo biến thể</option>
+            <option value="ruby">Trên TỪNG chữ Hán (kiểu Chinese Daily)</option>
+            <option value="line">Một dòng riêng cả câu</option>
+          </select>
+        </div>
+        <div>
+          <label>🎙️ Sóng âm giọng nói <span class="hint">(visualizer nhảy theo tiếng)</span></label>
+          <select id="waveform">
+            <option value="auto" selected>Tự động theo biến thể</option>
+            <option value="top">Hiện — mép trên</option>
+            <option value="mid">Hiện — giữa màn hình</option>
+            <option value="off">Ẩn</option>
+          </select>
+        </div>
+      </div>
+      <div class="mt">
+        <label>🍃 Hiệu ứng rơi nhẹ toàn video <span class="hint">(video sinh động mà vẫn tĩnh lặng — sinh 1 lần rồi cache)</span></label>
+        <select id="fx">
+          <option value="" selected>Tắt</option>
+          <option value="sakura">🌸 Hoa anh đào rơi (hồng)</option>
+          <option value="ginkgo">🍂 Lá ngân hạnh rơi (vàng — như Chinese Daily)</option>
+          <option value="maple">🍁 Lá phong đỏ rơi</option>
+          <option value="snow">❄️ Tuyết rơi (hợp truyện đêm)</option>
+          <option value="dust">✨ Bụi vàng lấp lánh bay lên (ấm áp, sang)</option>
+          <option value="bokeh">🫧 Đốm sáng bokeh mờ (mềm mại, cozy)</option>
+        </select>
+      </div>
+      <div class="row mt" style="grid-template-columns:1fr 1fr 1fr">
+        <div>
+          <label>🈶 Cỡ chữ Hán (px) <span class="hint">(trống = tự động)</span></label>
+          <input type="number" id="zh_px" min="30" max="300" step="2" placeholder="tự động">
+        </div>
+        <div>
+          <label>🔡 Cỡ pinyin (px)</label>
+          <input type="number" id="py_px" min="20" max="200" step="2" placeholder="tự động">
+        </div>
+        <div>
+          <label>🇻🇳 Cỡ nghĩa Việt (px)</label>
+          <input type="number" id="vi_px" min="20" max="200" step="2" placeholder="tự động">
+        </div>
+      </div>
+      <label class="mt">🩹 Độ mờ lớp nền chữ: <span id="panel_alpha_lbl" class="hint">150</span> <span class="hint">(0 = không có lớp nền, 255 = đặc; nhóm "trên tranh" không dùng)</span></label>
       <input type="range" id="panel_alpha" min="0" max="255" step="5" value="150" style="width:100%"
              oninput="document.getElementById('panel_alpha_lbl').textContent=this.value">
       <div class="switch" style="margin-top:8px">
@@ -183,8 +268,24 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <label for="tone_colors" style="margin:0">🎨 Pinyin tô màu theo thanh điệu <span class="hint">(thanh 1 đỏ · 2 cam · 3 xanh lá · 4 xanh dương)</span></label>
       </div>
       <div class="switch" style="margin-top:6px">
+        <input type="checkbox" id="pinyin_top" checked>
+        <label for="pinyin_top" style="margin:0">🔝 Pinyin đặt TRÊN chữ Hán <span class="hint">(chuẩn các kênh lớn — mắt đọc pinyin trước rồi map xuống chữ)</span></label>
+      </div>
+      <div class="switch" style="margin-top:6px">
+        <input type="checkbox" id="show_progress" checked>
+        <label for="show_progress" style="margin:0">📊 Đếm câu 12/50 + thanh tiến độ <span class="hint">(người xem biết còn bao nhiêu → xem hết video)</span></label>
+      </div>
+      <div class="switch" style="margin-top:6px">
+        <input type="checkbox" id="repeat_slow">
+        <label for="repeat_slow" style="margin:0">🐢 Đọc 2 lần: lần 1 ẩn nghĩa (tự đoán) → lần 2 đọc CHẬM + hiện nghĩa <span class="hint">(luyện nghe chủ động — video dài ~gấp đôi)</span></label>
+      </div>
+      <div class="switch" style="margin-top:6px">
+        <input type="checkbox" id="replay_loop">
+        <label for="replay_loop" style="margin:0">🔁 Vòng ôn cuối video: phát lại toàn bộ câu KHÔNG nghĩa Việt <span class="hint">(tăng watch time)</span></label>
+      </div>
+      <div class="switch" style="margin-top:6px">
         <input type="checkbox" id="podcast_frame" checked>
-        <label for="podcast_frame" style="margin:0">🖼️ Khung viền cổ điển + góc trang trí</label>
+        <label for="podcast_frame" style="margin:0">🖼️ Khung viền cổ điển + góc trang trí + triện</label>
       </div>
     </div>
 
@@ -539,6 +640,17 @@ function collectDialogueVoices(){
 document.getElementById('podcast_layout').addEventListener('change', function(){
   document.getElementById('panel_alpha_wrap').style.display = this.checked ? 'block' : 'none';
 });
+// đổi biến thể layout → tự đặt độ mờ lớp nền khuyến nghị cho biến thể đó
+const PC_VARIANT_ALPHA = {inkwash:165, scroll:210, album:228, minimal:0, night:200, classic:150,
+                          daily:0, flat:0, clean:0, top:0,
+                          lantern:240, porcelain:242, board:248, card:255,
+                          song:246, bamboo:255, paper:255};
+function pcVariantChanged(){
+  const v = document.getElementById('podcast_variant').value;
+  const a = PC_VARIANT_ALPHA[v]; if(a===undefined) return;
+  const s = document.getElementById('panel_alpha');
+  s.value = a; document.getElementById('panel_alpha_lbl').textContent = a;
+}
 // đổi engine giọng chính → cập nhật lại danh sách giọng cho từng người nói
 document.getElementById('voice').addEventListener('change', ()=>{
   const sps = [...document.querySelectorAll('#dialogue_voices [data-sp]')].map(e=>e.dataset.sp);
@@ -573,9 +685,22 @@ async function generate(){
     image_prompt: document.getElementById('image_prompt').value,
     header: document.getElementById('header').value,
     podcast: document.getElementById('podcast').checked,
+    emotion_auto: document.getElementById('emotion_auto').checked,
     show_title: document.getElementById('show_title').checked,
     show_outro: document.getElementById('show_outro').checked,
     podcast_layout: document.getElementById('podcast_layout').checked,
+    podcast_variant: document.getElementById('podcast_variant').value,
+    pinyin_mode: document.getElementById('pinyin_mode').value,
+    waveform: document.getElementById('waveform').value,
+    fx: document.getElementById('fx').value,
+    zh_px: document.getElementById('zh_px').value,
+    py_px: document.getElementById('py_px').value,
+    vi_px: document.getElementById('vi_px').value,
+    seal_text: document.getElementById('seal_text').value.trim(),
+    pinyin_top: document.getElementById('pinyin_top').checked,
+    show_progress: document.getElementById('show_progress').checked,
+    repeat_slow: document.getElementById('repeat_slow').checked,
+    replay_loop: document.getElementById('replay_loop').checked,
     panel_alpha: parseInt(document.getElementById('panel_alpha').value,10),
     tone_colors: document.getElementById('tone_colors').checked,
     podcast_frame: document.getElementById('podcast_frame').checked,
@@ -662,7 +787,9 @@ async function poll(id){
     'podcast','show_title','show_outro','podcast_layout','panel_alpha','tone_colors',
     'podcast_frame','theme','character','mascot','channel','infobar','music','music_vol',
     'eleven_model','eleven_voice','mascot_motion','ai_mascot','image_prompt',
-    'intro_outro','use_intro','use_outro'];
+    'intro_outro','use_intro','use_outro',
+    'podcast_variant','seal_text','pinyin_top','show_progress','repeat_slow','replay_loop',
+    'pinyin_mode','waveform','fx','zh_px','py_px','vi_px','emotion_auto'];
   function $(id){return document.getElementById(id);}
   function isChk(el){return el&&el.type==='checkbox';}
 
