@@ -7,7 +7,7 @@ Tu dong tao video bai hoc tieng Trung (HSK) tu file JSON.
 - Ghep slide + audio dong bo bang FFmpeg
 Cach dung:  python generate.py data/lesson01.json
 """
-import os, sys, json, subprocess, shutil, asyncio
+import os, sys, json, subprocess, shutil, asyncio, time
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -368,6 +368,10 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
             raise
     with open(path, "wb") as f:
         f.write(data)
+    # Azure DragonHD (giong "sieu that") BO QUA prosody rate -> tu chinh toc do bang atempo
+    # de slider "Toc do doc" van co tac dung.
+    if "Dragon" in (voice or ""):
+        _atempo(path, _rate_factor(rate))
 
 ELEVEN_MODEL = "eleven_multilingual_v2"   # da ngon ngu: 1 giong doc ca Trung + Viet
 _eleven_model_override = None             # build() dat theo lua chon nguoi dung
@@ -557,13 +561,61 @@ def _norm_rate(rate):
         return "+0%"
     return r if r[0] in "+-" else "+" + r
 
+def _rate_factor(rate):
+    """'-20%' -> 0.80, '+20%' -> 1.20, '-8%' -> 0.92 (he so toc do cho atempo)."""
+    try:
+        return 1.0 + int(str(rate).replace("%", "").replace("+", "")) / 100.0
+    except Exception:
+        return 1.0
+
+def _atempo(path, factor):
+    """Doi toc do audio (giu cao do) bang ffmpeg. Dung khi engine BO QUA rate (Azure DragonHD)."""
+    factor = max(0.5, min(2.0, factor))
+    if abs(factor - 1.0) < 0.01:
+        return
+    tmp = path + ".at.mp3"
+    subprocess.run(["ffmpeg", "-y", "-i", path, "-filter:a", f"atempo={factor:.3f}",
+                    "-c:a", "libmp3lame", "-q:a", "4", tmp], check=True, capture_output=True)
+    os.replace(tmp, path)
+
+def _is_empty_tts(text):
+    """Con ky tu doc duoc khong? (bo khoang trang + dau cau thuan). Cau rong -> edge bao
+       'No audio received' -> can chan truoc."""
+    return not _re.sub(r"[\s\W_]+", "", text or "", flags=_re.UNICODE)
+
+def _silence_mp3(path, dur=0.35):
+    """Tao mp3 im lang ngan (dung khi cau rong de khong lam rot ca job)."""
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                    "-t", str(dur), "-q:a", "9", path], check=True, capture_output=True)
+
+_TTS_TRIES = 4                      # edge-tts hay bi Microsoft throttle khi goi lien tiep (video nhieu slide)
+def _edge_retry(fn, what="edge-tts"):
+    """Chay fn() voi retry + backoff. Nem loi ro rang neu that bai sau _TTS_TRIES lan."""
+    last = None
+    for i in range(_TTS_TRIES):
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            if i < _TTS_TRIES - 1:
+                time.sleep(1.2 * (i + 1))      # nghi tang dan de vuot throttle
+    raise RuntimeError(f"{what} that bai sau {_TTS_TRIES} lan (co the bi Microsoft chan tam "
+                       f"thoi do goi lien tiep): {last}")
+
 def _synth_edge(text, voice, path, rate="-8%", pitch=None):
-    """Sinh giong bang edge-tts (mien phi, can internet). pitch: vd '+10Hz' (cam xuc)."""
+    """Sinh giong bang edge-tts (mien phi, can internet). pitch: vd '+10Hz' (cam xuc).
+       Co retry + chong cau rong."""
+    if _is_empty_tts(text):
+        _silence_mp3(path); return
     cmd = [sys.executable, "-m", "edge_tts", "--voice", voice,
            "--text", text, f"--rate={_norm_rate(rate)}", "--write-media", path]
     if pitch:
         cmd.insert(-2, f"--pitch={pitch}")
-    subprocess.run(cmd, check=True, capture_output=True)
+    def _run():
+        subprocess.run(cmd, check=True, capture_output=True)
+        if not (os.path.exists(path) and os.path.getsize(path) > 0):
+            raise RuntimeError("edge-tts tra ve file rong")
+    _edge_retry(_run)
 
 def _edge_voice(voice):
     """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh."""
@@ -656,7 +708,9 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
     return sents
 
 def _synth_edge_timed(text, voice, out_mp3, rate="-8%", pitch=None):
-    """edge-tts -> ghi out_mp3 + tra ve list (start,end) cac cau/tu."""
+    """edge-tts -> ghi out_mp3 + tra ve list (start,end) cac cau/tu. Co retry + chong cau rong."""
+    if _is_empty_tts(text):
+        _silence_mp3(out_mp3); return []
     async def go():
         kw = {"rate": _norm_rate(rate)}
         if pitch:
@@ -669,8 +723,10 @@ def _synth_edge_timed(text, voice, out_mp3, rate="-8%", pitch=None):
                     f.write(ch["data"])
                 elif ch["type"] in ("SentenceBoundary", "WordBoundary"):
                     sents.append([ch["offset"]/1e7, (ch["offset"]+ch["duration"])/1e7])
+        if not (os.path.exists(out_mp3) and os.path.getsize(out_mp3) > 0):
+            raise RuntimeError("edge-tts khong nhan duoc audio")
         return sents
-    return asyncio.run(go())
+    return _edge_retry(lambda: asyncio.run(go()))
 
 def dur_of(path):
     out = subprocess.run(

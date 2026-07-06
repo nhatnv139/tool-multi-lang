@@ -61,6 +61,9 @@
             style="padding:9px 16px;font-size:15px">📤 Đăng video có sẵn</button>
     <span id="importSt" class="hint"></span>
     <input type="file" accept="video/mp4" hidden id="importFile" onchange="doImportVideo()">
+    <button type="button" onclick="resetAll()" title="Xoá hết cache + video đã tạo + cài đặt về mặc định (giữ kênh YouTube & MXH đã kết nối)"
+            style="margin-left:auto;padding:9px 16px;font-size:15px;background:#fff;border:1px solid #e0a0a0;
+                   color:#c0392b;font-weight:600;border-radius:10px;cursor:pointer">🔄 Reset</button>
   </div>
 
   <div class="card">
@@ -119,6 +122,12 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
             {% for v,lbl in eleven_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
         </select>
+        <button type="button" id="clearCacheBtn" onclick="clearTtsCache()"
+          title="Xoá file giọng đã lưu ở server (nếu nghi giọng bị lấy từ bản cũ)"
+          style="margin-top:6px;background:#fff;border:1px solid #d8b4be;color:#b03a5b;
+          font-size:12.5px;padding:4px 10px;border-radius:8px;cursor:pointer">
+          🗑 Xoá cache giọng</button>
+        <span id="clearCacheMsg" class="hint" style="margin-left:8px"></span>
       </div>
       <div>
         <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
@@ -492,6 +501,9 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
   <div class="card" id="panel">
     <div class="bar"><i id="fill"></i></div>
     <p class="plabel" id="plabel">Đang chuẩn bị...</p>
+    <button id="cancelBtn" onclick="cancelJob()" style="display:none;margin-top:8px;
+      background:#fff;border:1.5px solid #e63462;color:#e63462;font-weight:600;
+      padding:8px 18px;border-radius:9px;cursor:pointer">⏹ Huỷ tạo video</button>
     <div id="result"></div>
   </div>
 </div>
@@ -808,7 +820,49 @@ async function generate(){
                                       body: JSON.stringify(body)});
   let j = await res.json();
   if(j.error){ fail(j.error); return; }
+  curJob = j.job_id;
+  showCancel(true);
   poll(j.job_id);
+}
+
+let curJob = null;
+function showCancel(on){
+  const b = document.getElementById('cancelBtn');
+  if(b){ b.style.display = on ? 'inline-block' : 'none'; b.disabled = false;
+         b.textContent = '⏹ Huỷ tạo video'; }
+}
+async function cancelJob(){
+  if(!curJob) return;
+  const b = document.getElementById('cancelBtn');
+  if(b){ b.disabled = true; b.textContent = '⏳ Đang huỷ...'; }
+  try{ await fetch('/cancel/'+curJob, {method:'POST'}); }catch(e){}
+}
+
+async function clearTtsCache(){
+  const b = document.getElementById('clearCacheBtn');
+  const m = document.getElementById('clearCacheMsg');
+  b.disabled = true; b.textContent = '⏳ Đang xoá...'; if(m) m.textContent='';
+  try{
+    const r = await fetch('/clear_tts_cache', {method:'POST'});
+    const j = await r.json();
+    if(m) m.textContent = `✅ Đã xoá ${j.files} file (${j.mb} MB) — render tới sẽ sinh giọng mới.`;
+  }catch(e){ if(m) m.textContent = '❌ Lỗi khi xoá cache.'; }
+  b.disabled = false; b.textContent = '🗑 Xoá cache giọng';
+}
+
+async function resetAll(){
+  if(!confirm('🔄 RESET TOÀN BỘ về mặc định?\n\n' +
+    '❌ SẼ XOÁ: cache giọng + TẤT CẢ video đã tạo + lịch sử + cài đặt trang.\n' +
+    '✅ SẼ GIỮ: kênh YouTube & mạng xã hội đã kết nối, logo/intro/outro.\n\n' +
+    'Không thể hoàn tác. Tiếp tục?')) return;
+  try{
+    const r = await fetch('/reset', {method:'POST'});
+    const j = await r.json();
+    // xoá state localStorage cua trang (form autosave + last job) -> reload ve mac dinh
+    try{ localStorage.removeItem('tml:index'); localStorage.removeItem('tml:index:lastjob'); }catch(e){}
+    alert(`✅ Đã reset:\n• Xoá ${j.cache_files} file cache giọng\n• Xoá ${j.output_files} file video/dữ liệu\n• Kênh YouTube & MXH: giữ nguyên\n\nTrang sẽ tải lại về mặc định.`);
+    location.reload();
+  }catch(e){ alert('❌ Lỗi khi reset.'); }
 }
 
 function setFill(p){ document.getElementById('fill').style.width = p+'%'; }
@@ -825,6 +879,7 @@ function renderDonePanel(id, video, autoplay){
     '</div>';
 }
 function fail(msg){
+  showCancel(false);
   document.getElementById('plabel').textContent = '❌ ' + msg;
   const go = document.getElementById('go');
   go.disabled = false; go.textContent = '🎬 Tạo video';
@@ -844,13 +899,21 @@ async function poll(id){
     setFill(pct);
     document.getElementById('plabel').textContent = (s.label||'Đang xử lý...') + '  ('+pct+'%)';
     if(s.status === 'done'){
+      showCancel(false);
       renderDonePanel(id, s.video, true);
       try{ if(window.tmlSaveLastJob) window.tmlSaveLastJob(id, s.video); }catch(e){}
       const go = document.getElementById('go');
       go.disabled = false; go.textContent = '🎬 Tạo video mới';
       return;
     }
-    if(s.status === 'error'){ fail(s.error || 'Có lỗi xảy ra'); return; }
+    if(s.status === 'cancelled'){
+      showCancel(false);
+      document.getElementById('plabel').textContent = '⏹ Đã huỷ tạo video.';
+      const go = document.getElementById('go');
+      go.disabled = false; go.textContent = '🎬 Tạo video';
+      return;
+    }
+    if(s.status === 'error'){ showCancel(false); fail(s.error || 'Có lỗi xảy ra'); return; }
     setTimeout(()=>poll(id), 1000);
   }catch(e){ setTimeout(()=>poll(id), 1500); }
 }

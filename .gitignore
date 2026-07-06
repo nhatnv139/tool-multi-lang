@@ -20,6 +20,7 @@ yt_tokens/
 eleven_config.json
 azure_config.json
 gemini_config.json
+openai_config.json
 
 # Bi mat mang xa hoi (token Page FB, app secret...) — TUYET DOI khong commit
 social_secrets/
@@ -27,6 +28,11 @@ social_tokens/
 
 # Clip intro/outro nguoi dung tai len (nang, re-upload duoc) — giu logo/banner png
 brand/*.mp4
+# Asset kenh tu sinh bang AI (banner/logo tung kenh + cache anh) — ~35MB, re-gen duoc
+brand/channels/
+
+# Noi dung script tung ngay/tung kenh — la CONTENT, khong phai code. Khong day len repo code.
+content_series/
 
 # He thong
 .DS_Store

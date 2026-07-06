@@ -227,7 +227,10 @@ MASCOTS = [("", "Tự đổi theo bài"), ("🐼", "Gấu trúc"), ("🐱", "Mè
            ("none", "Không mascot")]
 
 def slugify(s):
-    s = re.sub(r'[\\/:*?"<>|]', "", s).strip().replace(" ", "_")
+    # bo ky tu dac biet (—, ", :, ...) — giu chu/so (ke ca Han), khoang trang -> gach duoi.
+    # tranh em-dash trong ten file -> hong URL anh bia.
+    s = re.sub(r"[^\w\s-]", "", s or "", flags=re.UNICODE)
+    s = re.sub(r"[\s_]+", "_", s.strip()).strip("_")
     return s[:40] or "video"
 
 def _hex_opt(v):
@@ -446,13 +449,19 @@ def generate_route():
         return jsonify(error="Bạn chưa nhập nội dung."), 400
     job_id = str(int(time.time() * 1000))
     jobs[job_id] = {"done": 0, "total": 1, "label": "Đang xếp hàng...",
-                    "status": "running", "video": None, "error": None}
+                    "status": "running", "video": None, "error": None, "cancel": False}
     threading.Thread(target=run_job, args=(job_id, data), daemon=True).start()
     return jsonify(job_id=job_id)
+
+class _Cancelled(Exception):
+    """Nguoi dung bam Huy -> dung job dang tao video."""
+    pass
 
 def run_job(job_id, data):
     try:
         with _build_lock:
+            if jobs[job_id].get("cancel"):     # huy ngay khi con dang xep hang
+                raise _Cancelled()
             jobs[job_id]["label"] = "Đọc nội dung..."
             ctx = lesson_parser.parse_lesson(data["content"])
             # giong: value dang "edge:..." hoac "azure:..."
@@ -500,10 +509,16 @@ def run_job(job_id, data):
             # TU GAN GIONG: neu chua gan tay + engine free (edge/azure) + phat hien >=2 nguoi noi
             # -> tu doan gioi tinh & gan giong nam/nu khac nhau cho tung nguoi.
             auto_speakers = lesson_parser.detect_speakers(data["content"])
-            if not dialogue_map and auto_speakers and engine in ("edge", "azure"):
+            # CHI tu-gan giong khi CHUA khai @voices va CHUA gan tay (tranh "mot dong giong sai").
+            # Co @voices -> tin bang khai bao, khong doan mo nua.
+            if (not dialogue_map and not ctx.get("voices")
+                    and auto_speakers and engine in ("edge", "azure")):
                 dialogue_map = lesson_parser.assign_speaker_voices(auto_speakers)
                 jobs[job_id]["label"] = (f"Tự nhận diện {len(auto_speakers)} người nói, "
                                          "đã gán giọng…")
+            elif ctx.get("voices"):
+                jobs[job_id]["label"] = (f"@voices: {len(ctx['voices'])} nhân vật "
+                                         f"({', '.join(ctx['voices'])})…")
             ctx.update({
                 "voice_zh": vname,
                 "voice_vi": voice_vi,
@@ -571,7 +586,22 @@ def run_job(job_id, data):
             hd = (data.get("header") or "").strip()
             if hd:
                 ctx["header"] = hd
+            # --- @voices: gan giong RIENG cho tung nhan vat da khai bao (tin cay) ---
+            # spec = "nam"/"nu" (gioi tinh) HOAC ma giong edge cu the. Nhan vat khong khai
+            # + phan ke -> dung giong nguoi dung chon (voice_zh). KHONG bao gio de-ngam.
+            _GENDER_VOICE = {"nam": "zh-CN-YunjianNeural", "nu": "zh-CN-XiaoyiNeural",
+                             "nữ": "zh-CN-XiaoyiNeural", "male": "zh-CN-YunjianNeural",
+                             "female": "zh-CN-XiaoyiNeural"}
+            named_voices = {nm: _GENDER_VOICE.get(str(spec).strip().lower(), str(spec).strip())
+                            for nm, spec in (ctx.get("voices") or {}).items()}
+            if named_voices:
+                for s in ctx["segments"]:
+                    if s.get("_sp") in named_voices:
+                        s["_voice"] = named_voices[s["_sp"]]
+
             def prog(done, total, label):
+                if jobs[job_id].get("cancel"):     # bam Huy giua chung -> dung o slide ke tiep
+                    raise _Cancelled()
                 jobs[job_id].update(done=done, total=total, label=label)
             final = generate.build(ctx, progress=prog)
             seo_meta = seo.generate(ctx)        # Buoc 2: sinh thong tin YouTube
@@ -580,6 +610,8 @@ def run_job(job_id, data):
                                 thumb=(thumb if os.path.exists(os.path.join(OUT, thumb)) else None),
                                 seo=seo_meta, label="Hoàn tất!")
             _save_job(job_id)               # persist metadata job done ra jobs.json
+    except _Cancelled:
+        jobs[job_id].update(status="cancelled", label="⏹ Đã huỷ")
     except Exception as e:
         traceback.print_exc()
         jobs[job_id].update(status="error", error=str(e), label="Lỗi: " + str(e))
@@ -587,6 +619,52 @@ def run_job(job_id, data):
 @app.route("/progress/<job_id>")
 def progress(job_id):
     return jsonify(jobs.get(job_id, {"status": "unknown"}))
+
+@app.route("/cancel/<job_id>", methods=["POST"])
+def cancel_route(job_id):
+    """Bam Huy: danh dau job de dung o buoc ke tiep (build kiem co huy qua callback progress)."""
+    j = jobs.get(job_id)
+    if not j:
+        return jsonify(ok=False, error="Job không tồn tại"), 404
+    if j.get("status") == "running":
+        j["cancel"] = True
+        return jsonify(ok=True)
+    return jsonify(ok=False, status=j.get("status"))
+
+@app.route("/clear_tts_cache", methods=["POST"])
+def clear_tts_cache():
+    """Xoa sach cache giong TTS (file mp3 da sinh). Render sau se sinh moi 100%."""
+    d = generate.TTS_CACHE
+    n, freed = 0, 0
+    if os.path.isdir(d):
+        for f in os.listdir(d):
+            p = os.path.join(d, f)
+            try:
+                freed += os.path.getsize(p); os.remove(p); n += 1
+            except Exception:
+                pass
+    return jsonify(ok=True, files=n, mb=round(freed / 1e6, 1))
+
+@app.route("/reset", methods=["POST"])
+def reset_route():
+    """RESET toan bo ve mac dinh: xoa cache giong + tat ca video da tao + lich su job.
+       GIU NGUYEN: yt_tokens (kenh YouTube), social_tokens/secrets (MXH), brand (intro/outro/logo),
+       cac file config key. Client tu xoa localStorage + reload de form ve mac dinh."""
+    def _wipe_dir(d):
+        n = 0
+        if os.path.isdir(d):
+            for f in os.listdir(d):
+                p = os.path.join(d, f)
+                if os.path.isfile(p):
+                    try:
+                        os.remove(p); n += 1
+                    except Exception:
+                        pass
+        return n
+    n_cache = _wipe_dir(generate.TTS_CACHE)   # cache giong
+    n_out = _wipe_dir(OUT)                     # output/: video + thumb + jobs.json + meta
+    jobs.clear()                              # lich su job trong RAM
+    return jsonify(ok=True, cache_files=n_cache, output_files=n_out)
 
 @app.route("/video/<path:fn>")
 def video(fn):

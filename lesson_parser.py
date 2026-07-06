@@ -44,12 +44,68 @@ def _split_item(line):
 # nhan = tu Latin (A, Host) HOAC 1-6 chu Han (王雨, 记者) + dau ':' / '：'
 _SPK_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 ]{0,14}|[一-鿿]{1,6})\s*[:：]")
 _TIME_RE = re.compile(r"^\s*\d{1,2}[:：]\d{2}")
+_HR_RE = re.compile(r"^-{3,}$")   # ranh gioi phu luc: '---' hoac nhieu hon (----, -----)
 _NON_SPEAKER = {"时间", "时长", "时候", "正文", "介绍", "目录", "日期", "地点",
                 "time", "date", "url", "link", "note", "ghi chú"}
+# Phan biet MENH DE tuong thuat ("陈师傅说：", "心里却想着：", "我又问他：") voi NHAN
+# nguoi noi that ("小明:", "记者:", "A:"). Menh de tuong thuat = chu ngu + dong tu noi/nghi
+# [+ tan ngu/tro tu]; nhan nguoi noi = danh tu rieng ngan.
+_NARR_VERB1 = "说问答喊叫道想笑应叹哭"          # dong tu noi/nghi 1 chu
+_NARR_VERB2 = ("补充", "解释", "回答", "回应", "插话", "嘟囔", "咕哝", "嘀咕",
+               "告诉", "表示", "提醒", "强调", "反问", "追问", "感叹",
+               "点头", "摇头", "摆手", "耸肩")     # dong tu noi/hanh dong 2 chu
+_NARR_TAIL = "我你他她它们咱俺着了过道"           # tan ngu (dai tu)/tro tu bam sau dong tu:
+                                                 # 问[我], 告诉[你], 想[着], 说[过/道]...
+
+# dong tu "noi" de nhan biet 1 dong LA nhan vat X dang noi ("老赵笑着说：...")
+_SAY_VERBS = "说问道喊叫答"
+def _parse_voices(val):
+    """'@voices 老赵=nam, 小美=nữ' hoac '老赵=zh-CN-YunjianNeural'
+       -> {ten: spec}. spec = 'nam'/'nu'/gioi tinh HOAC ma giong edge cu the."""
+    out = {}
+    for part in re.split(r"[,;]", val or ""):
+        if "=" in part:
+            n, v = part.split("=", 1)
+            n, v = n.strip(), v.strip()
+            if n and v:
+                out[n] = v
+    return out
+
+def _tag_speaker_by_names(hanzi, names):
+    """Neu dong LA 1 nhan vat da khai bao (@voices) dang noi -> tra ve ten do; nguoc lai None.
+       CHI khop cac ten da khai (tin cay, khong doan mo). VD 'X + (trong vai chu) + noi:' hoac
+       ca dong nam trong ngoac kep (loi thoai)."""
+    if not names or not hanzi:
+        return None
+    for name in names:
+        if hanzi.startswith(name):
+            # 'X...说/问/道：'  (co dong tu noi trong ~6 ky tu dau)
+            if re.match(rf"^{re.escape(name)}.{{0,6}}[{_SAY_VERBS}]", hanzi):
+                return name
+    return None
+
+def _is_narration_label(sp):
+    """True neu 'sp' la mot menh de tuong thuat (nen bo qua), khong phai nhan nguoi noi.
+       NEO dong tu vao CUOI nhan (sau khi bo tan ngu/tro tu) de tranh chan nham ten
+       rieng co chu dong tu o giua/dau: '李道明', '问天', '阿道' -> van la nhan hop le."""
+    # nhan bat dau bang dai tu nhan xung (我你他她它咱俺) -> KHONG bao gio la ten nguoi noi
+    # that ('小明','记者','A'), ma la menh de tuong thuat: '我很惊讶', '她大笑起来', '他转过身'...
+    # (dong tu co the o GIUA nhu '大笑起来' nen khong the chi neo o cuoi).
+    if sp[0] in "我你他她它咱俺":
+        return True
+    s = sp
+    while len(s) > 1 and s[-1] in _NARR_TAIL:   # bo '他'/'着'/'了'/'道' o cuoi
+        s = s[:-1]
+    if s and s[-1] in _NARR_VERB1:              # ket thuc bang dong tu noi 1 chu
+        return True
+    if s.endswith(_NARR_VERB2):                 # ket thuc bang dong tu noi 2 chu
+        return True
+    return False
 
 def parse_speaker(line):
     """(speaker, rest) neu dong co nhan nguoi noi hop le; nguoc lai (None, line).
-       Bo qua timestamp (00:12), nhan toan so, tu khoa metadata (时间...)."""
+       Bo qua timestamp (00:12), nhan toan so, tu khoa metadata (时间...),
+       va menh de tuong thuat ket thuc bang dong tu noi/nghi ("...说：", "...又问他：")."""
     head = line.split("|", 1)[0]
     if _TIME_RE.match(head):
         return None, line
@@ -58,6 +114,8 @@ def parse_speaker(line):
         return None, line
     sp = m.group(1).strip()
     if not sp or sp.isdigit() or sp.lower() in _NON_SPEAKER or sp in _NON_SPEAKER:
+        return None, line
+    if _is_narration_label(sp):
         return None, line
     return sp, line[m.end():].strip()
 
@@ -84,6 +142,8 @@ def detect_speakers(text):
     order = []
     for raw in (text or "").splitlines():
         line = raw.strip()
+        if _HR_RE.match(line):           # het phan noi dung chinh -> bo qua phu luc
+            break
         if not line or line[0] in "@#":
             continue
         sp, _ = parse_speaker(line)
@@ -135,12 +195,15 @@ def assign_speaker_voices(speakers):
 def parse_lesson(text):
     """Tra ve ctx dict: title, hanzi_title, topic, hsk, segments[...]."""
     meta = {"title": "BÀI HỌC", "hanzi_title": "", "topic": "", "hsk": "HSK1",
-            "objectives": [], "image_prompt": "", "header": "", "hsk_explicit": False}
+            "objectives": [], "image_prompt": "", "header": "", "hsk_explicit": False,
+            "voices": {}}
     sections = []           # [(label, type, [items])]
     cur = None
 
     for raw in text.splitlines():
         line = raw.strip()
+        if _HR_RE.match(line):          # het phan noi dung chinh -> bo qua phu luc
+            break
         if not line:
             continue
         if line.startswith("@"):
@@ -154,6 +217,7 @@ def parse_lesson(text):
             elif key == "hsk":         meta["hsk"] = val; meta["hsk_explicit"] = True
             elif key == "image":       meta["image_prompt"] = val
             elif key == "header":      meta["header"] = val
+            elif key == "voices":      meta["voices"] = _parse_voices(val)
             continue
         if line.startswith("#"):
             label = line.lstrip("#").strip()
@@ -227,6 +291,16 @@ def parse_lesson(text):
 
     segs.append({"type": "outro"})
 
+    # ---- GAN NGUOI NOI theo @voices (khai bao tay -> tin cay, khong doan mo) ----
+    # dong nao LA nhan vat da khai dang noi -> danh dau _sp = ten do -> app gan giong rieng.
+    vnames = list(meta.get("voices") or {})
+    if vnames:
+        for s in segs:
+            if s.get("type") in ("sentence", "vocab") and s.get("hanzi"):
+                who = _tag_speaker_by_names(s["hanzi"], vnames)
+                if who:
+                    s["_sp"] = who
+
     # hanzi_title mac dinh: lay tu vung dau tien
     if not meta["hanzi_title"]:
         for s in segs:
@@ -242,7 +316,7 @@ def parse_lesson(text):
         "id": 1, "hsk": meta["hsk"], "title": meta["title"],
         "topic": meta["topic"], "hanzi_title": meta["hanzi_title"],
         "image_prompt": meta["image_prompt"], "header": meta["header"],
-        "hsk_explicit": meta["hsk_explicit"],
+        "hsk_explicit": meta["hsk_explicit"], "voices": meta.get("voices", {}),
         "segments": segs,
     }
 

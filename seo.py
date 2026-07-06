@@ -62,30 +62,30 @@ def split_title(title):
 # ---------- chapters thong minh (timestamp that) ----------
 # tu khoa noi dung -> nhan chuong (quet theo thu tu cau, lan dau xuat hien moi tao chuong)
 _SCENE_KEYWORDS = [
-    ("早上", "Buổi sáng"), ("早晨", "Buổi sáng"), ("清晨", "Buổi sáng"),
-    ("起床", "Thức dậy"), ("早饭", "Bữa sáng"), ("早餐", "Bữa sáng"),
-    ("上班", "Đi làm"), ("公司", "Ở công ty"), ("上午", "Buổi sáng (làm việc)"),
-    ("中午", "Buổi trưa"), ("午饭", "Bữa trưa"), ("午餐", "Bữa trưa"),
-    ("下午", "Buổi chiều"), ("下班", "Tan làm"),
-    ("回家", "Về nhà"), ("晚上", "Buổi tối"), ("做饭", "Nấu cơm"), ("晚饭", "Bữa tối"),
-    ("睡觉", "Đi ngủ"), ("睡前", "Trước khi ngủ"),
+    ("早上", "Morning"), ("早晨", "Morning"), ("清晨", "Morning"),
+    ("起床", "Waking up"), ("早饭", "Breakfast"), ("早餐", "Breakfast"),
+    ("上班", "Going to work"), ("公司", "At the office"), ("上午", "Late morning"),
+    ("中午", "Noon"), ("午饭", "Lunch"), ("午餐", "Lunch"),
+    ("下午", "Afternoon"), ("下班", "Leaving work"),
+    ("回家", "Going home"), ("晚上", "Evening"), ("做饭", "Cooking"), ("晚饭", "Dinner"),
+    ("睡觉", "Bedtime"), ("睡前", "Before bed"),
 ]
 
 def build_chapters(seg_meta):
     """[(mmss,label)] tu thoi luong that. Uu tien section -> tu khoa noi dung -> chia deu.
        Luon co 00:00, >=3 chuong cho YouTube."""
     if not seg_meta:
-        return [("00:00", "Bắt đầu")]
+        return [("00:00", "Start")]
     chapters = []
     # 1) segment 'section' lam moc
     for s in seg_meta:
         t, lbl = s["type"], (s.get("label") or "").strip()
         if t in ("title", "objectives") and not chapters:
-            chapters.append((0.0, "Mở đầu"))
+            chapters.append((0.0, "Intro"))
         elif t == "section" and lbl:
             chapters.append((s["start"], lbl.capitalize()))
         elif t == "practice_q":
-            chapters.append((s["start"], "Luyện tập"))
+            chapters.append((s["start"], "Practice"))
 
     # 2) khong co section -> quet tu khoa noi dung (sang/trua/chieu/toi...)
     if len(chapters) < 3:
@@ -101,20 +101,20 @@ def build_chapters(seg_meta):
         if len(kw_ch) >= 2:
             chapters = kw_ch
             if chapters[0][0] > 0:
-                chapters.insert(0, (0.0, "Mở đầu"))
+                chapters.insert(0, (0.0, "Intro"))
 
     # 3) van it -> chia deu theo thoi gian
     if len(chapters) < 3:
         total = seg_meta[-1]["end"]
         parts = 4 if total >= 180 else 3
-        chapters = [(0.0, "Mở đầu")]
+        chapters = [(0.0, "Intro")]
         for k in range(1, parts):
             target = total * k / parts
             seg = min(seg_meta, key=lambda s: abs(s["start"] - target))
-            chapters.append((seg["start"], f"Phần {k + 1}"))
+            chapters.append((seg["start"], f"Part {k + 1}"))
 
     if not chapters or chapters[0][0] > 0:
-        chapters.insert(0, (0.0, "Mở đầu"))
+        chapters.insert(0, (0.0, "Intro"))
     # khu trung mmss
     seen, out = set(), []
     for t, lbl in sorted(chapters, key=lambda x: x[0]):
@@ -176,23 +176,21 @@ def pinned_comment(seg_meta, han_title, hsk):
         words = common
     except Exception:
         words = []
-    lines = [f"📌 TỪ VỰNG TRỌNG TÂM — {han_title} (HSK{hsk})",
-             "Lưu lại rồi nghe lại video nhé! 👇", ""]
+    lines = [f"📌 KEY VOCABULARY — {han_title} (HSK{hsk})",
+             "Save this and listen again! 👇", ""]
     for w in words:
         lines.append(f"{w}  {pinyin_of(w)}  – ")
     lines.append("")
-    lines.append("💬 Bạn nhớ được mấy từ rồi? Comment nhé! 加油 💪")
+    lines.append("💬 How many words do you remember? Comment below! 加油 💪")
     return "\n".join(lines)
 
 
 # ---------- tags ----------
 DEFAULT_TAGS = [
-    "luyện nghe tiếng Trung", "học tiếng Trung cho người Việt",
-    "tiếng Trung cho người mới", "học tiếng Trung từ đầu",
-    "nghe hiểu tiếng Trung", "tieng trung cho nguoi moi",
-    "học tiếng Trung qua câu chuyện", "chinese podcast cho người Việt",
-    "慢速中文", "中文播客", "learn chinese for beginners",
-    "chinese listening practice", "comprehensible input chinese",
+    "learn chinese", "chinese listening practice", "mandarin listening",
+    "chinese for beginners", "HSK", "comprehensible input chinese",
+    "slow chinese", "chinese podcast", "learn mandarin", "chinese pinyin",
+    "chinese story", "中文听力", "慢速中文", "中文播客",
 ]
 
 
@@ -206,56 +204,54 @@ def generate(ctx):
     ep_sfx = f" #{ep}" if ep else ""
     channel = ctx.get("channel", "Học Tiếng Trung")
 
-    # nguoi xem muc tieu la nguoi Viet moi hoc -> hook tieng Viet dung TRUOC, chu Han sau
-    hook = viet_title or han_title
+    # Kenh tieng Anh: tieu de dung @title (tieng Anh) lam chinh, chu Han la diem nhan.
+    en_title = (ctx.get("title", "") or "").strip()
+    han = han_title if has_hanzi(han_title) else (ctx.get("hanzi_title", "") or "")
     titles = [
-        f"{hook} {han_title} | Luyện nghe tiếng Trung HSK{hsk}{ep_sfx} (phụ đề Việt + pinyin)",
-        f"{hook} | Học tiếng Trung cho người Việt HSK{hsk}{ep_sfx} — Nghe hiểu cơ bản",
-        f"{hook} {han_title} | Tiếng Trung cho người mới HSK{hsk}{ep_sfx} + pinyin",
-        f"{han_title} {viet_title} | Luyện nghe tiếng Trung HSK{hsk} có phụ đề{ep_sfx}",
+        f"{en_title} | Learn Chinese Listening HSK{hsk}{ep_sfx} (Hanzi + Pinyin + English CC)",
+        f"{en_title} | Chinese Listening Practice HSK{hsk}{ep_sfx} — Comprehensible Input",
+        f"{en_title} | Slow Chinese Story HSK{hsk}{ep_sfx} with Pinyin & English",
+        f"{en_title} | Improve Your Chinese Listening HSK{hsk}{ep_sfx}",
     ]
 
     ch_txt = chapters_text(seg_meta)
     tr_txt = transcript_text(seg_meta)
-    hashtags = ["#luyennghetiengtrung", "#hoctiengtrung", f"#HSK{hsk}",
-                "#tiengtrungchonguoiviet", "#nghehieutiengtrung"]
+    hashtags = ["#LearnChinese", "#ChineseListening", f"#HSK{hsk}",
+                "#Mandarin", "#ComprehensibleInput"]
     next_ep = (int(ep) + 1) if ep and str(ep).isdigit() else None
-    next_ep_txt = f"#{next_ep}" if next_ep else "sẽ lên sóng ngày mai"
+    next_ep_txt = f"#{next_ep}" if next_ep else "coming tomorrow"
     doc_link = (ctx.get("doc_link") or "").strip()
-    # khoi tai lieu Google Drive chi hien khi co link (tu an khi rong)
-    doc_block = (f"📄 TÀI LIỆU (chữ Hán + pinyin + nghĩa Việt) — tải miễn phí:\n{doc_link}\n\n"
+    doc_block = (f"📄 FREE STUDY GUIDE (Hanzi + Pinyin + English):\n{doc_link}\n\n"
                  if doc_link else "")
-    description = f"""🎧 Luyện nghe tiếng Trung HSK{hsk} cho người Việt | {han_title} ({viet_title})
-Podcast "nghe hiểu": đọc chậm, có 中文 + pinyin + nghĩa Việt + phụ đề CC. Chưa biết chữ Hán vẫn nghe theo được.
+    description = f"""🎧 Chinese Listening Practice HSK{hsk} | {en_title}
+A "comprehensible input" podcast: slow, natural Chinese with 中文 + Pinyin + English subtitles (CC). Even if you can't read Hanzi yet, you can follow along.
 
 ━━━━━━━━━━━━━━━━━━━━
-Bạn học tiếng Trung mãi mà nghe vẫn không kịp?
-Học thuộc cả trăm từ rồi vài hôm quên sạch, nhìn chữ Hán thấy rối?
+Studying Chinese for ages but still can't catch what people say?
+Memorize hundreds of words, then forget them in days? Hanzi still looks like a puzzle?
 
-Mình cũng từng vậy — cho đến khi đổi cách: thay vì học thuộc, NGHE thật nhiều thứ vừa sức hiểu, đúng cách một đứa trẻ học tiếng mẹ đẻ.
+The fix isn't more memorizing — it's LISTENING to lots of Chinese you can (mostly) understand, the way a child picks up their first language.
 
-Không học thuộc. Không tra từ. Không áp lực. Chỉ cần nghe mỗi ngày.
+No memorizing. No dictionary. No pressure. Just listen every day.
 
-📌 NỘI DUNG TỪNG PHẦN
+📌 CHAPTERS
 {ch_txt}
 
-📚 CÁCH NGHE CHO THẤM
-1. Lần 1 — nghe & nhìn cả 3 dòng (Hán + pinyin + Việt), hiểu ý chung là được.
-2. Lần 2 — che nghĩa Việt, nghe theo pinyin.
-3. Lần 3 — chỉ nhìn chữ Hán, nghe lại. Bạn sẽ bất ngờ vì hiểu nhiều hơn.
-👉 Nghe lại nhiều lần (lúc nấu ăn, đi đường) quan trọng hơn nghe nhiều bài mới.
+📚 HOW TO LISTEN
+1. Round 1 — read all 3 lines (Hanzi + Pinyin + English), just get the gist.
+2. Round 2 — hide the English, follow the Pinyin.
+3. Round 3 — look only at the Hanzi and listen again. You'll be surprised how much you catch.
+👉 Re-listening (while cooking or commuting) matters more than always starting new episodes.
 
-{doc_block}💜 Nếu tập này giúp được bạn, gửi cho 1 người bạn cũng đang học tiếng Trung nhé — biết đâu giữ họ ở lại với tiếng Trung thêm một ngày.
-💬 Comment cho mình biết bạn nghe được khoảng mấy %?
-🔔 Đăng ký kênh để mỗi ngày có một bài nghe mới.
-
-🔥 Thử thách #NgheCungLacHocDuong — nghe 20 phút mỗi ngày!
+{doc_block}💜 If this episode helped, share it with a friend who's also learning Chinese.
+💬 Comment and tell me — roughly what % did you understand?
+🔔 Subscribe for a new listening episode every day.
 
 ━━━━━━━━━━━━━━━━━━━━
-🎧 {channel} — Nghe tiếng Trung mỗi ngày, tiến bộ không cần ép. 听中文，乐学习。
-▶️ Series: Luyện nghe tiếng Trung mỗi ngày · Tập tiếp theo {next_ep_txt}
+🎧 {channel} — Train your ears with Chinese, every day. 听中文，练听力。
+▶️ Series: Daily Chinese Listening · Next episode {next_ep_txt}
 
-{' '.join(hashtags)} #LacHocDuong"""
+{' '.join(hashtags)}"""
 
     tags = DEFAULT_TAGS.copy()
     if han_title:

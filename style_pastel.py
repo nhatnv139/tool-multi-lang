@@ -81,13 +81,26 @@ def _spec(win_path, mac_path, mac_index=0, *fallbacks):
 _LEXEND = os.path.join(_HERE, "assets", "fonts", "Lexend.ttf")
 _AV_IDX = {"Regular": 7, "Medium": 5, "SemiBold": 2, "Bold": 0}   # map khi du phong Avenir
 def _latin(weight):
-    """(path, None, weight) cho Lexend variable; du phong Avenir/Arial neu thieu Lexend."""
+    """(path, None, weight) cho Lexend variable (giu duoc nhieu weight -> chu dam);
+       du phong Avenir/Arial neu thieu Lexend. Dung cho dong CHAC CHAN toan Latin
+       (pinyin, badge, sans) — noi can net dam va khong bao gio co chu Han."""
     if os.path.exists(_LEXEND):
         return (_LEXEND, None, weight)
     if os.path.exists(_AVENIR):
         return (_AVENIR, _AV_IDX.get(weight, 7))
     win = "C:/Windows/Fonts/arialbd.ttf" if weight in ("Bold", "SemiBold") else "C:/Windows/Fonts/arial.ttf"
     return (win, 0)
+
+# Font PHU DA-NGU (Latin + Viet + pinyin + CHU HAN) — dung cho cac dong CO THE lot chu Han
+# (dong nghia, nhan section, header) de KHONG bi tofu (□). Lexend khong co glyph Han.
+_ARIAL_UNI = _pick_font("C:/Windows/Fonts/ARIALUNI.TTF",
+                        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                        "/Library/Fonts/Arial Unicode.ttf")
+def _latin_uni(weight):
+    """Nhu _latin nhung uu tien Arial Unicode (phu Han). Du phong ve _latin."""
+    if _ARIAL_UNI and os.path.exists(_ARIAL_UNI):
+        return (_ARIAL_UNI, 0)
+    return _latin(weight)
 
 # Avenir Next.ttc face index: 0=Bold 1=BoldItalic 2=DemiBold 3=DemiBoldItalic 5=Medium 7=Regular
 F = {
@@ -96,12 +109,12 @@ F = {
                     "/System/Library/Fonts/STHeiti Medium.ttc",
                     "/System/Library/Fonts/Supplemental/Songti.ttc",
                     "/System/Library/Fonts/Hiragino Sans GB.ttc"),
-    "pinyin": _latin("Regular"),    # pinyin nhe, thanh
-    "viet":   _latin("SemiBold"),   # nghia Viet (nhan)
-    "head":   _latin("Medium"),     # header tren cung
-    "badge":  _latin("Bold"),       # badge HSK
-    "sans":   _latin("Regular"),    # van ban thuong
-    "sansb":  _latin("SemiBold"),   # van ban dam
+    "pinyin": _latin("Regular"),     # pinyin nhe, thanh (toan Latin -> Lexend, giu net)
+    "viet":   _latin_uni("SemiBold"),# nghia/subtitle: CO THE lot chu Han -> Arial Unicode (khong tofu)
+    "head":   _latin_uni("Medium"),  # header tren cung: co the co chu Han -> Arial Unicode
+    "badge":  _latin("Bold"),        # badge HSK (toan Latin -> Lexend, giu net dam)
+    "sans":   _latin("Regular"),     # van ban thuong
+    "sansb":  _latin("SemiBold"),    # van ban dam
 }
 EMOJI = _pick_font("C:/Windows/Fonts/seguiemj.ttf",
                    "/System/Library/Fonts/Apple Color Emoji.ttc")
@@ -521,15 +534,20 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
         im = Image.new("RGB", (W, H), BG)     # chua upload -> dung nen pastel theo theme
     im = im.convert("RGBA")
     # lop nen mo (readability) — mep MO DAN (feather) de hoa vao tranh, khong co vet doc
-    alpha = int(ctx.get("panel_alpha", 150))
+    alpha = int(ctx.get("panel_alpha", 170))
     x0, y0, x1, y1 = PODCAST_BOX
     if alpha > 0:
         mask = Image.new("L", (W, H), 0)
-        ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=26, fill=alpha)
+        ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=26, fill=255)
         mask = mask.filter(ImageFilter.GaussianBlur(16))     # mo mep -> khong vet cung
+        # 1) LAM MO nen NGAY DUOI panel: chi tiet tranh (nui/canh) khong con sac net ->
+        #    khong bi "bong ma" khi lo qua lop kem ban trong. (fix vet nui mo o mep panel)
+        im = Image.composite(im.filter(ImageFilter.GaussianBlur(18)), im, mask)
+        # 2) phu lop kem ban trong len tren nen da mo
+        amask = mask.point(lambda p: p * alpha // 255)       # ap do mo panel len mask feather
         panel_c = hex2rgb(ctx.get("panel_color")) or (255, 253, 248)
         white = Image.new("RGBA", (W, H), tuple(panel_c) + (255,))
-        im = Image.composite(white, im, mask)
+        im = Image.composite(white, im, amask)
     # vien co dien + goc trang tri (net sac)
     if ctx.get("podcast_frame", True):
         ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
