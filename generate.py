@@ -707,6 +707,51 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
     shutil.copyfile(c, path)
     return sents
 
+# ---------- PACING: nghi sau dau phay (ENGINE-AGNOSTIC) ----------
+def _concat_audio(files, out):
+    """Ghep nhieu file audio -> 1 mp3. Chuan hoa 24kHz mono truoc khi concat (an toan moi engine)."""
+    ins = []
+    for f in files:
+        ins += ["-i", f]
+    n = len(files)
+    pre = "".join(f"[{i}:a]aresample=24000,aformat=channel_layouts=mono[a{i}];" for i in range(n))
+    graph = pre + "".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[a]"
+    subprocess.run(["ffmpeg", "-y", *ins, "-filter_complex", graph,
+                    "-map", "[a]", "-c:a", "libmp3lame", "-q:a", "4", out],
+                   check=True, capture_output=True)
+
+_PACE_SPLIT = _re.compile(r"(?<=[，、；：,;:])")   # tach NGAY SAU dau ngat trong cau
+
+def synth_paced(text, voice, path, rate="-8%", comma_pause=0.0,
+                azure=None, chattts=False, eleven=None, gemini=None, emo=None):
+    """Synth 1 cau + chen im lang 'comma_pause' (giay) sau moi dau phay/cham-phay.
+       Chay cho MOI engine (tach cau -> synth tung khuc qua synth() -> ghep + im lang).
+       comma_pause<=0 hoac cau khong co dau phay -> synth_timed binh thuong."""
+    kw = dict(azure=azure, chattts=chattts, eleven=eleven, gemini=gemini, emo=emo)
+    chunks = [c for c in _PACE_SPLIT.split(text) if c and c.strip()]
+    if comma_pause <= 0 or len(chunks) <= 1:
+        return synth_timed(text, voice, path, rate=rate, **kw)
+    parts = []
+    last = len(chunks) - 1
+    for idx, ch in enumerate(chunks):
+        cf = f"{path}.c{idx}.mp3"
+        # bo dau ngat o CUOI khuc (tru khuc cuoi) -> engine khoi tu them nghi ->
+        # thoi luong nghi DUNG bang comma_pause (khong bi cong them nghi tu nhien cua giong)
+        ct = ch if idx == last else ch.rstrip("，、；：,;: ")
+        synth(ct or ch, voice, cf, rate=rate, **kw)    # dispatch engine + cache
+        parts.append(cf)
+        if idx < last:
+            sf = f"{path}.s{idx}.mp3"
+            _silence_mp3(sf, comma_pause)
+            parts.append(sf)
+    _concat_audio(parts, path)
+    for p in parts:
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+    return []          # cau hien tinh (ca cau) -> khong can moc tung tu
+
 def _synth_edge_timed(text, voice, out_mp3, rate="-8%", pitch=None):
     """edge-tts -> ghi out_mp3 + tra ve list (start,end) cac cau/tu. Co retry + chong cau rong."""
     if _is_empty_tts(text):
@@ -1224,7 +1269,8 @@ def make_anim_segment(seg, ctx, i):
         return vp, total
 
     text, voice = tts_for(seg, ctx)
-    sents = synth_timed(text, voice, ap, rate=seg.get("_rate") or ctx.get("rate", "-8%"),
+    sents = synth_paced(text, voice, ap, rate=seg.get("_rate") or ctx.get("rate", "-8%"),
+                        comma_pause=float(ctx.get("comma_pause", 0.0) or 0.0),
                         azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
                         eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"),
                         emo=_seg_emo(ctx, seg.get("hanzi", "")))
@@ -1234,6 +1280,9 @@ def make_anim_segment(seg, ctx, i):
         pad = pad + _reflective_bonus(text, _expressive)
     except Exception:
         pass
+    # NGHI GIUA DOAN: cau ket thuc 1 doan (truoc dong trong) -> nghi dai hon (para_gap)
+    if seg.get("_para_end"):
+        pad = pad + float(ctx.get("para_gap", 0.0) or 0.0)
     total = adur + pad
 
     # Cau/tu vung: hien CA CAU ngay tu dau (1 state tinh) -> text luon khop voi giong doc.

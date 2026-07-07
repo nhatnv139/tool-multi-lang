@@ -205,6 +205,9 @@ def parse_lesson(text):
         if _HR_RE.match(line):          # het phan noi dung chinh -> bo qua phu luc
             break
         if not line:
+            # DONG TRONG = ranh gioi doan -> danh dau cau cuoi cua doan hien tai (nghi dai hon)
+            if cur and cur.get("items"):
+                cur.setdefault("para_ends", set()).add(len(cur["items"]) - 1)
             continue
         if line.startswith("@"):
             key, _, val = line[1:].partition(" ")
@@ -285,9 +288,13 @@ def parse_lesson(text):
                     hz, vi = _split_item(it)
                     segs.append({"type": "practice_a", "hanzi": hz, "pinyin": "", "viet": vi})
         else:                                       # vocab / sentence
-            for it in sec["items"]:
+            pends = sec.get("para_ends", set())
+            for idx, it in enumerate(sec["items"]):
                 hz, vi = _split_item(it)
-                segs.append({"type": st, "hanzi": hz, "pinyin": "", "viet": vi})
+                s2 = {"type": st, "hanzi": hz, "pinyin": "", "viet": vi}
+                if idx in pends:
+                    s2["_para_end"] = True           # cau ket doan -> nghi dai (para_gap)
+                segs.append(s2)
 
     segs.append({"type": "outro"})
 

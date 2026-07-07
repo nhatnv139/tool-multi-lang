@@ -529,8 +529,10 @@ def run_job(job_id, data):
                 "_dialogue_map": dialogue_map,
                 "_chattts": (data.get("chattts_style", "warm")
                              if engine == "chattts" else None),
-                "rate":     data.get("rate", "-8%"),
-                "pad":      float(data.get("pad", 0.8)),
+                "rate":     data.get("rate", "-12%"),          # 85-90% natural (mac dinh)
+                "pad":      float(data.get("pad", 1.2)),        # nghi sau dau cham cau (1-1.5s)
+                "comma_pause": float(data.get("comma_pause", 0.0)),   # THEM nghi sau dau phay (0=tu nhien ~0.2-0.3s)
+                "para_gap": float(data.get("para_gap", 2.5)),  # nghi giua 2 doan (2-3s)
                 "expressive": int(data.get("expressive", 60)),
                 "theme":    data.get("theme", "pink"),
                 "music":    bool(data.get("music", True)),
@@ -548,6 +550,7 @@ def run_job(job_id, data):
                 "podcast_layout": bool(data.get("podcast_layout", False)),
                 "podcast_variant": data.get("podcast_variant", "inkwash"),
                 "panel_alpha": int(data.get("panel_alpha", 150)),
+                "panel_h": int(data.get("panel_h", 0) or 0),
                 "tone_colors": bool(data.get("tone_colors", True)),
                 "podcast_frame": bool(data.get("podcast_frame", True)),
                 "seal_text": (data.get("seal_text") or "").strip(),

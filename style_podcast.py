@@ -803,7 +803,19 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
         base = tuple(cfg.get("bgfill") or ((18, 20, 28) if dark else SP.BG))
         im = Image.new("RGBA", (W * S, H * S), base + (255,))
 
-    x0, y0, x1, y1 = [c * S for c in cfg["box"]]
+    # --- box panel (1x) + tuy chinh chieu cao + tranh de thanh chan ---
+    bx0, by0, bx1, by1 = cfg["box"]
+    ph = ctx.get("panel_h")            # chieu cao panel nguoi dung chon (px 1x); 0/None = mac dinh
+    if ph:
+        by0 = by1 - int(ph)            # giu day, keo dinh len/xuong -> cao/thap hon
+    if ctx.get("bottom_bar") and not cfg.get("scrim") and not cfg.get("slats"):
+        limit = (H - BAR_H) - 12       # dinh thanh chan - le; panel phai ket thuc tren day
+        if by1 > limit:
+            shift = by1 - limit        # day CA panel len de khong bi thanh chan de
+            by0 -= shift; by1 -= shift
+    if by0 < 60:                        # chan tren (khong day qua sat mep)
+        by0 = 60
+    x0, y0, x1, y1 = [c * S for c in (bx0, by0, bx1, by1)]
 
     # 2) panel / scrim
     alpha = ctx.get("panel_alpha")

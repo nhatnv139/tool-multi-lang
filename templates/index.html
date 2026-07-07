@@ -131,13 +131,13 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       </div>
       <div>
         <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
-        <input type="range" id="rate" min="-50" max="30" step="1" value="-8" style="width:100%"
+        <input type="range" id="rate" min="-50" max="30" step="1" value="-12" style="width:100%"
                oninput="rateLabel(this.value)">
         <div class="ends"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
       </div>
       <div>
-        <label>⏸️ Nhịp nghỉ giữa câu: <span id="pad_lbl" class="hint">0.8s</span></label>
-        <input type="range" id="pad" min="0" max="25" step="1" value="8" style="width:100%"
+        <label>⏸️ Nghỉ sau dấu chấm câu: <span id="pad_lbl" class="hint">1.2s</span></label>
+        <input type="range" id="pad" min="0" max="25" step="1" value="12" style="width:100%"
                oninput="document.getElementById('pad_lbl').textContent=(this.value/10).toFixed(1)+'s'">
         <div class="ends"><span>Liền mạch</span><span>Nghỉ lâu</span></div>
       </div>
@@ -153,6 +153,23 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <select id="mood">
           {% for v,lbl in moods %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
         </select>
+      </div>
+    </div>
+
+    <div class="row mt">
+      <div>
+        <label>✂️ Nghỉ THÊM sau dấu phẩy: <span id="comma_lbl" class="hint">tự nhiên</span>
+          <span class="hint">— 0 = để giọng tự nghỉ (~0.2-0.3s, đủ mượt); kéo lên nếu muốn tách rõ hơn (mọi giọng)</span></label>
+        <input type="range" id="comma_pause" min="0" max="50" step="5" value="0" style="width:100%"
+               oninput="document.getElementById('comma_lbl').textContent=(this.value==0?'tự nhiên':'+'+(this.value/100).toFixed(2)+'s')">
+        <div class="ends"><span>Tự nhiên</span><span>Tách rõ (+0.5s)</span></div>
+      </div>
+      <div>
+        <label>📑 Nghỉ giữa 2 đoạn văn: <span id="para_lbl" class="hint">2.5s</span>
+          <span class="hint">— khi có DÒNG TRỐNG giữa các đoạn trong nội dung</span></label>
+        <input type="range" id="para_gap" min="0" max="40" step="5" value="25" style="width:100%"
+               oninput="document.getElementById('para_lbl').textContent=(this.value/10).toFixed(1)+'s'">
+        <div class="ends"><span>Liền mạch</span><span>Nghỉ dài (4s)</span></div>
       </div>
     </div>
 
@@ -329,6 +346,9 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       <label class="mt">🩹 Độ mờ lớp nền chữ: <span id="panel_alpha_lbl" class="hint">150</span> <span class="hint">(0 = không có lớp nền, 255 = đặc; nhóm "trên tranh" không dùng)</span></label>
       <input type="range" id="panel_alpha" min="0" max="255" step="5" value="150" style="width:100%"
              oninput="document.getElementById('panel_alpha_lbl').textContent=this.value">
+      <label class="mt">📏 Chiều cao khung chữ: <span id="panel_h_lbl" class="hint">Tự động (theo layout)</span> <span class="hint">(kéo phải = khung cao hơn; có thanh chân trang thì khung tự đẩy lên khỏi bị đè)</span></label>
+      <input type="range" id="panel_h" min="0" max="760" step="10" value="0" style="width:100%"
+             oninput="document.getElementById('panel_h_lbl').textContent = this.value==='0' ? 'Tự động (theo layout)' : this.value+' px'">
       <div class="switch" style="margin-top:8px">
         <input type="checkbox" id="tone_colors" checked>
         <label for="tone_colors" style="margin:0">🎨 Pinyin tô màu theo thanh điệu <span class="hint">(thanh 1 đỏ · 2 cam · 3 xanh lá · 4 xanh dương)</span></label>
@@ -754,6 +774,8 @@ async function generate(){
                                                    : document.getElementById('voice').value,
     rate:   rateValue(),
     pad:    document.getElementById('pad').value/10,
+    comma_pause: document.getElementById('comma_pause').value/100,
+    para_gap:    document.getElementById('para_gap').value/10,
     expressive: parseInt(document.getElementById('expressive').value,10),
     theme:  document.getElementById('theme').value,
     mascot: document.getElementById('mascot').value,
@@ -789,6 +811,7 @@ async function generate(){
     repeat_slow: document.getElementById('repeat_slow').checked,
     replay_loop: document.getElementById('replay_loop').checked,
     panel_alpha: parseInt(document.getElementById('panel_alpha').value,10),
+    panel_h: parseInt(document.getElementById('panel_h').value,10),
     tone_colors: document.getElementById('tone_colors').checked,
     podcast_frame: document.getElementById('podcast_frame').checked,
     intro_outro: document.getElementById('intro_outro').checked,
@@ -922,7 +945,7 @@ async function poll(id){
 (function(){
   var KEY='tml:index', LKEY='tml:index:lastjob', TTL=14*864e5;
   var FIELDS=['content','header','voice','rate','pad','expressive','mood','chattts_style',
-    'podcast','show_title','show_outro','podcast_layout','panel_alpha','tone_colors',
+    'podcast','show_title','show_outro','podcast_layout','panel_alpha','panel_h','tone_colors',
     'podcast_frame','theme','character','mascot','channel','infobar','music','music_vol',
     'eleven_model','eleven_voice','mascot_motion','ai_mascot','image_prompt',
     'intro_outro','use_intro','use_outro',
@@ -955,6 +978,8 @@ async function poll(id){
     try{ var pl=$('podcast_layout'); if(pl) pl.dispatchEvent(new Event('change')); }catch(e){}
     try{ var cc=$('custom_colors'); if(cc) cc.dispatchEvent(new Event('change')); }catch(e){}
     try{ var bb=$('bottom_bar'); if(bb) bb.dispatchEvent(new Event('change')); }catch(e){}
+    try{ var pa=$('panel_alpha'); if(pa) pa.dispatchEvent(new Event('input')); }catch(e){}
+    try{ var ph=$('panel_h'); if(ph) ph.dispatchEvent(new Event('input')); }catch(e){}
     try{ var v=$('voice'); if(v) v.dispatchEvent(new Event('change')); }catch(e){}
     try{ if(typeof rateLabel==='function' && $('rate')) rateLabel($('rate').value); }catch(e){}
     try{ if(typeof toggleChar==='function') toggleChar(); }catch(e){}
