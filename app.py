@@ -31,7 +31,8 @@ def _save_job(job_id):
         except Exception:
             data = {}
         data[job_id] = {"video": j.get("video"), "thumb": j.get("thumb"),
-                        "seo": j.get("seo"), "status": "done"}
+                        "seo": j.get("seo"), "short": j.get("short"),
+                        "short_seo": j.get("short_seo"), "status": "done"}
         os.makedirs(OUT, exist_ok=True)
         with open(JOBS_DB, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -44,7 +45,9 @@ try:
         _saved = json.load(f) or {}
     for _jid, _v in _saved.items():
         try:
-            if _v.get("video") and os.path.exists(os.path.join(OUT, _v["video"])):
+            _vid_ok = _v.get("video") and os.path.exists(os.path.join(OUT, _v["video"]))
+            _sh_ok = _v.get("short") and os.path.exists(os.path.join(OUT, _v["short"]))
+            if _vid_ok or _sh_ok:                 # giu ca job Short-only (studio, khong video dai)
                 jobs[_jid] = _v
         except Exception:
             pass
@@ -326,12 +329,16 @@ def _job_from_disk(job_id):
     thumb_name = base + ".thumb.jpg"
     thumb = thumb_name if os.path.exists(os.path.join(OUT, thumb_name)) else None
     title = _read_meta(target).get("title") or base
+    short_name = base + "_short.mp4"                         # video Short (neu da tao)
+    has_short = os.path.exists(os.path.join(OUT, short_name))
     return {
         "video": target,
         "thumb": thumb,
         "seo": {"title": title, "titles": [title], "description": "",
                 "tags": [], "hashtags": [], "pinned_comment": "",
                 "privacy": "public"},
+        "short": (short_name if has_short else None),
+        "short_seo": ({"title": f"{title} #Shorts", "description": ""} if has_short else {}),
         "status": "done",
     }
 
@@ -464,8 +471,13 @@ def run_job(job_id, data):
                 raise _Cancelled()
             jobs[job_id]["label"] = "Đọc nội dung..."
             ctx = lesson_parser.parse_lesson(data["content"])
+            # Tên kênh (watermark) tự lấy từ @header, bỏ phần "· HSK ..." -> chỉ giữ tên kênh
+            _hdr = (ctx.get("header") or "").strip()
+            ctx["_channel_auto"] = re.split(r"\s*[·|]\s*", _hdr)[0].strip() if _hdr else ""
             # giong: value dang "edge:..." hoac "azure:..."
             engine, _, vname = (data.get("voice") or "edge:zh-CN-XiaoxiaoNeural").partition(":")
+            print(f"[DEBUG-TTS] raw voice={data.get('voice')!r} engine={engine!r} vname={vname!r} "
+                  f"eleven_voice={data.get('eleven_voice')!r} eleven_model={data.get('eleven_model')!r}")
             azure_tuple = None
             eleven_key = None
             gemini_key = None
@@ -538,7 +550,7 @@ def run_job(job_id, data):
                 "music":    bool(data.get("music", True)),
                 "music_vol": float(data.get("music_vol", 0.5)),
                 "mascot":   data.get("mascot", ""),
-                "channel":  data.get("channel", "").strip() or "Học Tiếng Trung",
+                "channel":  ctx.get("_channel_auto") or (data.get("channel") or "").strip() or "Học Tiếng Trung",
                 "infobar":  data.get("infobar", "").strip(),
                 "ai_mascot": bool(data.get("ai_mascot", False)),
                 "mascot_motion": bool(data.get("mascot_motion", True)),
@@ -559,7 +571,7 @@ def run_job(job_id, data):
                 "fx": (data.get("fx") or "").strip(),
                 "zh_px": _px_opt(data.get("zh_px")),
                 "bottom_bar": bool(data.get("bottom_bar", False)),
-                "bar_left": (data.get("bar_left") or "").strip(),
+                "bar_left": ctx.get("title") or (data.get("bar_left") or "").strip(),
                 "bar_badge": (data.get("bar_badge") or "PODCAST").strip(),
                 "bar_bg": _hex_opt(data.get("bar_bg")),
                 "zh_color": _hex_opt(data.get("zh_color")),
@@ -612,6 +624,15 @@ def run_job(job_id, data):
             jobs[job_id].update(status="done", video=os.path.basename(final),
                                 thumb=(thumb if os.path.exists(os.path.join(OUT, thumb)) else None),
                                 seo=seo_meta, label="Hoàn tất!")
+            # tao 1 video Short 9:16 NATIVE (1 cau dat, khong crop) — loi short KHONG chan luong chinh
+            try:
+                import short_native as _shorts
+                _sh = _shorts.make_short(final, OUT)
+                jobs[job_id]["short"] = os.path.basename(_sh["file"])
+                jobs[job_id]["short_seo"] = {"title": _sh["title"],
+                                             "description": _sh["desc"]}
+            except Exception:
+                traceback.print_exc()
             _save_job(job_id)               # persist metadata job done ra jobs.json
     except _Cancelled:
         jobs[job_id].update(status="cancelled", label="⏹ Đã huỷ")
@@ -711,9 +732,13 @@ def youtube_page(job_id):
             job = j
         else:
             return "Video chưa sẵn sàng. Hãy tạo video trước.", 404
+    _td = _read_meta(job["video"]).get("total_dur") or 0
+    video_len = "%d:%02d" % (int(_td) // 60, int(_td) % 60) if _td else ""
     return render_template("youtube.html", job_id=job_id,
                            video=job["video"], thumb=job.get("thumb"),
-                           seo=job.get("seo", {}))
+                           seo=job.get("seo", {}),
+                           short=job.get("short"), short_seo=job.get("short_seo", {}),
+                           video_len=video_len)
 
 @app.route("/api/seo/<job_id>")
 def api_seo(job_id):
@@ -814,13 +839,159 @@ def yt_connect():
     except Exception as e:
         return f"<h2>❌ Lỗi kết nối</h2><pre>{e}</pre>", 500
 
+# ---------- SHORTS STUDIO: sinh Short doc TRUC TIEP tu cau (khong can video dai) ----------
+@app.route("/shorts")
+def shorts_page():
+    return render_template("shorts.html", edge_voices=EDGE_VOICES)
+
+@app.route("/shorts/extract", methods=["POST"])
+def shorts_extract():
+    """Nhan noi dung 1 bai (content.md) -> tu rut N cau 'dat' nhat lam Short.
+    Tra ve {lines: '汉字 | nghia\\n...'} de do thang vao o tao Short."""
+    d = request.get_json(force=True) or {}
+    content = (d.get("content") or "").strip()
+    if not content:
+        return jsonify(error="Chưa dán nội dung bài."), 400
+    try:
+        n = max(1, min(12, int(d.get("n") or 5)))
+    except Exception:
+        n = 5
+    import short_native as _sn
+    cands = _sn.extract_candidates(content, n)
+    if not cands:
+        return jsonify(error="Không tìm thấy câu phù hợp (câu quá dài hoặc thiếu nghĩa)."), 400
+    lines = "\n".join(f"{c['hanzi']} | {c['viet']}" for c in cands)
+    return jsonify(lines=lines, count=len(cands))
+
+@app.route("/shorts/make", methods=["POST"])
+def shorts_make():
+    """Nhan danh sach cau ('汉字 | nghia' moi dong) -> sinh loat Short native.
+    Moi Short thanh 1 job Short-only (upload/hen gio tai dung /yt/upload use_short)."""
+    import uuid
+    d = request.get_json(force=True) or {}
+    raw = (d.get("lines") or "").strip()
+    if not raw:
+        return jsonify(error="Chưa nhập câu nào."), 400
+    voice = d.get("voice") or "edge:zh-CN-XiaoxiaoNeural"
+    hook = (d.get("hook") or "").strip() or None
+    fmt = (d.get("format") or "flash").strip()          # 'flash' | 'quiz'
+    ui_lang = (d.get("uiLang") or "auto").strip()       # ngon ngu chu co dinh (hook/nut/quiz)
+    if ui_lang not in ("vi", "en", "auto"):
+        ui_lang = "auto"
+    try:
+        reads = max(1, min(3, int(d.get("reads") or 2)))
+    except Exception:
+        reads = 2
+    combine = bool(d.get("combine"))                    # True: GOP tat ca cau -> 1 Short
+    import short_native as _sn
+
+    # ---- GOP: tat ca cau trong o nhap -> 1 Short duy nhat (moi cau doc 'reads' lan, next) ----
+    if combine:
+        rows = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = re.split(r"\s*[|｜\t]\s*", line, maxsplit=2)
+            hanzi = parts[0].strip()
+            if not hanzi:
+                continue
+            viet = parts[1].strip() if len(parts) > 1 else ""
+            note = parts[2].strip() if len(parts) > 2 else ""
+            rows.append((hanzi, viet, note))
+        if not rows:
+            return jsonify(error="Không có câu hợp lệ."), 400
+        jid = "std_" + uuid.uuid4().hex[:10]
+        try:
+            r = _sn.make_short_from_lines(rows, voice=voice, hook=hook,
+                                          out_dir=OUT, reads=reads, name=jid, lang=ui_lang)
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify(error=str(e)), 500
+        fn = os.path.basename(r["file"])
+        jobs[jid] = {"status": "done", "video": None, "short": fn,
+                     "short_seo": {"title": r["title"], "description": r["desc"]}}
+        _save_job(jid)
+        return jsonify(shorts=[{"job_id": jid, "short": fn, "title": r["title"],
+                                "description": r["desc"], "hanzi": rows[0][0],
+                                "pinyin": "", "viet": rows[0][1],
+                                "count": r["count"], "dur": r["dur"]}])
+
+    out = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = re.split(r"\s*[|｜\t]\s*", line, maxsplit=2)
+        hanzi = parts[0].strip()
+        viet = parts[1].strip() if len(parts) > 1 else ""
+        note = parts[2].strip() if len(parts) > 2 else ""   # cot 3 tuy chon: ghi chu cach dung
+        if not hanzi:
+            continue
+        jid = "std_" + uuid.uuid4().hex[:10]
+        try:
+            if fmt == "quiz":
+                r = _sn.make_quiz_from_text(hanzi, viet, voice=voice, hook=hook,
+                                            out_dir=OUT, name=jid, lang=ui_lang)
+            else:
+                r = _sn.make_short_from_text(hanzi, viet, voice=voice, hook=hook,
+                                             out_dir=OUT, reads=reads, name=jid, note=note,
+                                             lang=ui_lang)
+        except Exception as e:
+            traceback.print_exc()
+            out.append({"error": str(e), "hanzi": hanzi})
+            continue
+        fn = os.path.basename(r["file"])
+        jobs[jid] = {"status": "done", "video": None, "short": fn,
+                     "short_seo": {"title": r["title"], "description": r["desc"]}}
+        _save_job(jid)
+        out.append({"job_id": jid, "short": fn, "title": r["title"],
+                    "description": r["desc"], "hanzi": r["hanzi"],
+                    "pinyin": r["pinyin"], "viet": r["viet"], "dur": r["dur"]})
+    if not out:
+        return jsonify(error="Không có câu hợp lệ."), 400
+    return jsonify(shorts=out)
+
+@app.route("/yt/make_short/<job_id>", methods=["POST"])
+def yt_make_short(job_id):
+    """Cat lai video Short tai moc thoi gian nguoi dung chon (at='mm:ss').
+    at rong -> tu chon doan diem cao nhat. Ghi de file Short cu, cap nhat job."""
+    job = jobs.get(job_id) or _job_from_disk(job_id)
+    if not job or not job.get("video"):
+        return jsonify(error="Không tìm thấy video của phiên này."), 400
+    jobs[job_id] = job                              # cache lai vao RAM
+    video_path = os.path.join(OUT, job["video"])
+    if not os.path.exists(video_path):
+        return jsonify(error="File video không tồn tại."), 400
+    d = request.get_json(force=True) or {}
+    at = (d.get("at") or "").strip() or None
+    try:
+        import short_native as _shorts
+        sh = _shorts.make_short(video_path, OUT, at=at)
+        job["short"] = os.path.basename(sh["file"])
+        job["short_seo"] = {"title": sh["title"], "description": sh["desc"]}
+        _save_job(job_id)
+        return jsonify(short=job["short"], title=sh["title"],
+                       description=sh["desc"], start=sh["start"], dur=sh["dur"])
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify(error=str(e)), 500
+
 @app.route("/yt/upload", methods=["POST"])
 def yt_upload():
     d = request.get_json(force=True)
     job = jobs.get(d.get("job_id"))
-    if not job or not job.get("video"):
-        return jsonify(error="Không tìm thấy video của phiên này."), 400
-    video_path = os.path.join(OUT, job["video"])
+    if not job:
+        return jsonify(error="Không tìm thấy phiên này."), 400
+    if d.get("use_short"):                       # dang ban Short 9:16 (co the la Short-only, khong video dai)
+        short_name = job.get("short")
+        if not short_name:
+            return jsonify(error="Phiên này chưa có video Short."), 400
+        video_path = os.path.join(OUT, short_name)
+    else:
+        if not job.get("video"):
+            return jsonify(error="Không tìm thấy video của phiên này."), 400
+        video_path = os.path.join(OUT, job["video"])
     if not os.path.exists(video_path):
         return jsonify(error="File video không tồn tại."), 400
     try:
@@ -828,7 +999,8 @@ def yt_upload():
             d["channel"], video_path,
             title=d.get("title", ""), description=d.get("description", ""),
             tags=d.get("tags", ""), privacy=d.get("privacy", "public"),
-            category=d.get("category", "27"))
+            category=d.get("category", "27"),
+            publish_at=d.get("publish_at"))
         # tu dong upload phu de (CC): chu Han / pinyin / tieng Viet
         captions = {"caption_ok": [], "caption_err": []}
         if d.get("captions", True):

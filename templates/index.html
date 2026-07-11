@@ -57,6 +57,11 @@
               padding:9px 16px;border-radius:10px;text-decoration:none;font-size:15px">
       📚 Thư viện video đã tạo
     </a>
+    <a href="/shorts"
+       style="display:inline-block;background:#fdecec;color:#c0392b;font-weight:600;
+              padding:9px 16px;border-radius:10px;text-decoration:none;font-size:15px">
+      ⚡ Shorts Studio
+    </a>
     <button type="button" class="btn-ghost" onclick="importExistingVideo()"
             style="padding:9px 16px;font-size:15px">📤 Đăng video có sẵn</button>
     <span id="importSt" class="hint"></span>
@@ -84,6 +89,7 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
 
 — Mỗi dòng:  中文 | nghĩa tiếng Việt
 — Dòng dạng A: / B: = hội thoại (gán giọng riêng cho từng người)"></textarea>
+    <div id="metaPreview" class="hint" style="margin-top:6px;display:none;line-height:1.6"></div>
 
     <div class="mt">
       <label>📎 Hoặc dán link Google Drive / Docs <span class="hint">(file chia sẻ công khai — tự đọc & đổ vào ô trên)</span></label>
@@ -131,13 +137,13 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       </div>
       <div>
         <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
-        <input type="range" id="rate" min="-50" max="30" step="1" value="-12" style="width:100%"
+        <input type="range" id="rate" min="-50" max="30" step="1" value="-8" style="width:100%"
                oninput="rateLabel(this.value)">
         <div class="ends"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
       </div>
       <div>
-        <label>⏸️ Nghỉ sau dấu chấm câu: <span id="pad_lbl" class="hint">1.2s</span></label>
-        <input type="range" id="pad" min="0" max="25" step="1" value="12" style="width:100%"
+        <label>⏸️ Nghỉ sau dấu chấm câu: <span id="pad_lbl" class="hint">0.2s</span></label>
+        <input type="range" id="pad" min="0" max="25" step="1" value="2" style="width:100%"
                oninput="document.getElementById('pad_lbl').textContent=(this.value/10).toFixed(1)+'s'">
         <div class="ends"><span>Liền mạch</span><span>Nghỉ lâu</span></div>
       </div>
@@ -165,9 +171,9 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <div class="ends"><span>Tự nhiên</span><span>Tách rõ (+0.5s)</span></div>
       </div>
       <div>
-        <label>📑 Nghỉ giữa 2 đoạn văn: <span id="para_lbl" class="hint">2.5s</span>
+        <label>📑 Nghỉ giữa 2 đoạn văn: <span id="para_lbl" class="hint">0.5s</span>
           <span class="hint">— khi có DÒNG TRỐNG giữa các đoạn trong nội dung</span></label>
-        <input type="range" id="para_gap" min="0" max="40" step="5" value="25" style="width:100%"
+        <input type="range" id="para_gap" min="0" max="40" step="5" value="5" style="width:100%"
                oninput="document.getElementById('para_lbl').textContent=(this.value/10).toFixed(1)+'s'">
         <div class="ends"><span>Liền mạch</span><span>Nghỉ dài (4s)</span></div>
       </div>
@@ -187,7 +193,7 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
     </div>
 
     <div class="mt switch">
-      <input type="checkbox" id="podcast">
+      <input type="checkbox" id="podcast" checked>
       <label for="podcast" style="margin:0">🎧 Chế độ Podcast
         <span class="hint">(chỉ đọc tiếng Trung + hiện dịch Việt, bỏ phần mở đầu/kết thúc — nghe thụ động)</span></label>
     </div>
@@ -202,11 +208,11 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <span class="hint">(再见 + cảm ơn / like-subscribe ở cuối video — mặc định TẮT)</span></label>
     </div>
     <div class="mt switch">
-      <input type="checkbox" id="podcast_layout">
+      <input type="checkbox" id="podcast_layout" checked>
       <label for="podcast_layout" style="margin:0">📻 Layout Podcast (Chinese Daily)
         <span class="hint">(Hán to + pinyin + Việt trên nền bạn tự làm — nhớ upload ảnh nền người dẫn/tranh)</span></label>
     </div>
-    <div class="mt" id="panel_alpha_wrap" style="display:none">
+    <div class="mt" id="panel_alpha_wrap" style="display:block">
       <div class="row">
         <div>
           <label>🏮 Biến thể layout <span class="hint">(thẩm mỹ Trung Hoa)</span></label>
@@ -245,18 +251,18 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <div>
           <label>🔤 Kiểu pinyin</label>
           <select id="pinyin_mode">
-            <option value="" selected>Tự động theo biến thể</option>
-            <option value="ruby">Trên TỪNG chữ Hán (kiểu Chinese Daily)</option>
+            <option value="">Tự động theo biến thể</option>
+            <option value="ruby" selected>Trên TỪNG chữ Hán (kiểu Chinese Daily)</option>
             <option value="line">Một dòng riêng cả câu</option>
           </select>
         </div>
         <div>
           <label>🎙️ Sóng âm giọng nói <span class="hint">(visualizer nhảy theo tiếng)</span></label>
           <select id="waveform">
-            <option value="auto" selected>Tự động theo biến thể</option>
+            <option value="auto">Tự động theo biến thể</option>
             <option value="top">Hiện — mép trên</option>
             <option value="mid">Hiện — giữa màn hình</option>
-            <option value="off">Ẩn</option>
+            <option value="off" selected>Ẩn</option>
           </select>
         </div>
       </div>
@@ -287,11 +293,11 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         </div>
       </div>
       <div class="mt switch">
-        <input type="checkbox" id="bottom_bar" onchange="document.getElementById('bar_row').style.display=this.checked?'flex':'none'">
+        <input type="checkbox" id="bottom_bar" checked onchange="document.getElementById('bar_row').style.display=this.checked?'flex':'none'">
         <label for="bottom_bar" style="margin:0">📛 Thanh chân trang (bottom bar)
           <span class="hint">(hook bên trái · tên kênh + badge bên phải — kiểu Chinese Daily)</span></label>
       </div>
-      <div class="row mt" id="bar_row" style="display:none">
+      <div class="row mt" id="bar_row" style="display:flex">
         <div style="flex:2">
           <label>✍️ Chữ bên trái <span class="hint">(câu hook — tự VIẾT HOA)</span></label>
           <input type="text" id="bar_left" placeholder="vd: Học tiếng Trung như pha một ấm trà">
@@ -346,8 +352,8 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       <label class="mt">🩹 Độ mờ lớp nền chữ: <span id="panel_alpha_lbl" class="hint">150</span> <span class="hint">(0 = không có lớp nền, 255 = đặc; nhóm "trên tranh" không dùng)</span></label>
       <input type="range" id="panel_alpha" min="0" max="255" step="5" value="150" style="width:100%"
              oninput="document.getElementById('panel_alpha_lbl').textContent=this.value">
-      <label class="mt">📏 Chiều cao khung chữ: <span id="panel_h_lbl" class="hint">Tự động (theo layout)</span> <span class="hint">(kéo phải = khung cao hơn; có thanh chân trang thì khung tự đẩy lên khỏi bị đè)</span></label>
-      <input type="range" id="panel_h" min="0" max="760" step="10" value="0" style="width:100%"
+      <label class="mt">📏 Chiều cao khung chữ: <span id="panel_h_lbl" class="hint">540 px</span> <span class="hint">(kéo phải = khung cao hơn; có thanh chân trang thì khung tự đẩy lên khỏi bị đè)</span></label>
+      <input type="range" id="panel_h" min="0" max="760" step="10" value="540" style="width:100%"
              oninput="document.getElementById('panel_h_lbl').textContent = this.value==='0' ? 'Tự động (theo layout)' : this.value+' px'">
       <div class="switch" style="margin-top:8px">
         <input type="checkbox" id="tone_colors" checked>
@@ -358,7 +364,7 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <label for="pinyin_top" style="margin:0">🔝 Pinyin đặt TRÊN chữ Hán <span class="hint">(chuẩn các kênh lớn — mắt đọc pinyin trước rồi map xuống chữ)</span></label>
       </div>
       <div class="switch" style="margin-top:6px">
-        <input type="checkbox" id="show_progress" checked>
+        <input type="checkbox" id="show_progress">
         <label for="show_progress" style="margin:0">📊 Đếm câu 12/50 + thanh tiến độ <span class="hint">(người xem biết còn bao nhiêu → xem hết video)</span></label>
       </div>
       <div class="switch" style="margin-top:6px">
@@ -422,8 +428,8 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <div class="hint" id="music_name"></div>
       </div>
       <div class="mt">
-        <label>🔊 Âm lượng nhạc nền: <span id="vol_lbl">50%</span></label>
-        <input type="range" id="music_vol" min="0" max="100" value="50" style="width:100%"
+        <label>🔊 Âm lượng nhạc nền: <span id="vol_lbl">0%</span></label>
+        <input type="range" id="music_vol" min="0" max="100" value="0" style="width:100%"
                oninput="document.getElementById('vol_lbl').textContent=this.value+'%'">
         <div class="ends"><span>🔈 Nhỏ</span><span>To 🔊</span></div>
       </div>
@@ -755,6 +761,25 @@ document.getElementById('voice').addEventListener('change', ()=>{
   const sps = [...document.querySelectorAll('#dialogue_voices [data-sp]')].map(e=>e.dataset.sp);
   if(sps.length) renderDialogueVoices(sps);
 });
+// Đọc @title / @header từ nội dung dán vào → hiện preview ngay (giống lúc render)
+function _esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function updateMetaPreview(){
+  const box = document.getElementById('metaPreview'); if(!box) return;
+  const txt = document.getElementById('content').value || '';
+  const mt = txt.match(/^@title\s+(.+)$/m);
+  const mh = txt.match(/^@header\s+(.+)$/m);
+  const title = mt ? mt[1].trim() : '';
+  const header = mh ? mh[1].trim() : '';
+  const channel = header ? header.split(/\s*[·|]\s*/)[0].trim() : '';
+  if(!title && !header){ box.style.display='none'; return; }
+  const parts = [];
+  if(title)   parts.push('🏷️ Tiêu đề hiển thị: <b>'+_esc(title)+'</b>');
+  if(channel) parts.push('📺 Tên kênh (watermark): <b>'+_esc(channel)+'</b>');
+  box.innerHTML = '✅ Nhận từ nội dung — '+parts.join(' &nbsp;·&nbsp; ');
+  box.style.display='block';
+}
+document.getElementById('content').addEventListener('input', updateMetaPreview);
+document.addEventListener('DOMContentLoaded', updateMetaPreview);
 function rateValue(){ const v=parseInt(document.getElementById('rate').value,10);
   return (v>=0?'+':'')+v+'%'; }
 function rateLabel(v){ v=parseInt(v,10);

@@ -353,7 +353,7 @@ def base_slide(ctx, header=None):
         im = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(im)
     if header is None:
-        header = ctx.get("header") or f'BÀI {int(ctx["id"])} · {ctx["title"]}'
+        header = ctx.get("title") or ctx.get("header") or f'BÀI {int(ctx["id"])}'
     hf = font("head", 44)
     # ve tung ky tu: chu Han dung font Han (KHONG tofu), Latin/Viet dung Lexend
     _hchars = [(ch, (font("zh", 44) if _is_cjk(ch) else hf)) for ch in header.upper()]

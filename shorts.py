@@ -130,6 +130,40 @@ def cut_short(video, start, dur, overlay, out):
                    check=True, capture_output=True)
 
 
+def make_short(video, out_dir=None, cta="Xem bài đầy đủ trên kênh 👆", at=None):
+    """Tao 1 YouTube Short (9:16) tu video ngang da render (crop + blur pad + overlay).
+    - video: duong dan .mp4 da render (can co video.mp4.meta.json ben canh).
+    - out_dir: thu muc luu short (mac dinh = thu muc chua video).
+    - at: 'mm:ss' de tu chon moc; None -> tu chon doan diem cao nhat.
+    Tra ve dict {file, title, desc, hook, start, dur}. Nem loi neu khong cat duoc."""
+    video = os.path.abspath(video)
+    meta = load_meta(video)
+    _han_title, viet_title = split_title(meta.get("title", ""))
+    ats = [float(_mmss_to_sec(at))] if at else None
+    wins = pick_windows(meta["segments"], 1, ats)
+    if not wins:
+        raise RuntimeError("khong chon duoc doan de cat short")
+    st, dur, seg = wins[0]
+    out_dir = out_dir or os.path.dirname(video)
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(video))[0]   # ten day du -> {video}_short.mp4
+    out = os.path.join(out_dir, f"{base}_short.mp4")
+    ovl = os.path.join(out_dir, f"_ovl_{base}.png")
+    hook = (seg.get("viet") or viet_title or "").strip()
+    make_overlay(hook, cta, ovl)
+    try:
+        cut_short(video, st, dur, ovl, out)
+    finally:
+        if os.path.exists(ovl):
+            os.remove(ovl)
+    title = f"{hook[:70]} | Tiếng Trung mỗi ngày #Shorts"
+    desc = (f"{seg.get('hanzi','')}\n{hook}\n\n"
+            f"🎧 Bài đầy đủ ({viet_title}) có trên kênh!\n"
+            "#hoctiengtrung #luyennghetiengtrung #shorts #tiengtrung #chinese")
+    return {"file": out, "title": title, "desc": desc,
+            "hook": hook, "start": round(st, 3), "dur": round(dur, 3)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")

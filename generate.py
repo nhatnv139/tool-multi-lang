@@ -325,6 +325,8 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
     """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path.
        mood -> mstts:express-as style; emo (tu detect_emotion) -> style + do manh +
        cao do theo cam xuc cau. HTTP 400 -> fallback SSML thuong."""
+    print(f"[DEBUG-TTS] synth_azure text={text!r} len={len(text or '')} "
+          f"key_len={len(key or '')} region={region!r}")
     pitch_attr = f' pitch="{emo["pitch"]}"' if emo else ""
     inner = (f'<prosody rate="{_norm_rate(rate)}"{pitch_attr}>{_ssml_escape(text)}</prosody>')
     # style: cam xuc cau (emo) > mood video > narration-relaxed
@@ -359,13 +361,26 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
                                      headers=headers, method="POST")
         return urllib.request.urlopen(req, timeout=60).read()
 
+    print(f"[DEBUG-TTS] synth_azure goi voice={voice!r} region={region!r} url={url!r}")
     try:
         data = _post(ssml_x)
     except urllib.error.HTTPError as e:
         if e.code == 400:               # giong/style khong ho tro express-as -> SSML thuong
             data = _post(ssml_plain)
         else:
-            raise
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")[:300]
+            except Exception:
+                pass
+            print(f"[DEBUG-TTS] synth_azure HTTPError {e.code}: {detail or e.reason}")
+            raise RuntimeError(f"Azure TTS loi {e.code}: {detail or e.reason}")
+    except urllib.error.URLError as e:
+        print(f"[DEBUG-TTS] synth_azure URLError: {e.reason}")
+        raise RuntimeError(f"Azure TTS khong ket noi duoc: {e.reason}")
+    print(f"[DEBUG-TTS] synth_azure nhan duoc {len(data) if data else 0} bytes")
+    if not data:
+        raise RuntimeError("Azure TTS tra ve audio rong")
     with open(path, "wb") as f:
         f.write(data)
     # Azure DragonHD (giong "sieu that") BO QUA prosody rate -> tu chinh toc do bang atempo
@@ -462,6 +477,7 @@ def synth_eleven(text, voice_id, path, key, rate="-8%", model=None, emo=None):
                                      headers=headers, method="POST")
         return urllib.request.urlopen(req, timeout=120).read()
 
+    print(f"[DEBUG-TTS] synth_eleven goi voice_id={voice_id!r} model={model!r} url={url!r}")
     try:
         data = _post(payload)
     except urllib.error.HTTPError as e:
@@ -475,7 +491,14 @@ def synth_eleven(text, voice_id, path, key, rate="-8%", model=None, emo=None):
                 detail = e.read().decode("utf-8", "replace")[:300]
             except Exception:
                 pass
+            print(f"[DEBUG-TTS] synth_eleven HTTPError {e.code}: {detail or e.reason}")
             raise RuntimeError(f"ElevenLabs loi {e.code}: {detail or e.reason}")
+    except urllib.error.URLError as e:
+        print(f"[DEBUG-TTS] synth_eleven URLError: {e.reason}")
+        raise RuntimeError(f"ElevenLabs khong ket noi duoc: {e.reason}")
+    print(f"[DEBUG-TTS] synth_eleven nhan duoc {len(data) if data else 0} bytes")
+    if not data:
+        raise RuntimeError("ElevenLabs tra ve audio rong")
     with open(path, "wb") as f:
         f.write(data)
 
@@ -540,11 +563,15 @@ def synth_gemini(text, voice, path, key, rate="-8%", model=GEMINI_MODEL, emo=Non
     except (KeyError, IndexError):
         raise RuntimeError(f"Gemini TTS khong tra ve audio: {str(resp)[:300]}")
     pcm = base64.b64decode(b64)
+    if not pcm:
+        raise RuntimeError("Gemini TTS tra ve audio rong")
     # PCM raw (s16le, 24kHz, mono) -> mp3 qua ffmpeg, chinh toc do bang atempo
     cmd = ["ffmpeg", "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", "pipe:0",
            "-filter:a", f"atempo={_rate_to_atempo(rate)}",
            "-c:a", "libmp3lame", "-q:a", "2", path]
     subprocess.run(cmd, input=pcm, check=True, capture_output=True)
+    if not (os.path.exists(path) and os.path.getsize(path) > 0):
+        raise RuntimeError("Gemini TTS ghi ra file audio rong")
 
 def _rate_to_speed(rate):
     """edge rate (vd -10%) -> ChatTTS speed token 0-9 (cang nho cang cham)."""
@@ -637,8 +664,14 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
     key_text = text_el if eleven else text
     c = os.path.join(TTS_CACHE,
                      _tts_key(eng + key_text, voice, rate, _expressive, eng) + ".mp3")
-    if not os.path.exists(c):
-        if chattts:
+    print(f"[DEBUG-TTS] synth() eng={eng!r} voice={voice!r} chattts={bool(chattts)} "
+          f"gemini={bool(gemini)} eleven={bool(eleven)} azure={bool(azure)} "
+          f"cache_hit={os.path.exists(c) and os.path.getsize(c) > 0} -> path={path!r}")
+    if not (os.path.exists(c) and os.path.getsize(c) > 0):
+        if _is_empty_tts(text):
+            print(f"[DEBUG-TTS] synth() cau rong (chi dau cau) -> ghi im lang: {text!r}")
+            _silence_mp3(c)
+        elif chattts:
             try:
                 import chattts_engine
                 style = chattts if isinstance(chattts, str) else "warm"
@@ -673,11 +706,17 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
     key = _tts_key(eng + key_text, voice, rate, _expressive, eng)
     c = os.path.join(TTS_CACHE, key + ".mp3")
     cj = os.path.join(TTS_CACHE, key + ".sents.json")
-    if os.path.exists(c) and os.path.exists(cj):
+    if os.path.exists(c) and os.path.getsize(c) > 0 and os.path.exists(cj):
         shutil.copyfile(c, path)
         return json.load(open(cj, encoding="utf-8"))
 
     pitch = emo["pitch"] if emo else None
+    if _is_empty_tts(text):
+        print(f"[DEBUG-TTS] synth_timed() cau rong (chi dau cau) -> ghi im lang: {text!r}")
+        _silence_mp3(c)
+        json.dump([], open(cj, "w", encoding="utf-8"))
+        shutil.copyfile(c, path)
+        return []
     if chattts or azure or eleven or gemini:  # khong co moc cau -> [] (rai deu chu)
         if chattts:
             try:

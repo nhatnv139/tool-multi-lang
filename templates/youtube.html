@@ -136,6 +136,19 @@
       </div>
     </div>
 
+    <div class="mt" id="scheduleBlock">
+      <label style="margin:0">🕒 Thời điểm đăng</label>
+      <div class="modes" style="margin-top:6px">
+        <label class="switch" style="font-weight:400"><input type="radio" name="when" value="now" checked onchange="onWhenChange()"> Đăng ngay</label>
+        <label class="switch" style="font-weight:400"><input type="radio" name="when" value="schedule" onchange="onWhenChange()"> Hẹn giờ đăng</label>
+      </div>
+      <div id="scheduleBox" style="display:none;margin-top:8px">
+        <input type="datetime-local" id="publishAt"
+               style="width:100%;border:1.5px solid #ecd4da;border-radius:10px;padding:11px 12px;font-size:14px;font-family:inherit;background:#fff">
+        <div class="warn mt">Khi hẹn giờ, video để chế độ <b>Riêng tư (private)</b> đến đúng giờ hẹn rồi <b>tự động công khai</b>. Giờ theo múi giờ máy bạn. (Lan toả MXH sẽ tạm bỏ qua vì lúc đăng video chưa công khai.)</div>
+      </div>
+    </div>
+
     <label class="mt">🏷️ Tags <span class="hint">(phân tách bằng dấu phẩy)</span></label>
     <textarea id="tags" style="min-height:70px">{{ seo.tags|join(', ') }}</textarea>
     <div class="mt">{% for h in seo.hashtags %}<span class="chip">{{ h }}</span>{% endfor %}</div>
@@ -168,6 +181,59 @@
   <button class="btn-go" id="uploadBtn" onclick="doUpload()">🚀 Đăng YouTube + lan toả MXH</button>
   <div id="status"></div>
   <div id="socialStatus" class="mt"></div>
+
+  {% if short %}
+  <!-- DANG SHORT (video doc 9:16) -->
+  <div class="card" id="shortCard" style="border-color:#f3c6d1;margin-top:22px">
+    <div class="lblrow"><label style="margin:0">⚡ Đăng Short <span class="hint">(video dọc 9:16 — 1 câu đắt: chữ Hán to + pinyin tô thanh điệu + nghĩa, đọc 2 lần, loop)</span></label></div>
+    <video id="shortVideo" controls src="/video/{{ short }}" style="max-width:300px;display:block;margin:8px 0"></video>
+
+    <label style="margin:0">🎯 Chọn câu làm Short <span class="hint">nhập mốc mm:ss để lấy câu gần đó{% if video_len %} — video dài {{ video_len }}{% endif %} (để trống = tự chọn câu đắt nhất)</span></label>
+    <div class="titlerow mt">
+      <input type="text" id="shortAt" placeholder="vd 02:15" style="max-width:140px">
+      <button class="btn-ghost" id="regenShortBtn" onclick="regenShort()">🔁 Đổi câu khác</button>
+      <span id="regenShortSt" class="muted" style="align-self:center"></span>
+    </div>
+
+    <label class="mt" style="margin-top:14px">📺 Kênh đăng Short <span class="hint">(tick nhiều kênh)</span></label>
+    <div id="channelListShort" class="mt"><div class="muted">— đang tải danh sách kênh… —</div></div>
+
+    <label class="mt">📝 Tiêu đề Short</label>
+    <div class="titlerow">
+      <input type="text" id="shortTitle" value="{{ short_seo.title }}">
+      <button class="btn-copy" onclick="copyVal('shortTitle')">Copy</button>
+    </div>
+    <label class="mt">📄 Mô tả Short</label>
+    <textarea id="shortDesc" style="min-height:120px">{{ short_seo.description }}</textarea>
+
+    <div class="row mt">
+      <div>
+        <label>🔒 Chế độ</label>
+        <select id="shortPrivacy">
+          <option value="public" selected>Công khai (public)</option>
+          <option value="unlisted">Không công khai (unlisted)</option>
+          <option value="private">Riêng tư (private)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt">
+      <label style="margin:0">🕒 Thời điểm đăng Short</label>
+      <div class="modes" style="margin-top:6px">
+        <label class="switch" style="font-weight:400"><input type="radio" name="whenShort" value="now" checked onchange="onWhenChangeShort()"> Đăng ngay</label>
+        <label class="switch" style="font-weight:400"><input type="radio" name="whenShort" value="schedule" onchange="onWhenChangeShort()"> Hẹn giờ đăng</label>
+      </div>
+      <div id="scheduleBoxShort" style="display:none;margin-top:8px">
+        <input type="datetime-local" id="publishAtShort"
+               style="width:100%;border:1.5px solid #ecd4da;border-radius:10px;padding:11px 12px;font-size:14px;font-family:inherit;background:#fff">
+        <div class="warn mt">Khi hẹn giờ, Short để chế độ <b>Riêng tư</b> đến đúng giờ hẹn rồi <b>tự động công khai</b>. Giờ theo múi giờ máy bạn.</div>
+      </div>
+    </div>
+
+    <button class="btn-go" id="uploadBtnShort" style="margin-top:16px;background:#c0392b" onclick="doUploadShort()">⚡ Đăng Short</button>
+    <div id="statusShort" class="mt"></div>
+  </div>
+  {% endif %}
 </div>
 
 <script>
@@ -204,15 +270,24 @@ async function loadChannels(){
            <input type="checkbox" class="chanChk" value="${c.id}" data-name="${c.title}" ${i===0?'checked':''} onchange="onChanChange()"> ${c.title}
          </label>`).join('');
       document.getElementById('chanWarn').style.display='none';
+      const listShort = document.getElementById('channelListShort');   // phan Dang Short (neu co)
+      if(listShort){
+        listShort.innerHTML = j.channels.map((c,i)=>
+          `<label class="switch" style="display:flex;padding:4px 0">
+             <input type="checkbox" class="chanChkShort" value="${c.id}" data-name="${c.title}" ${i===0?'checked':''}> ${c.title}
+           </label>`).join('');
+      }
       try{ if(window.tmlRestoreChannels) window.tmlRestoreChannels(); }catch(e){}
       onChanChange();
     } else {
       list.innerHTML = '<div class="muted">(chưa có kênh)</div>';
+      const ls=document.getElementById('channelListShort'); if(ls) ls.innerHTML='<div class="muted">(chưa có kênh)</div>';
       document.getElementById('chanWarn').style.display='block';
       if(j.setup) document.getElementById('setupNote').innerHTML = j.setup;
     }
   }catch(e){
     list.innerHTML = '<div class="muted">(chưa cấu hình)</div>';
+    const ls=document.getElementById('channelListShort'); if(ls) ls.innerHTML='<div class="muted">(chưa cấu hình)</div>';
     document.getElementById('chanWarn').style.display='block';
   }
 }
@@ -254,6 +329,25 @@ function connectChannel(){ window.open('/yt/connect','_blank');
 
 function setStatus(msg, cls){ const s=document.getElementById('status'); s.className=cls||''; s.textContent=msg; }
 
+function pad2(n){ return String(n).padStart(2,'0'); }
+function onWhenChange(){
+  const mode = document.querySelector('input[name="when"]:checked').value;
+  const box  = document.getElementById('scheduleBox');
+  const priv = document.getElementById('privacy');
+  const inp  = document.getElementById('publishAt');
+  if(mode==='schedule'){
+    box.style.display='block';
+    if(!inp.value){                          // mặc định: +1 giờ, làm tròn về đầu giờ
+      const d=new Date(Date.now()+3600*1000); d.setMinutes(0,0,0);
+      inp.value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+    priv.disabled=true; priv.title='Khi hẹn giờ, video bắt buộc ở chế độ riêng tư đến giờ hẹn.';
+  } else {
+    box.style.display='none';
+    priv.disabled=false; priv.title='';
+  }
+}
+
 async function doUpload(){
   const chans = getSelectedChannels();
   if(!chans.length){ setStatus('⚠️ Hãy tick (hoặc kết nối) ít nhất 1 kênh.', 'err'); return; }
@@ -269,6 +363,18 @@ async function doUpload(){
     post_comment:document.getElementById('postComment').checked,
     comment:document.getElementById('pin').value,
     set_thumb:(document.getElementById('setThumb')||{checked:false}).checked };
+  // hẹn giờ đăng: validate + gắn publish_at (ISO UTC) + ép private
+  const when = document.querySelector('input[name="when"]:checked').value;
+  let schedLabel = '';
+  if(when==='schedule'){
+    const raw = document.getElementById('publishAt').value;
+    const dt  = raw ? new Date(raw) : null;
+    if(!dt || isNaN(dt.getTime())){ setStatus('⚠️ Hãy chọn ngày giờ hẹn đăng hợp lệ.', 'err'); btn.disabled=false; return; }
+    if(dt.getTime() <= Date.now()+60*1000){ setStatus('⚠️ Giờ hẹn phải ở tương lai (ít nhất vài phút sau).', 'err'); btn.disabled=false; return; }
+    meta.publish_at = dt.toISOString();      // UTC ISO8601 — YouTube publishAt
+    meta.privacy    = 'private';             // YouTube yêu cầu private khi hẹn giờ
+    schedLabel      = raw.replace('T',' ');
+  }
   const statusBox=document.getElementById('status'); statusBox.className='';
   statusBox.innerHTML = chans.map(c=>`<div class="st-line" id="ch_${c.id}">⏳ <b>${c.name}</b>: chờ đăng…</div>`).join('');
   document.getElementById('socialStatus').innerHTML='';
@@ -287,8 +393,14 @@ async function doUpload(){
         if(j.thumb_ok) cap+=' · 🖼️';
         if(j.comment_ok) cap+=' · 📌 comment';
         if(j.thumb_err) cap+=' · ⚠️ảnh bìa lỗi';
+        if(when==='schedule') cap+=' · ⏰ hẹn '+schedLabel;
         line.className='st-line'; line.innerHTML=`✅ <b>${c.name}</b>: <a href="${j.url}" target="_blank">Mở video ↗</a><span class="muted">${cap}</span>`;
-        startSocialFor(c, j.url, multi);   // multi -> auto caption; single -> caption đã sửa tay
+        if(when==='schedule'){                 // video còn private tới giờ hẹn -> chưa lan toả MXH
+          const ss=document.getElementById('socialStatus');
+          ss.innerHTML += `<div class="st-line st-skip">⏰ <b>${c.name}</b>: đã hẹn công khai lúc ${schedLabel} — bỏ qua lan toả MXH (video chưa công khai).</div>`;
+        } else {
+          startSocialFor(c, j.url, multi);   // multi -> auto caption; single -> caption đã sửa tay
+        }
       } else {
         line.className='st-line err'; line.innerHTML=`❌ <b>${c.name}</b>: ${j.error||'lỗi'}`;
       }
@@ -296,6 +408,93 @@ async function doUpload(){
   }
   btn.textContent='✅ Hoàn tất';
   btn.disabled=false;
+}
+
+// ---------- Dang Short (video doc 9:16) ----------
+function onWhenChangeShort(){
+  const mode = document.querySelector('input[name="whenShort"]:checked').value;
+  const box  = document.getElementById('scheduleBoxShort');
+  const priv = document.getElementById('shortPrivacy');
+  const inp  = document.getElementById('publishAtShort');
+  if(mode==='schedule'){
+    box.style.display='block';
+    if(!inp.value){
+      const d=new Date(Date.now()+3600*1000); d.setMinutes(0,0,0);
+      inp.value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+    priv.disabled=true; priv.title='Khi hẹn giờ, Short bắt buộc ở chế độ riêng tư đến giờ hẹn.';
+  } else {
+    box.style.display='none';
+    priv.disabled=false; priv.title='';
+  }
+}
+function getSelectedChannelsShort(){
+  return [...document.querySelectorAll('.chanChkShort:checked')].map(c=>({id:c.value, name:c.dataset.name}));
+}
+async function regenShort(){
+  const at = document.getElementById('shortAt').value.trim();
+  if(at && !/^\d{1,2}:\d{2}$/.test(at)){
+    document.getElementById('regenShortSt').textContent='⚠️ Mốc phải dạng mm:ss (vd 02:15)'; return;
+  }
+  const btn=document.getElementById('regenShortBtn'); const st=document.getElementById('regenShortSt');
+  btn.disabled=true; st.textContent='⏳ đang cắt lại Short…';
+  try{
+    const r=await fetch('/yt/make_short/'+JOB,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({at})});
+    const j=await r.json();
+    if(j.short){
+      // nap lai preview (cache-bust) + cap nhat tieu de/mo ta goi y
+      document.getElementById('shortVideo').src='/video/'+j.short+'?t='+Date.now();
+      document.getElementById('shortTitle').value=j.title||'';
+      document.getElementById('shortDesc').value=j.description||'';
+      const mm=Math.floor(j.start/60), ss=Math.round(j.start%60);
+      st.textContent=`✅ đã đổi câu (mốc ${mm}:${String(ss).padStart(2,'0')}, ~${Math.round(j.dur)}s)`;
+    } else {
+      st.textContent='❌ '+(j.error||'lỗi cắt Short');
+    }
+  }catch(e){ st.textContent='❌ lỗi mạng: '+e; }
+  btn.disabled=false;
+}
+async function doUploadShort(){
+  const chans = getSelectedChannelsShort();
+  const sb=document.getElementById('statusShort');
+  if(!chans.length){ sb.className='err'; sb.textContent='⚠️ Hãy tick ít nhất 1 kênh để đăng Short.'; return; }
+  const btn=document.getElementById('uploadBtnShort'); btn.disabled=true;
+  const meta = {
+    use_short:true,                     // backend doi sang file Short
+    title:document.getElementById('shortTitle').value,
+    description:document.getElementById('shortDesc').value,
+    tags:'',
+    privacy:document.getElementById('shortPrivacy').value,
+    category:'27',
+    captions:false, set_thumb:false, post_comment:false };
+  const when = document.querySelector('input[name="whenShort"]:checked').value;
+  let schedLabel='';
+  if(when==='schedule'){
+    const raw=document.getElementById('publishAtShort').value;
+    const dt = raw ? new Date(raw) : null;
+    if(!dt || isNaN(dt.getTime())){ sb.className='err'; sb.textContent='⚠️ Hãy chọn ngày giờ hẹn hợp lệ.'; btn.disabled=false; return; }
+    if(dt.getTime() <= Date.now()+60*1000){ sb.className='err'; sb.textContent='⚠️ Giờ hẹn phải ở tương lai.'; btn.disabled=false; return; }
+    meta.publish_at=dt.toISOString(); meta.privacy='private'; schedLabel=raw.replace('T',' ');
+  }
+  sb.className='';
+  sb.innerHTML = chans.map(c=>`<div class="st-line" id="sh_${c.id}">⏳ <b>${c.name}</b>: chờ đăng…</div>`).join('');
+  for(const c of chans){
+    btn.textContent=`⏳ Đăng Short "${c.name}"…`;
+    const line=document.getElementById('sh_'+c.id);
+    line.className='st-line st-run'; line.innerHTML=`⏳ <b>${c.name}</b>: đang tải Short lên YouTube…`;
+    try{
+      const body=Object.assign({job_id:JOB, channel:c.id}, meta);
+      const r=await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const j=await r.json();
+      if(j.url){
+        const cap = when==='schedule' ? ` <span class="muted">· ⏰ hẹn ${schedLabel}</span>` : '';
+        line.className='st-line'; line.innerHTML=`✅ <b>${c.name}</b>: <a href="${j.url}" target="_blank">Mở Short ↗</a>${cap}`;
+      } else {
+        line.className='st-line err'; line.innerHTML=`❌ <b>${c.name}</b>: ${j.error||'lỗi'}`;
+      }
+    }catch(e){ line.className='st-line err'; line.innerHTML=`❌ <b>${c.name}</b>: lỗi mạng ${e}`; }
+  }
+  btn.textContent='✅ Hoàn tất'; btn.disabled=false;
 }
 // ---------- Mang xa hoi ----------
 const PLAT_META = {

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Studio — Tiếng Trung</title>
+<style>
+  :root { --pink:#e8617a; --bg:#fff5f7; --ink:#3c383a; --soft:#8a7f82; --red:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:900px; margin:0 auto; padding:24px 20px 60px; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  .sub { color:var(--soft); margin:0 0 18px; font-size:14px; }
+  a.back { color:var(--pink); text-decoration:none; font-size:14px; }
+  .card { background:#fff; border:1px solid #f0dde2; border-radius:16px; padding:20px;
+          box-shadow:0 4px 18px rgba(200,120,140,.07); margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:0 0 7px; font-size:15px; }
+  .hint { font-weight:400; color:var(--soft); font-size:13px; }
+  textarea, input[type=text], select { width:100%; border:1.5px solid #ecd4da; border-radius:10px;
+          padding:11px 12px; font-size:14px; font-family:inherit; background:#fff; }
+  textarea { min-height:150px; line-height:1.7; resize:vertical; font-size:15px; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:200px; }
+  .mt { margin-top:14px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:14px; font-weight:600; padding:9px 14px; }
+  .btn-ghost { background:#fbe9ee; color:var(--pink); }
+  .btn-go { background:var(--red); color:#fff; padding:14px 22px; font-size:16px; width:100%; border-radius:12px; }
+  .btn-go:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-up { background:var(--red); color:#fff; padding:10px 16px; }
+  .switch { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:400; }
+  .modes { display:flex; gap:16px; margin-top:6px; }
+  .muted { color:var(--soft); font-size:13px; }
+  .err { color:#c0392b; } .ok { color:#27ae60; }
+  .st-line { padding:5px 0; font-size:14px; border-bottom:1px dashed #f0dde2; }
+  .st-run { color:#d68910; }
+  .shortcard { display:flex; gap:16px; border:1px solid #f0dde2; border-radius:14px; padding:14px; margin-bottom:14px; }
+  .shortcard video { width:150px; border-radius:10px; background:#000; flex:none; }
+  .grow { flex:1; min-width:0; }
+  .warn { background:#fff7e6; border:1px solid #ffe0a3; border-radius:10px; padding:10px 12px; font-size:13px; color:#8a6d3b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Về trang tạo video</a>
+  <h1>⚡ Shorts Studio</h1>
+  <p class="sub">Nhập câu → sinh Short dọc 9:16 (chữ Hán to + pinyin tô thanh điệu + nghĩa, đọc 2 lần, loop). <b>Không cần video dài.</b></p>
+
+  <!-- RUT CAU TU BAI -->
+  <div class="card" style="background:#fff7f9">
+    <label>⚡ Rút nhanh câu từ bài <span class="hint">— dán cả nội dung 1 bài (content.md) → tự lấy vài câu "đắt" nhất đổ xuống ô dưới</span></label>
+    <textarea id="srcContent" placeholder="Dán cả nội dung bài (gồm @title/@header và các dòng 汉字 | nghĩa)…" style="min-height:120px"></textarea>
+    <div class="row mt" style="align-items:flex-end">
+      <div style="flex:0 0 150px">
+        <label>🔢 Lấy mấy câu</label>
+        <select id="extractN"><option value="3">3 câu</option><option value="5" selected>5 câu</option><option value="8">8 câu</option><option value="10">10 câu</option></select>
+      </div>
+      <div style="flex:0 0 220px">
+        <button class="btn-ghost" type="button" onclick="extractLines()">✂️ Rút câu đắt → đổ xuống</button>
+      </div>
+      <div style="flex:1"><span id="extractSt" class="hint"></span></div>
+    </div>
+  </div>
+
+  <!-- FORM NHAP -->
+  <div class="card">
+    <label>📝 Danh sách câu <span class="hint">— mỗi dòng: <code>汉字 | nghĩa | ghi chú cách dùng</code> (2 cột sau bỏ trống được)</span></label>
+    <textarea id="lines" placeholder="你好 | Xin chào&#10;不到长城非好汉 | Chưa đến Trường Thành, chưa phải hảo hán | Dùng để khích lệ nhau kiên trì&#10;你吃了吗 | Bạn ăn cơm chưa"></textarea>
+    <div class="row mt">
+      <div style="flex:0 0 220px">
+        <label>🎬 Kiểu Short</label>
+        <select id="format" onchange="onFormat()">
+          <option value="flash" selected>Flashcard — 1 câu, đọc 2 lần</option>
+          <option value="quiz">Đố nghĩa — hỏi → đếm ngược → đáp án</option>
+        </select>
+      </div>
+      <div>
+        <label>🎙️ Giọng đọc <span class="hint">(edge — free)</span></label>
+        <select id="voice">
+          {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>✍️ Hook trên cùng <span class="hint">(trống = tự chọn)</span></label>
+        <input type="text" id="hook" placeholder="vd: Câu này ai cũng cần">
+      </div>
+      <div style="flex:0 0 150px" id="readsWrap">
+        <label>🔁 Đọc mấy lần</label>
+        <select id="reads"><option value="2" selected>2 lần</option><option value="1">1 lần</option><option value="3">3 lần</option></select>
+      </div>
+      <div style="flex:0 0 210px">
+        <label>🌐 Chữ cố định <span class="hint">(hook/nút/quiz)</span></label>
+        <select id="uiLang"><option value="auto" selected>Tự động (theo nghĩa)</option><option value="vi">Tiếng Việt</option><option value="en">English</option></select>
+      </div>
+    </div>
+    <div class="mt" style="padding:8px 10px;background:#fff7f2;border:1px solid #f0d9cc;border-radius:8px">
+      <label style="cursor:pointer"><input type="checkbox" id="combine">
+        <b>🎬 Gộp tất cả câu thành 1 Short</b>
+        <span class="hint">— mỗi câu đọc theo số lần trên, rồi tự chuyển câu sau (thay vì mỗi câu 1 short riêng)</span></label>
+    </div>
+    <button class="btn-go mt" id="genBtn" onclick="genShorts()">✨ Tạo Short</button>
+    <div id="genSt" class="mt"></div>
+  </div>
+
+  <!-- KENH + HEN GIO (dung chung cho moi Short) -->
+  <div class="card" id="postCard" style="display:none">
+    <label style="margin:0">📺 Kênh đăng <span class="hint">(tick nhiều kênh — áp dụng khi bấm Đăng ở từng Short)</span></label>
+    <div id="channelList" class="mt"><div class="muted">— đang tải kênh… —</div></div>
+    <div class="mt">
+      <label style="margin:0">🕒 Thời điểm đăng</label>
+      <div class="modes">
+        <label class="switch"><input type="radio" name="when" value="now" checked onchange="onWhen()"> Đăng ngay</label>
+        <label class="switch"><input type="radio" name="when" value="schedule" onchange="onWhen()"> Hẹn giờ</label>
+      </div>
+      <div id="schedBox" style="display:none;margin-top:8px">
+        <input type="datetime-local" id="publishAt" style="max-width:280px">
+        <div class="warn mt">Khi hẹn giờ, Short để <b>Riêng tư</b> đến giờ hẹn rồi tự công khai. Giờ theo máy bạn.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KET QUA -->
+  <div id="results"></div>
+</div>
+
+<script>
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function pad2(n){return String(n).padStart(2,'0');}
+function onFormat(){
+  const q=document.getElementById('format').value==='quiz';
+  document.getElementById('readsWrap').style.display=q?'none':'';
+  document.getElementById('hook').placeholder=q?'vd: Câu này nghĩa là gì?':'vd: Câu này ai cũng cần';
+}
+
+async function extractLines(){
+  const content=document.getElementById('srcContent').value.trim();
+  const st=document.getElementById('extractSt');
+  if(!content){ st.className='err'; st.textContent='⚠️ Hãy dán nội dung bài trước.'; return; }
+  const n=document.getElementById('extractN').value;
+  st.className=''; st.textContent='⏳ Đang rút câu…';
+  try{
+    const r=await fetch('/shorts/extract',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({content, n})});
+    const j=await r.json();
+    if(j.error){ st.className='err'; st.textContent='❌ '+j.error; return; }
+    const box=document.getElementById('lines');
+    box.value = (box.value.trim() ? box.value.trim()+'\n' : '') + j.lines;   // nối thêm, không đè
+    st.className='ok'; st.textContent='✅ Đã rút '+j.count+' câu, đổ xuống ô "Danh sách câu". Sửa lại nếu cần rồi bấm Tạo Short.';
+  }catch(e){ st.className='err'; st.textContent='❌ Lỗi: '+e; }
+}
+
+async function genShorts(){
+  const lines=document.getElementById('lines').value.trim();
+  const st=document.getElementById('genSt');
+  if(!lines){ st.className='err'; st.textContent='⚠️ Hãy nhập ít nhất 1 câu.'; return; }
+  const btn=document.getElementById('genBtn'); btn.disabled=true; btn.textContent='⏳ Đang tạo…';
+  st.className=''; st.textContent='⏳ Đang tổng hợp giọng + render… (vài giây/câu)';
+  try{
+    const body={lines, voice:document.getElementById('voice').value,
+      hook:document.getElementById('hook').value, reads:document.getElementById('reads').value,
+      format:document.getElementById('format').value,
+      uiLang:document.getElementById('uiLang').value,
+      combine:document.getElementById('combine').checked};
+    const r=await fetch('/shorts/make',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(j.shorts){
+      renderResults(j.shorts);
+      document.getElementById('postCard').style.display='block';
+      loadChannels();
+      st.className='ok'; st.textContent='✅ Đã tạo '+j.shorts.filter(s=>s.job_id).length+' Short. Chọn kênh rồi bấm Đăng ở từng cái.';
+    } else { st.className='err'; st.textContent='❌ '+(j.error||'lỗi'); }
+  }catch(e){ st.className='err'; st.textContent='❌ lỗi mạng: '+e; }
+  btn.disabled=false; btn.textContent='✨ Tạo Short';
+}
+
+function renderResults(shorts){
+  const box=document.getElementById('results');
+  box.innerHTML='<div class="card"><label>🎬 Short đã tạo</label>'+shorts.map((s,i)=>{
+    if(s.error) return `<div class="shortcard err">❌ <b>${esc(s.hanzi)}</b>: ${esc(s.error)}</div>`;
+    return `<div class="shortcard" id="sc_${s.job_id}">
+      <video controls src="/video/${s.short}"></video>
+      <div class="grow">
+        <div><b>${esc(s.hanzi)}</b> · <span class="muted">${esc(s.pinyin)}</span> — ${esc(s.viet)} <span class="muted">(${s.dur}s)</span></div>
+        <label class="mt" style="font-size:13px;margin-bottom:4px">Tiêu đề</label>
+        <input type="text" id="ti_${s.job_id}" value="${esc(s.title)}">
+        <label class="mt" style="font-size:13px;margin-bottom:4px">Mô tả</label>
+        <textarea id="de_${s.job_id}" style="min-height:80px;font-size:13px">${esc(s.description)}</textarea>
+        <div class="mt"><button class="btn-up" onclick="uploadOne('${s.job_id}')">⚡ Đăng Short này</button>
+          <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/download/${s.short}">⬇️ Tải</a>
+          <span id="us_${s.job_id}" class="muted" style="margin-left:8px"></span></div>
+      </div></div>`;
+  }).join('')+'</div>';
+}
+
+// ----- kenh + hen gio -----
+async function loadChannels(){
+  const list=document.getElementById('channelList');
+  try{
+    const j=await (await fetch('/yt/channels')).json();
+    if(j.channels && j.channels.length){
+      list.innerHTML=j.channels.map((c,i)=>
+        `<label class="switch" style="display:flex;padding:4px 0"><input type="checkbox" class="chk" value="${c.id}" data-name="${esc(c.title)}" ${i===0?'checked':''}> ${esc(c.title)}</label>`).join('');
+    } else { list.innerHTML='<div class="warn">Chưa kết nối kênh nào. Vào trang đăng YouTube để kết nối kênh trước.</div>'; }
+  }catch(e){ list.innerHTML='<div class="err">lỗi tải kênh</div>'; }
+}
+function selectedChannels(){ return [...document.querySelectorAll('.chk:checked')].map(c=>({id:c.value,name:c.dataset.name})); }
+function onWhen(){
+  const mode=document.querySelector('input[name="when"]:checked').value;
+  const box=document.getElementById('schedBox'); const inp=document.getElementById('publishAt');
+  if(mode==='schedule'){ box.style.display='block';
+    if(!inp.value){ const d=new Date(Date.now()+3600*1000); d.setMinutes(0,0,0);
+      inp.value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+  } else box.style.display='none';
+}
+
+async function uploadOne(jid){
+  const chans=selectedChannels();
+  const us=document.getElementById('us_'+jid);
+  if(!chans.length){ us.className='err'; us.textContent='⚠️ chọn kênh ở trên'; return; }
+  const meta={ use_short:true, captions:false, set_thumb:false, post_comment:false,
+    title:document.getElementById('ti_'+jid).value, description:document.getElementById('de_'+jid).value,
+    tags:'', category:'27', privacy:'public' };
+  const when=document.querySelector('input[name="when"]:checked').value;
+  let sched='';
+  if(when==='schedule'){
+    const raw=document.getElementById('publishAt').value; const dt=raw?new Date(raw):null;
+    if(!dt||isNaN(dt)){ us.className='err'; us.textContent='⚠️ giờ hẹn không hợp lệ'; return; }
+    if(dt.getTime()<=Date.now()+60000){ us.className='err'; us.textContent='⚠️ giờ hẹn phải ở tương lai'; return; }
+    meta.publish_at=dt.toISOString(); meta.privacy='private'; sched=raw.replace('T',' ');
+  }
+  us.className='muted'; us.innerHTML='';
+  for(const c of chans){
+    const line=document.createElement('div'); line.className='st-line st-run';
+    line.innerHTML=`⏳ ${esc(c.name)}: đang đăng…`; us.appendChild(line);
+    try{
+      const r=await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(Object.assign({job_id:jid, channel:c.id}, meta))});
+      const j=await r.json();
+      if(j.url){ line.className='st-line'; line.innerHTML=`✅ ${esc(c.name)}: <a href="${j.url}" target="_blank">Mở ↗</a>${sched?' · ⏰ '+sched:''}`; }
+      else { line.className='st-line err'; line.innerHTML=`❌ ${esc(c.name)}: ${esc(j.error||'lỗi')}`; }
+    }catch(e){ line.className='st-line err'; line.innerHTML=`❌ ${esc(c.name)}: lỗi mạng`; }
+  }
+}
+</script>
+</body>
+</html>

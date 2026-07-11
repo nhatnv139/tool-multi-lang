@@ -85,18 +85,24 @@ def _creds_for(channel_id):
 
 # ---------- Upload ----------
 def upload(channel_id, video_path, title, description, tags, privacy="public",
-           category="27"):
-    """Tai video len. tags: list hoac chuoi phan tach dau phay. Tra ve {id,url}."""
+           category="27", publish_at=None):
+    """Tai video len. tags: list hoac chuoi phan tach dau phay. Tra ve {id,url}.
+    publish_at: neu co (ISO8601, vd '2026-07-10T07:00:00Z') -> hen gio dang;
+    YouTube bat buoc privacyStatus=private, den gio se tu dong cong khai."""
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",") if t.strip()]
     creds = _creds_for(channel_id)
     yt = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    status = {"privacyStatus": privacy, "selfDeclaredMadeForKids": False}
+    if publish_at:
+        status["privacyStatus"] = "private"      # yeu cau cua YouTube khi hen gio
+        status["publishAt"] = publish_at
     body = {
         "snippet": {"title": title[:100], "description": description[:5000],
                     "tags": tags, "categoryId": category},
-        "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False},
+        "status": status,
     }
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True,
                             mimetype="video/mp4")
