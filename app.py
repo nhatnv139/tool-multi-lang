@@ -32,7 +32,8 @@ def _save_job(job_id):
             data = {}
         data[job_id] = {"video": j.get("video"), "thumb": j.get("thumb"),
                         "seo": j.get("seo"), "short": j.get("short"),
-                        "short_seo": j.get("short_seo"), "status": "done"}
+                        "short_seo": j.get("short_seo"), "status": "done",
+                        "recipe": j.get("recipe")}
         os.makedirs(OUT, exist_ok=True)
         with open(JOBS_DB, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -702,6 +703,35 @@ def download(fn):
 def thumb(fn):
     return send_from_directory(OUT, fn, as_attachment=False)
 
+@app.route("/skins")
+def skins_list():
+    """Danh sach phong cach layout (key + nhan) cho gallery /shorts."""
+    import short_native as _sn
+    order = ["ink", "royal", "night", "sunset", "ocean", "gradient",
+             "sakura", "cute", "notebook", "grid", "chalk", "bamboo", "paper", "white"]
+    keys = [k for k in order if k in _sn.SKINS] + [k for k in _sn.SKINS if k not in order]
+    return jsonify(skins=[{"key": k, "label": _sn.SKINS[k]["label"]} for k in keys])
+
+@app.route("/skin_prev/<name>")
+def skin_prev(name):
+    """Anh xem truoc 1 phong cach (render layout 'Tu moi' mau, cache lai, thu nho)."""
+    import short_native as _sn
+    from PIL import Image
+    name = name if name in _sn.SKINS else "ink"
+    fp = os.path.join(OUT, f"_skinprev_{name}.png")
+    fresh = request.args.get("fresh")
+    if fresh or not (os.path.exists(fp) and os.path.getsize(fp) > 0):
+        big = os.path.join(OUT, f"_skinprev_{name}_big.png")
+        _sn._apply_skin(name)
+        _sn.render_vocab_frame("学习", "học tập", "我天天学习中文", big,
+                               ex_viet="Tôi học tiếng Trung mỗi ngày")
+        im = Image.open(big).convert("RGB")
+        im.thumbnail((400, 711), Image.LANCZOS)   # 9:16 thu nho
+        im.save(fp, "PNG")
+        try: os.remove(big)
+        except OSError: pass
+    return send_from_directory(OUT, os.path.basename(fp), as_attachment=False)
+
 @app.route("/upload_thumb/<job_id>", methods=["POST"])
 def upload_thumb(job_id):
     """Tai anh bia tu thiet ke len -> tu cat ve 1280x720, de len anh tu tao."""
@@ -863,6 +893,62 @@ def shorts_extract():
     lines = "\n".join(f"{c['hanzi']} | {c['viet']}" for c in cands)
     return jsonify(lines=lines, count=len(cands))
 
+def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid):
+    """Render 1 Short tu cac cot da parse (dung chung boi /shorts/make va /shorts/rehook)."""
+    import short_native as _sn
+    hanzi = cols[0]
+    viet = cols[1] if len(cols) > 1 else ""
+    note = cols[2] if len(cols) > 2 else ""
+    if fmt == "vocab":
+        return _sn.make_vocab_from_text(hanzi, viet, example=(cols[2] if len(cols) > 2 else ""),
+                                        ex_viet=(cols[3] if len(cols) > 3 else ""),
+                                        voice=voice, out_dir=OUT, reads=reads, name=jid,
+                                        lang=ui_lang, bg=bg, skin=skin, label=(hook or None))
+    if fmt == "pattern":
+        exs = []
+        for c in cols[2:]:
+            han, _, vi = c.partition("=")
+            if han.strip():
+                exs.append((han.strip(), vi.strip()))
+        return _sn.make_pattern_from_text(hanzi, viet, examples=exs, voice=voice, out_dir=OUT,
+                                          name=jid, lang=ui_lang, bg=bg, skin=skin, label=(hook or None))
+    if fmt == "quiz":
+        return _sn.make_quiz_from_text(hanzi, viet, voice=voice, hook=hook, out_dir=OUT,
+                                       name=jid, lang=ui_lang, bg=bg, skin=skin)
+    return _sn.make_short_from_text(hanzi, viet, voice=voice, hook=hook, out_dir=OUT,
+                                    reads=reads, name=jid, note=note, lang=ui_lang, bg=bg, skin=skin)
+
+
+@app.route("/shorts/rehook/<job_id>", methods=["POST"])
+def shorts_rehook(job_id):
+    """Sua hook/nhan tren cung cua 1 Short da tao roi render lai (ghi de dung file)."""
+    import short_native as _sn
+    d = request.get_json(force=True) or {}
+    new_hook = (d.get("hook") or "").strip() or None
+    job = jobs.get(job_id)
+    if not job or not job.get("recipe"):
+        return jsonify(error="Không tìm thấy công thức Short này (có thể server đã khởi động lại)."), 404
+    rc = job["recipe"]
+    try:
+        if rc.get("kind") == "combine":
+            rows = [tuple(x) for x in rc["rows"]]
+            r = _sn.make_short_from_lines(rows, voice=rc["voice"], hook=new_hook, out_dir=OUT,
+                                          reads=rc["reads"], name=job_id, lang=rc["ui_lang"],
+                                          bg=rc["bg"], skin=rc["skin"])
+        else:
+            r = _render_one_short(rc["fmt"], rc["cols"], new_hook, rc["voice"], rc["reads"],
+                                  rc["ui_lang"], rc["bg"], rc["skin"], job_id)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify(error=str(e)), 500
+    fn = os.path.basename(r["file"])
+    job["short"] = fn
+    job["short_seo"] = {"title": r["title"], "description": r["desc"]}
+    _save_job(job_id)
+    return jsonify(short=fn, title=r["title"], description=r["desc"],
+                   hook=r["hook"], dur=r.get("dur"))
+
+
 @app.route("/shorts/make", methods=["POST"])
 def shorts_make():
     """Nhan danh sach cau ('汉字 | nghia' moi dong) -> sinh loat Short native.
@@ -878,6 +964,13 @@ def shorts_make():
     ui_lang = (d.get("uiLang") or "auto").strip()       # ngon ngu chu co dinh (hook/nut/quiz)
     if ui_lang not in ("vi", "en", "auto"):
         ui_lang = "auto"
+    bg = (d.get("bg") or "").strip() or None            # anh nen tuy chon (path da upload)
+    if bg and not os.path.exists(bg):
+        bg = None
+    skin = (d.get("skin") or "ink").strip()             # phong cach giao dien
+    import short_native as _snmod
+    if skin not in _snmod.SKINS:
+        skin = "ink"
     try:
         reads = max(1, min(3, int(d.get("reads") or 2)))
     except Exception:
@@ -904,17 +997,19 @@ def shorts_make():
         jid = "std_" + uuid.uuid4().hex[:10]
         try:
             r = _sn.make_short_from_lines(rows, voice=voice, hook=hook,
-                                          out_dir=OUT, reads=reads, name=jid, lang=ui_lang)
+                                          out_dir=OUT, reads=reads, name=jid, lang=ui_lang, bg=bg, skin=skin)
         except Exception as e:
             traceback.print_exc()
             return jsonify(error=str(e)), 500
         fn = os.path.basename(r["file"])
         jobs[jid] = {"status": "done", "video": None, "short": fn,
-                     "short_seo": {"title": r["title"], "description": r["desc"]}}
+                     "short_seo": {"title": r["title"], "description": r["desc"]},
+                     "recipe": {"kind": "combine", "rows": rows, "voice": voice,
+                                "reads": reads, "ui_lang": ui_lang, "bg": bg, "skin": skin}}
         _save_job(jid)
         return jsonify(shorts=[{"job_id": jid, "short": fn, "title": r["title"],
                                 "description": r["desc"], "hanzi": rows[0][0],
-                                "pinyin": "", "viet": rows[0][1],
+                                "pinyin": "", "viet": rows[0][1], "hook": r.get("hook", ""),
                                 "count": r["count"], "dur": r["dur"]}])
 
     out = []
@@ -922,32 +1017,29 @@ def shorts_make():
         line = line.strip()
         if not line:
             continue
-        parts = re.split(r"\s*[|｜\t]\s*", line, maxsplit=2)
-        hanzi = parts[0].strip()
-        viet = parts[1].strip() if len(parts) > 1 else ""
-        note = parts[2].strip() if len(parts) > 2 else ""   # cot 3 tuy chon: ghi chu cach dung
+        cols = [c.strip() for c in re.split(r"\s*[|｜\t]\s*", line)]
+        hanzi = cols[0]
+        viet = cols[1] if len(cols) > 1 else ""
+        note = cols[2] if len(cols) > 2 else ""             # cot 3 tuy chon: ghi chu cach dung
         if not hanzi:
             continue
         jid = "std_" + uuid.uuid4().hex[:10]
         try:
-            if fmt == "quiz":
-                r = _sn.make_quiz_from_text(hanzi, viet, voice=voice, hook=hook,
-                                            out_dir=OUT, name=jid, lang=ui_lang)
-            else:
-                r = _sn.make_short_from_text(hanzi, viet, voice=voice, hook=hook,
-                                             out_dir=OUT, reads=reads, name=jid, note=note,
-                                             lang=ui_lang)
+            r = _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid)
         except Exception as e:
             traceback.print_exc()
             out.append({"error": str(e), "hanzi": hanzi})
             continue
         fn = os.path.basename(r["file"])
         jobs[jid] = {"status": "done", "video": None, "short": fn,
-                     "short_seo": {"title": r["title"], "description": r["desc"]}}
+                     "short_seo": {"title": r["title"], "description": r["desc"]},
+                     "recipe": {"kind": "line", "fmt": fmt, "cols": cols, "voice": voice,
+                                "reads": reads, "ui_lang": ui_lang, "bg": bg, "skin": skin}}
         _save_job(jid)
         out.append({"job_id": jid, "short": fn, "title": r["title"],
                     "description": r["desc"], "hanzi": r["hanzi"],
-                    "pinyin": r["pinyin"], "viet": r["viet"], "dur": r["dur"]})
+                    "pinyin": r["pinyin"], "viet": r["viet"], "hook": r.get("hook", ""),
+                    "dur": r["dur"]})
     if not out:
         return jsonify(error="Không có câu hợp lệ."), 400
     return jsonify(shorts=out)

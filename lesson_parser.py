@@ -152,7 +152,7 @@ def detect_speakers(text):
     return order if len(order) >= 2 else []
 
 # doan gioi tinh tu ten -> chon giong nam/nu
-_FEM_HAN = set("雨丽娜婷芳燕玲莉娟静秀红梅兰珍春花雪琴霞凤蕾欣怡颖琳")
+_FEM_HAN = set("雨丽娜婷芳燕玲莉娟静秀红梅兰珍春花雪琴霞凤蕾欣怡颖琳云悦佳慧洁妍柔萍嫣媛璐妮")
 _MALE_HAN = set("明强伟军磊勇刚峰涛斌波辉杰俊浩宇航昊鹏龙飞建国华")
 _FEM_EN = {"sarah", "emma", "anna", "mary", "lisa", "aria", "rachel", "linda", "lan", "hoa"}
 _NEUTRAL = {"记者", "主持人", "主播", "专家", "host", "guest", "mc", "khách", "người dẫn"}
@@ -177,15 +177,26 @@ VOICES_F = ["zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-XiaomengNeural"
 VOICES_M = ["zh-CN-YunjianNeural", "zh-CN-YunxiNeural", "zh-CN-YunyangNeural"]
 
 def assign_speaker_voices(speakers):
-    """{speaker: voice} — doan gioi tinh; trung tinh/khong ro thi luan phien nam-nu;
-       moi nguoi 1 giong on dinh, xoay vong khi thieu."""
-    fi = mi = alt = 0
+    """{speaker: voice} — doan gioi tinh; nguoi trung tinh (nhan vai: 司机/售票员/路人...)
+       duoc BU cho CAN BANG voi gioi da biet (vd da co 1 nu -> nguoi trung tinh thanh nam),
+       nen hoi thoai 2 nguoi luon ra 1 nam + 1 nu thay vi 2 giong cung gioi.
+       Moi nguoi 1 giong on dinh, xoay vong khi thieu."""
+    genders = {sp: guess_gender(sp) for sp in speakers}
+    known_f = sum(1 for g in genders.values() if g == "F")
+    known_m = sum(1 for g in genders.values() if g == "M")
+    fi = mi = 0
     vmap = {}
     for sp in speakers:
-        g = guess_gender(sp)
-        if g is None:
-            g = "F" if alt % 2 == 0 else "M"
-            alt += 1
+        g = genders[sp]
+        if g is None:                       # trung tinh -> bu cho can bang
+            if known_f > known_m:
+                g = "M"; known_m += 1
+            elif known_m > known_f:
+                g = "F"; known_f += 1
+            else:                           # dang hoa -> luan phien on dinh
+                g = "F" if (fi + mi) % 2 == 0 else "M"
+                if g == "F": known_f += 1
+                else: known_m += 1
         if g == "F":
             vmap[sp] = VOICES_F[fi % len(VOICES_F)]; fi += 1
         else:
