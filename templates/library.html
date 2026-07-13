@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📚 Thư viện video</title>
+<style>
+  :root { --pink:#e8617a; --bg:#fff5f7; --ink:#3c383a; --soft:#8a7f82; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:1100px; margin:0 auto; padding:24px 20px 60px; }
+  .topbar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:0 0 6px; }
+  h1 { font-size:24px; margin:0; flex:1; }
+  a.back { color:var(--pink); text-decoration:none; font-size:14px; font-weight:600; }
+  a.back:hover { text-decoration:underline; }
+  .sub { color:var(--soft); margin:0 0 20px; font-size:14px; }
+  .empty { background:#fff; border:1px solid #f0dde2; border-radius:16px; padding:48px 24px;
+           text-align:center; color:var(--soft); font-size:15px;
+           box-shadow:0 4px 18px rgba(200,120,140,.07); }
+  .empty a { color:var(--pink); text-decoration:none; font-weight:600; }
+  .grid { display:grid; gap:18px; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); }
+  .card { background:#fff; border:1px solid #f0dde2; border-radius:16px; overflow:hidden;
+          box-shadow:0 4px 18px rgba(200,120,140,.07); display:flex; flex-direction:column;
+          transition:box-shadow .15s, transform .15s; }
+  .card:hover { box-shadow:0 8px 26px rgba(200,120,140,.16); transform:translateY(-2px); }
+  .thumbwrap { position:relative; aspect-ratio:16/9; background:#fbe9ee; overflow:hidden; }
+  .thumbwrap img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ph { width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+        font-size:40px; background:linear-gradient(135deg,#fbe9ee,#f7d3dc); color:#e8617a; }
+  .badge { position:absolute; top:8px; left:8px; background:rgba(39,174,96,.92); color:#fff;
+           font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; }
+  .body { padding:13px 14px 14px; display:flex; flex-direction:column; flex:1; }
+  .title { font-weight:600; font-size:15px; line-height:1.35; margin:0 0 6px;
+           display:-webkit-box; -webkit-line-clamp:2; line-clamp:2; -webkit-box-orient:vertical;
+           overflow:hidden; min-height:40px; }
+  .meta { color:var(--soft); font-size:12.5px; margin:0 0 12px; }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:auto; }
+  .actions a, .actions button { cursor:pointer; border:none; border-radius:9px; font-size:13px;
+           font-weight:600; padding:8px 6px; text-align:center; text-decoration:none;
+           display:inline-block; font-family:inherit; }
+  .b-view { background:#eef1f4; color:#555; }
+  .b-post { background:var(--pink); color:#fff; }
+  .b-dl   { background:#fbe9ee; color:var(--pink); }
+  .b-del  { background:#fde8e8; color:#c0392b; }
+  .b-view:hover { background:#e3e7eb; } .b-post:hover { background:#dd4f6a; }
+  .b-dl:hover { background:#f7d3dc; } .b-del:hover { background:#f9d3d3; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>📚 Thư viện video</h1>
+    <a class="back" href="/">← Tạo video mới</a>
+    <a class="back" href="/">🚀 Đăng video có sẵn</a>
+  </div>
+  <p class="sub">Tất cả video đã tạo &amp; đã import. Bấm để xem, đăng, tải hoặc xoá.</p>
+
+  {% if videos %}
+  <div class="grid" id="grid">
+    {% for v in videos %}
+    <div class="card" id="card-{{ v.job_id }}">
+      <div class="thumbwrap">
+        {% if v.thumb %}
+          <img src="/thumb/{{ v.thumb }}" alt="" loading="lazy">
+        {% else %}
+          <div class="ph">🎬</div>
+        {% endif %}
+        {% if v.has_seo %}<span class="badge">✓ đã có SEO</span>{% endif %}
+      </div>
+      <div class="body">
+        <p class="title" title="{{ v.title }}">{{ v.title }}</p>
+        <p class="meta">{{ v.date }} · {{ v.size_mb }} MB</p>
+        <div class="actions">
+          <a class="b-view" href="/video/{{ v.video }}" target="_blank" rel="noopener">▶️ Xem</a>
+          <a class="b-post" href="/youtube/{{ v.job_id }}">🚀 Đăng</a>
+          <a class="b-dl" href="/download/{{ v.video }}">⬇️ Tải</a>
+          <button class="b-del" onclick="delVideo('{{ v.job_id }}', this)">🗑️ Xoá</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    Chưa có video nào — hãy <a href="/">tạo video trước</a>.
+  </div>
+  {% endif %}
+</div>
+
+<script>
+async function delVideo(jobId, btn){
+  if(!confirm('Xoá hẳn video này (kèm ảnh bìa & dữ liệu)? Không thể hoàn tác.')) return;
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ đang xoá...'; }
+  try{
+    const r = await fetch('/library/delete/' + jobId, { method:'POST' });
+    const j = await r.json();
+    if(r.ok && j.ok){
+      const card = document.getElementById('card-' + jobId);
+      if(card) card.remove();
+      const grid = document.getElementById('grid');
+      if(grid && !grid.querySelector('.card')){
+        grid.outerHTML = '<div class="empty">Chưa có video nào — hãy <a href="/">tạo video trước</a>.</div>';
+      }
+    } else {
+      alert('Không xoá được: ' + (j.error || 'lỗi không rõ'));
+      if(btn){ btn.disabled = false; btn.textContent = '🗑️ Xoá'; }
+    }
+  }catch(e){
+    alert('Lỗi mạng khi xoá: ' + e);
+    if(btn){ btn.disabled = false; btn.textContent = '🗑️ Xoá'; }
+  }
+}
+</script>
+</body>
+</html>

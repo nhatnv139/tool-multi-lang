@@ -40,16 +40,185 @@ def _split_item(line):
         return a.strip(), b.strip()
     return line.strip(), ""
 
+# ---------- TU NHAN DIEN NGUOI NOI (auto speaker detection) ----------
+# nhan = tu Latin (A, Host) HOAC 1-6 chu Han (王雨, 记者) + dau ':' / '：'
+_SPK_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 ]{0,14}|[一-鿿]{1,6})\s*[:：]")
+_TIME_RE = re.compile(r"^\s*\d{1,2}[:：]\d{2}")
+_HR_RE = re.compile(r"^-{3,}$")   # ranh gioi phu luc: '---' hoac nhieu hon (----, -----)
+_NON_SPEAKER = {"时间", "时长", "时候", "正文", "介绍", "目录", "日期", "地点",
+                "time", "date", "url", "link", "note", "ghi chú"}
+# Phan biet MENH DE tuong thuat ("陈师傅说：", "心里却想着：", "我又问他：") voi NHAN
+# nguoi noi that ("小明:", "记者:", "A:"). Menh de tuong thuat = chu ngu + dong tu noi/nghi
+# [+ tan ngu/tro tu]; nhan nguoi noi = danh tu rieng ngan.
+_NARR_VERB1 = "说问答喊叫道想笑应叹哭"          # dong tu noi/nghi 1 chu
+_NARR_VERB2 = ("补充", "解释", "回答", "回应", "插话", "嘟囔", "咕哝", "嘀咕",
+               "告诉", "表示", "提醒", "强调", "反问", "追问", "感叹",
+               "点头", "摇头", "摆手", "耸肩")     # dong tu noi/hanh dong 2 chu
+_NARR_TAIL = "我你他她它们咱俺着了过道"           # tan ngu (dai tu)/tro tu bam sau dong tu:
+                                                 # 问[我], 告诉[你], 想[着], 说[过/道]...
+
+# dong tu "noi" de nhan biet 1 dong LA nhan vat X dang noi ("老赵笑着说：...")
+_SAY_VERBS = "说问道喊叫答"
+def _parse_voices(val):
+    """'@voices 老赵=nam, 小美=nữ' hoac '老赵=zh-CN-YunjianNeural'
+       -> {ten: spec}. spec = 'nam'/'nu'/gioi tinh HOAC ma giong edge cu the."""
+    out = {}
+    for part in re.split(r"[,;]", val or ""):
+        if "=" in part:
+            n, v = part.split("=", 1)
+            n, v = n.strip(), v.strip()
+            if n and v:
+                out[n] = v
+    return out
+
+def _tag_speaker_by_names(hanzi, names):
+    """Neu dong LA 1 nhan vat da khai bao (@voices) dang noi -> tra ve ten do; nguoc lai None.
+       CHI khop cac ten da khai (tin cay, khong doan mo). VD 'X + (trong vai chu) + noi:' hoac
+       ca dong nam trong ngoac kep (loi thoai)."""
+    if not names or not hanzi:
+        return None
+    for name in names:
+        if hanzi.startswith(name):
+            # 'X...说/问/道：'  (co dong tu noi trong ~6 ky tu dau)
+            if re.match(rf"^{re.escape(name)}.{{0,6}}[{_SAY_VERBS}]", hanzi):
+                return name
+    return None
+
+def _is_narration_label(sp):
+    """True neu 'sp' la mot menh de tuong thuat (nen bo qua), khong phai nhan nguoi noi.
+       NEO dong tu vao CUOI nhan (sau khi bo tan ngu/tro tu) de tranh chan nham ten
+       rieng co chu dong tu o giua/dau: '李道明', '问天', '阿道' -> van la nhan hop le."""
+    # nhan bat dau bang dai tu nhan xung (我你他她它咱俺) -> KHONG bao gio la ten nguoi noi
+    # that ('小明','记者','A'), ma la menh de tuong thuat: '我很惊讶', '她大笑起来', '他转过身'...
+    # (dong tu co the o GIUA nhu '大笑起来' nen khong the chi neo o cuoi).
+    if sp[0] in "我你他她它咱俺":
+        return True
+    s = sp
+    while len(s) > 1 and s[-1] in _NARR_TAIL:   # bo '他'/'着'/'了'/'道' o cuoi
+        s = s[:-1]
+    if s and s[-1] in _NARR_VERB1:              # ket thuc bang dong tu noi 1 chu
+        return True
+    if s.endswith(_NARR_VERB2):                 # ket thuc bang dong tu noi 2 chu
+        return True
+    return False
+
+def parse_speaker(line):
+    """(speaker, rest) neu dong co nhan nguoi noi hop le; nguoc lai (None, line).
+       Bo qua timestamp (00:12), nhan toan so, tu khoa metadata (时间...),
+       va menh de tuong thuat ket thuc bang dong tu noi/nghi ("...说：", "...又问他：")."""
+    head = line.split("|", 1)[0]
+    if _TIME_RE.match(head):
+        return None, line
+    m = _SPK_RE.match(head)
+    if not m:
+        return None, line
+    sp = m.group(1).strip()
+    if not sp or sp.isdigit() or sp.lower() in _NON_SPEAKER or sp in _NON_SPEAKER:
+        return None, line
+    if _is_narration_label(sp):
+        return None, line
+    return sp, line[m.end():].strip()
+
+_TERMINAL = "。！？.!?…"
+def _is_cjk_char(ch):
+    o = ord(ch)
+    return ("一" <= ch <= "鿿") or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF
+
+def _ends_terminal(s):
+    """Dong da 'dong' chua? (ket thuc bang dau cau, bo qua ngoac/nhay cuoi)."""
+    s = s.rstrip().rstrip("\"'”’」』）) ")
+    return bool(s) and s[-1] in _TERMINAL
+
+def _smart_join(a, b):
+    """Noi 2 manh: Han giap Han -> khong space; con lai -> 1 dau cach."""
+    a, b = a.rstrip(), b.lstrip()
+    if a and b and _is_cjk_char(a[-1]) and _is_cjk_char(b[0]):
+        return a + b
+    return a + " " + b
+
+def detect_speakers(text):
+    """Tra ve danh sach nguoi noi theo thu tu xuat hien ([] neu doc thoai/khong ro).
+       Chi coi la hoi thoai khi co >=2 nguoi noi khac nhau."""
+    order = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if _HR_RE.match(line):           # het phan noi dung chinh -> bo qua phu luc
+            break
+        if not line or line[0] in "@#":
+            continue
+        sp, _ = parse_speaker(line)
+        if sp and sp not in order:
+            order.append(sp)
+    return order if len(order) >= 2 else []
+
+# doan gioi tinh tu ten -> chon giong nam/nu
+_FEM_HAN = set("雨丽娜婷芳燕玲莉娟静秀红梅兰珍春花雪琴霞凤蕾欣怡颖琳云悦佳慧洁妍柔萍嫣媛璐妮")
+_MALE_HAN = set("明强伟军磊勇刚峰涛斌波辉杰俊浩宇航昊鹏龙飞建国华")
+_FEM_EN = {"sarah", "emma", "anna", "mary", "lisa", "aria", "rachel", "linda", "lan", "hoa"}
+_NEUTRAL = {"记者", "主持人", "主播", "专家", "host", "guest", "mc", "khách", "người dẫn"}
+
+def guess_gender(name):
+    """'F' / 'M' / None (trung tinh)."""
+    if not name:
+        return None
+    low = name.lower()
+    if name in _NEUTRAL or low in _NEUTRAL:
+        return None
+    if name[-1] in _FEM_HAN:
+        return "F"
+    if name[-1] in _MALE_HAN:
+        return "M"
+    if low in _FEM_EN:
+        return "F"
+    return None
+
+# pool giong MS (edge/azure dung chung ten) — nam/nu
+VOICES_F = ["zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-XiaomengNeural"]
+VOICES_M = ["zh-CN-YunjianNeural", "zh-CN-YunxiNeural", "zh-CN-YunyangNeural"]
+
+def assign_speaker_voices(speakers):
+    """{speaker: voice} — doan gioi tinh; nguoi trung tinh (nhan vai: 司机/售票员/路人...)
+       duoc BU cho CAN BANG voi gioi da biet (vd da co 1 nu -> nguoi trung tinh thanh nam),
+       nen hoi thoai 2 nguoi luon ra 1 nam + 1 nu thay vi 2 giong cung gioi.
+       Moi nguoi 1 giong on dinh, xoay vong khi thieu."""
+    genders = {sp: guess_gender(sp) for sp in speakers}
+    known_f = sum(1 for g in genders.values() if g == "F")
+    known_m = sum(1 for g in genders.values() if g == "M")
+    fi = mi = 0
+    vmap = {}
+    for sp in speakers:
+        g = genders[sp]
+        if g is None:                       # trung tinh -> bu cho can bang
+            if known_f > known_m:
+                g = "M"; known_m += 1
+            elif known_m > known_f:
+                g = "F"; known_f += 1
+            else:                           # dang hoa -> luan phien on dinh
+                g = "F" if (fi + mi) % 2 == 0 else "M"
+                if g == "F": known_f += 1
+                else: known_m += 1
+        if g == "F":
+            vmap[sp] = VOICES_F[fi % len(VOICES_F)]; fi += 1
+        else:
+            vmap[sp] = VOICES_M[mi % len(VOICES_M)]; mi += 1
+    return vmap
+
 def parse_lesson(text):
     """Tra ve ctx dict: title, hanzi_title, topic, hsk, segments[...]."""
     meta = {"title": "BÀI HỌC", "hanzi_title": "", "topic": "", "hsk": "HSK1",
-            "objectives": [], "image_prompt": "", "header": "", "hsk_explicit": False}
+            "objectives": [], "image_prompt": "", "header": "", "hsk_explicit": False,
+            "voices": {}}
     sections = []           # [(label, type, [items])]
     cur = None
 
     for raw in text.splitlines():
         line = raw.strip()
+        if _HR_RE.match(line):          # het phan noi dung chinh -> bo qua phu luc
+            break
         if not line:
+            # DONG TRONG = ranh gioi doan -> danh dau cau cuoi cua doan hien tai (nghi dai hon)
+            if cur and cur.get("items"):
+                cur.setdefault("para_ends", set()).add(len(cur["items"]) - 1)
             continue
         if line.startswith("@"):
             key, _, val = line[1:].partition(" ")
@@ -62,6 +231,7 @@ def parse_lesson(text):
             elif key == "hsk":         meta["hsk"] = val; meta["hsk_explicit"] = True
             elif key == "image":       meta["image_prompt"] = val
             elif key == "header":      meta["header"] = val
+            elif key == "voices":      meta["voices"] = _parse_voices(val)
             continue
         if line.startswith("#"):
             label = line.lstrip("#").strip()
@@ -72,7 +242,29 @@ def parse_lesson(text):
         if cur is None:                # dong le (khong co #) -> cau, KHONG divider
             cur = {"label": "", "type": "sentence", "items": [], "explicit": False}
             sections.append(cur)
+        # GOP DONG NOI TIEP: dong bi xuong dong giua luot/cau (khong co nhan nguoi noi)
+        # -> noi vao item truoc. Khong gop trong vocab (moi dong = 1 tu).
+        if cur["items"]:
+            sp, _ = parse_speaker(line)
+            if sp is None:
+                prev = cur["items"][-1]
+                prev_sp, _ = parse_speaker(prev)
+                # noi tiep neu: item truoc co nhan (hoi thoai) HOAC chua ket thuc bang dau cau
+                if cur["type"] != "vocab" and (prev_sp is not None or not _ends_terminal(prev)):
+                    cur["items"][-1] = _smart_join(prev, line)
+                    continue
         cur["items"].append(line)
+
+    # ---- tu nhan dien hoi thoai: section nao co >=2 nguoi noi -> doi sang dialogue ----
+    for sec in sections:
+        if sec["type"] != "dialogue":
+            sps = []
+            for it in sec["items"]:
+                sp, _ = parse_speaker(it)
+                if sp and sp not in sps:
+                    sps.append(sp)
+            if len(sps) >= 2:
+                sec["type"] = "dialogue"
 
     # ---- dung segments ----
     segs = [{"type": "title"}]
@@ -107,11 +299,25 @@ def parse_lesson(text):
                     hz, vi = _split_item(it)
                     segs.append({"type": "practice_a", "hanzi": hz, "pinyin": "", "viet": vi})
         else:                                       # vocab / sentence
-            for it in sec["items"]:
+            pends = sec.get("para_ends", set())
+            for idx, it in enumerate(sec["items"]):
                 hz, vi = _split_item(it)
-                segs.append({"type": st, "hanzi": hz, "pinyin": "", "viet": vi})
+                s2 = {"type": st, "hanzi": hz, "pinyin": "", "viet": vi}
+                if idx in pends:
+                    s2["_para_end"] = True           # cau ket doan -> nghi dai (para_gap)
+                segs.append(s2)
 
     segs.append({"type": "outro"})
+
+    # ---- GAN NGUOI NOI theo @voices (khai bao tay -> tin cay, khong doan mo) ----
+    # dong nao LA nhan vat da khai dang noi -> danh dau _sp = ten do -> app gan giong rieng.
+    vnames = list(meta.get("voices") or {})
+    if vnames:
+        for s in segs:
+            if s.get("type") in ("sentence", "vocab") and s.get("hanzi"):
+                who = _tag_speaker_by_names(s["hanzi"], vnames)
+                if who:
+                    s["_sp"] = who
 
     # hanzi_title mac dinh: lay tu vung dau tien
     if not meta["hanzi_title"]:
@@ -128,7 +334,7 @@ def parse_lesson(text):
         "id": 1, "hsk": meta["hsk"], "title": meta["title"],
         "topic": meta["topic"], "hanzi_title": meta["hanzi_title"],
         "image_prompt": meta["image_prompt"], "header": meta["header"],
-        "hsk_explicit": meta["hsk_explicit"],
+        "hsk_explicit": meta["hsk_explicit"], "voices": meta.get("voices", {}),
         "segments": segs,
     }
 

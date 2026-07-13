@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Studio — Tiếng Trung</title>
+<style>
+  :root { --pink:#e8617a; --bg:#fff5f7; --ink:#3c383a; --soft:#8a7f82; --red:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:900px; margin:0 auto; padding:24px 20px 60px; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  .sub { color:var(--soft); margin:0 0 18px; font-size:14px; }
+  a.back { color:var(--pink); text-decoration:none; font-size:14px; }
+  .card { background:#fff; border:1px solid #f0dde2; border-radius:16px; padding:20px;
+          box-shadow:0 4px 18px rgba(200,120,140,.07); margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:0 0 7px; font-size:15px; }
+  .hint { font-weight:400; color:var(--soft); font-size:13px; }
+  textarea, input[type=text], select { width:100%; border:1.5px solid #ecd4da; border-radius:10px;
+          padding:11px 12px; font-size:14px; font-family:inherit; background:#fff; }
+  textarea { min-height:150px; line-height:1.7; resize:vertical; font-size:15px; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:200px; }
+  .mt { margin-top:14px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:14px; font-weight:600; padding:9px 14px; }
+  .btn-ghost { background:#fbe9ee; color:var(--pink); }
+  .btn-go { background:var(--red); color:#fff; padding:14px 22px; font-size:16px; width:100%; border-radius:12px; }
+  .btn-go:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-up { background:var(--red); color:#fff; padding:10px 16px; }
+  .switch { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:400; }
+  .modes { display:flex; gap:16px; margin-top:6px; }
+  .muted { color:var(--soft); font-size:13px; }
+  .err { color:#c0392b; } .ok { color:#27ae60; }
+  .st-line { padding:5px 0; font-size:14px; border-bottom:1px dashed #f0dde2; }
+  .st-run { color:#d68910; }
+  .shortcard { display:flex; gap:16px; border:1px solid #f0dde2; border-radius:14px; padding:14px; margin-bottom:14px; }
+  .shortcard video { width:150px; border-radius:10px; background:#000; flex:none; }
+  .grow { flex:1; min-width:0; }
+  .warn { background:#fff7e6; border:1px solid #ffe0a3; border-radius:10px; padding:10px 12px; font-size:13px; color:#8a6d3b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Về trang tạo video</a>
+  <h1>⚡ Shorts Studio</h1>
+  <p class="sub">Nhập câu → sinh Short dọc 9:16 (chữ Hán to + pinyin tô thanh điệu + nghĩa, đọc 2 lần, loop). <b>Không cần video dài.</b></p>
+
+  <!-- RUT CAU TU BAI -->
+  <div class="card" style="background:#fff7f9">
+    <label>⚡ Rút nhanh câu từ bài <span class="hint">— dán cả nội dung 1 bài (content.md) → tự lấy vài câu "đắt" nhất đổ xuống ô dưới</span></label>
+    <textarea id="srcContent" placeholder="Dán cả nội dung bài (gồm @title/@header và các dòng 汉字 | nghĩa)…" style="min-height:120px"></textarea>
+    <div class="row mt" style="align-items:flex-end">
+      <div style="flex:0 0 150px">
+        <label>🔢 Lấy mấy câu</label>
+        <select id="extractN"><option value="3">3 câu</option><option value="5" selected>5 câu</option><option value="8">8 câu</option><option value="10">10 câu</option></select>
+      </div>
+      <div style="flex:0 0 220px">
+        <button class="btn-ghost" type="button" onclick="extractLines()">✂️ Rút câu đắt → đổ xuống</button>
+      </div>
+      <div style="flex:1"><span id="extractSt" class="hint"></span></div>
+    </div>
+  </div>
+
+  <!-- FORM NHAP -->
+  <div class="card">
+    <label>📝 Danh sách câu <span class="hint" id="linesHint">— mỗi dòng: <code>汉字 | nghĩa | ghi chú cách dùng</code> (2 cột sau bỏ trống được)</span></label>
+    <textarea id="lines" placeholder="你好 | Xin chào&#10;不到长城非好汉 | Chưa đến Trường Thành, chưa phải hảo hán | Dùng để khích lệ nhau kiên trì&#10;你吃了吗 | Bạn ăn cơm chưa"></textarea>
+    <div class="row mt">
+      <div style="flex:0 0 220px">
+        <label>🎬 Kiểu Short</label>
+        <select id="format" onchange="onFormat()">
+          <option value="flash" selected>Flashcard — 1 câu, đọc 2 lần</option>
+          <option value="vocab">Từ mới — từ lớn + pinyin + ví dụ</option>
+          <option value="pattern">Mẫu câu — cấu trúc + ví dụ</option>
+          <option value="quiz">Đố nghĩa — hỏi → đếm ngược → đáp án</option>
+        </select>
+      </div>
+      <div>
+        <label>🎙️ Giọng đọc <span class="hint">(edge — free)</span></label>
+        <select id="voice">
+          {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>✍️ Hook trên cùng <span class="hint">(trống = tự chọn)</span></label>
+        <input type="text" id="hook" placeholder="vd: Câu này ai cũng cần">
+      </div>
+      <div style="flex:0 0 150px" id="readsWrap">
+        <label>🔁 Đọc mấy lần</label>
+        <select id="reads"><option value="2" selected>2 lần</option><option value="1">1 lần</option><option value="3">3 lần</option></select>
+      </div>
+      <div style="flex:0 0 210px">
+        <label>🌐 Chữ cố định <span class="hint">(hook/nút/quiz)</span></label>
+        <select id="uiLang"><option value="auto" selected>Tự động (theo nghĩa)</option><option value="vi">Tiếng Việt</option><option value="en">English</option></select>
+      </div>
+    </div>
+    <div class="mt">
+      <label>🎨 Phong cách layout <span class="hint">— bấm chọn 1 mẫu (bỏ qua nếu có ảnh nền riêng)</span></label>
+      <input type="hidden" id="skin" value="ink">
+      <div id="skinGallery" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px"></div>
+    </div>
+    <div class="mt" style="padding:8px 10px;background:#fff7f2;border:1px solid #f0d9cc;border-radius:8px">
+      <label style="cursor:pointer"><input type="checkbox" id="combine">
+        <b>🎬 Gộp tất cả câu thành 1 Short</b>
+        <span class="hint">— mỗi câu đọc theo số lần trên, rồi tự chuyển câu sau (thay vì mỗi câu 1 short riêng)</span></label>
+    </div>
+    <div class="mt" style="padding:8px 10px;background:#f2f7ff;border:1px solid #cfe0f5;border-radius:8px">
+      <label style="margin:0">🖼️ Ảnh nền Short <span class="hint">(tuỳ chọn — để trống = nền mực đen vàng kim mặc định; ảnh sẽ tự làm tối + mờ để chữ đọc rõ)</span></label>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <input type="file" id="bgFile" accept="image/*" onchange="uploadBg()">
+        <button class="btn-ghost" type="button" id="bgClear" style="display:none" onclick="clearBg()">✖ Bỏ ảnh nền</button>
+        <span id="bgSt" class="hint"></span>
+      </div>
+    </div>
+    <button class="btn-go mt" id="genBtn" onclick="genShorts()">✨ Tạo Short</button>
+    <div id="genSt" class="mt"></div>
+  </div>
+
+  <!-- KENH + HEN GIO (dung chung cho moi Short) -->
+  <div class="card" id="postCard" style="display:none">
+    <label style="margin:0">📺 Kênh đăng <span class="hint">(tick nhiều kênh — áp dụng khi bấm Đăng ở từng Short)</span></label>
+    <div id="channelList" class="mt"><div class="muted">— đang tải kênh… —</div></div>
+    <div class="mt">
+      <label style="margin:0">🕒 Thời điểm đăng</label>
+      <div class="modes">
+        <label class="switch"><input type="radio" name="when" value="now" checked onchange="onWhen()"> Đăng ngay</label>
+        <label class="switch"><input type="radio" name="when" value="schedule" onchange="onWhen()"> Hẹn giờ</label>
+      </div>
+      <div id="schedBox" style="display:none;margin-top:8px">
+        <input type="datetime-local" id="publishAt" style="max-width:280px">
+        <div class="warn mt">Khi hẹn giờ, Short để <b>Riêng tư</b> đến giờ hẹn rồi tự công khai. Giờ theo máy bạn.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KET QUA -->
+  <div id="results"></div>
+</div>
+
+<script>
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function pad2(n){return String(n).padStart(2,'0');}
+function onFormat(){
+  const fmt=document.getElementById('format').value;
+  document.getElementById('readsWrap').style.display=(fmt==='quiz'||fmt==='pattern')?'none':'';
+  document.getElementById('hook').placeholder=fmt==='quiz'?'vd: Câu này nghĩa là gì?':'vd: Câu này ai cũng cần';
+  const hint=document.getElementById('linesHint'), box=document.getElementById('lines');
+  if(fmt==='vocab'){
+    hint.innerHTML='— mỗi dòng 1 TỪ MỚI: <code>词 | nghĩa | 例句(câu ví dụ Hán) | nghĩa ví dụ</code> (2 cột cuối tuỳ chọn)';
+    box.placeholder='学习 | học tập | 我每天学习中文 | Tôi học tiếng Trung mỗi ngày\n开心 | vui vẻ | 今天我很开心 | Hôm nay tôi rất vui';
+  } else if(fmt==='pattern'){
+    hint.innerHTML='— mỗi dòng 1 MẪU CÂU: <code>mẫu(Hán) | nghĩa | 例1=nghĩa1 | 例2=nghĩa2</code> (thêm ví dụ = thêm cột)';
+    box.placeholder='越 A 越 B | càng A thì càng B | 雨越下越大=Mưa càng lúc càng to | 天气越来越冷=Trời càng ngày càng lạnh\n因为…所以… | vì… nên… | 因为下雨，所以不去=Vì trời mưa nên không đi';
+  } else {
+    hint.innerHTML='— mỗi dòng: <code>汉字 | nghĩa | ghi chú cách dùng</code> (2 cột sau bỏ trống được)';
+    box.placeholder='你好 | Xin chào\n不到长城非好汉 | Chưa đến Trường Thành, chưa phải hảo hán | Dùng để khích lệ nhau kiên trì\n你吃了吗 | Bạn ăn cơm chưa';
+  }
+}
+
+// Gallery phong cách layout: bấm 1 thẻ để chọn skin (danh sách lấy từ /skins)
+function pickSkin(name){
+  document.getElementById('skin').value=name;
+  document.querySelectorAll('#skinGallery .skinCard').forEach(el=>{
+    const on=el.dataset.skin===name;
+    el.style.borderColor=on?'#c0392b':'#e6d6cc';
+    el.style.boxShadow=on?'0 0 0 3px rgba(192,57,43,.25)':'none';
+    el.querySelector('.skinTick').style.display=on?'block':'none';
+  });
+}
+async function buildSkinGallery(){
+  const g=document.getElementById('skinGallery');
+  let list=[];
+  try{ const r=await fetch('/skins'); list=(await r.json()).skins||[]; }
+  catch(e){ list=[{key:'ink',label:'Mực đêm vàng kim'}]; }
+  g.innerHTML=list.map(({key:k,label:lbl})=>`
+    <div class="skinCard" data-skin="${k}" onclick="pickSkin('${k}')"
+         style="cursor:pointer;width:118px;border:2px solid #e6d6cc;border-radius:12px;overflow:hidden;background:#fff;position:relative;transition:.12s">
+      <div class="skinTick" style="display:none;position:absolute;top:6px;right:6px;background:#c0392b;color:#fff;border-radius:50%;width:22px;height:22px;line-height:22px;text-align:center;font-size:13px;z-index:2">✓</div>
+      <img src="/skin_prev/${k}" alt="${lbl}" loading="lazy"
+           style="width:100%;display:block;aspect-ratio:9/16;object-fit:cover;background:#f3ece4">
+      <div style="padding:6px 4px;font-size:12px;text-align:center;color:#4a3f38;font-weight:600">${lbl}</div>
+    </div>`).join('');
+  pickSkin(document.getElementById('skin').value||'ink');
+}
+document.addEventListener('DOMContentLoaded',buildSkinGallery);
+
+// Ảnh nền Short: upload qua /upload -> nhớ path để gửi kèm khi Tạo Short
+let BG_PATH='';
+async function uploadBg(){
+  const f=document.getElementById('bgFile').files[0];
+  const st=document.getElementById('bgSt');
+  if(!f){ return; }
+  st.className=''; st.textContent='⏳ Đang tải ảnh…';
+  try{
+    const fd=new FormData(); fd.append('file', f); fd.append('kind','shortbg');
+    const r=await fetch('/upload',{method:'POST',body:fd});
+    const j=await r.json();
+    if(j.path){ BG_PATH=j.path; st.className='ok'; st.textContent='✅ Đã chọn ảnh nền: '+(j.name||'ảnh');
+      document.getElementById('bgClear').style.display=''; }
+    else { st.className='err'; st.textContent='❌ '+(j.error||'Không tải được ảnh'); }
+  }catch(e){ st.className='err'; st.textContent='❌ Lỗi tải ảnh: '+e; }
+}
+function clearBg(){
+  BG_PATH=''; document.getElementById('bgFile').value='';
+  document.getElementById('bgClear').style.display='none';
+  const st=document.getElementById('bgSt'); st.className='hint'; st.textContent='(đã bỏ ảnh nền — dùng nền mặc định)';
+}
+
+async function extractLines(){
+  const content=document.getElementById('srcContent').value.trim();
+  const st=document.getElementById('extractSt');
+  if(!content){ st.className='err'; st.textContent='⚠️ Hãy dán nội dung bài trước.'; return; }
+  const n=document.getElementById('extractN').value;
+  st.className=''; st.textContent='⏳ Đang rút câu…';
+  try{
+    const r=await fetch('/shorts/extract',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({content, n})});
+    const j=await r.json();
+    if(j.error){ st.className='err'; st.textContent='❌ '+j.error; return; }
+    const box=document.getElementById('lines');
+    box.value = (box.value.trim() ? box.value.trim()+'\n' : '') + j.lines;   // nối thêm, không đè
+    st.className='ok'; st.textContent='✅ Đã rút '+j.count+' câu, đổ xuống ô "Danh sách câu". Sửa lại nếu cần rồi bấm Tạo Short.';
+  }catch(e){ st.className='err'; st.textContent='❌ Lỗi: '+e; }
+}
+
+async function genShorts(){
+  const lines=document.getElementById('lines').value.trim();
+  const st=document.getElementById('genSt');
+  if(!lines){ st.className='err'; st.textContent='⚠️ Hãy nhập ít nhất 1 câu.'; return; }
+  const btn=document.getElementById('genBtn'); btn.disabled=true; btn.textContent='⏳ Đang tạo…';
+  st.className=''; st.textContent='⏳ Đang tổng hợp giọng + render… (vài giây/câu)';
+  try{
+    const body={lines, voice:document.getElementById('voice').value,
+      hook:document.getElementById('hook').value, reads:document.getElementById('reads').value,
+      format:document.getElementById('format').value,
+      uiLang:document.getElementById('uiLang').value,
+      combine:document.getElementById('combine').checked,
+      skin:document.getElementById('skin').value,
+      bg:BG_PATH};
+    const r=await fetch('/shorts/make',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(j.shorts){
+      renderResults(j.shorts);
+      document.getElementById('postCard').style.display='block';
+      loadChannels();
+      st.className='ok'; st.textContent='✅ Đã tạo '+j.shorts.filter(s=>s.job_id).length+' Short. Chọn kênh rồi bấm Đăng ở từng cái.';
+    } else { st.className='err'; st.textContent='❌ '+(j.error||'lỗi'); }
+  }catch(e){ st.className='err'; st.textContent='❌ lỗi mạng: '+e; }
+  btn.disabled=false; btn.textContent='✨ Tạo Short';
+}
+
+function renderResults(shorts){
+  const box=document.getElementById('results');
+  box.innerHTML='<div class="card"><label>🎬 Short đã tạo</label>'+shorts.map((s,i)=>{
+    if(s.error) return `<div class="shortcard err">❌ <b>${esc(s.hanzi)}</b>: ${esc(s.error)}</div>`;
+    return `<div class="shortcard" id="sc_${s.job_id}">
+      <video controls id="vid_${s.job_id}" src="/video/${s.short}"></video>
+      <div class="grow">
+        <div><b>${esc(s.hanzi)}</b> · <span class="muted">${esc(s.pinyin)}</span> — ${esc(s.viet)} <span class="muted" id="dur_${s.job_id}">(${s.dur}s)</span></div>
+        <label class="mt" style="font-size:13px;margin-bottom:4px">✍️ Chữ trên cùng (hook/nhãn)</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="hk_${s.job_id}" value="${esc(s.hook||'')}" placeholder="vd: 1 từ mỗi ngày 📌" style="flex:1">
+          <button class="btn-ghost" style="white-space:nowrap;padding:10px 14px" onclick="rehook('${s.job_id}')">🔄 Render lại</button>
+          <span id="rh_${s.job_id}" class="muted"></span>
+        </div>
+        <label class="mt" style="font-size:13px;margin-bottom:4px">Tiêu đề</label>
+        <input type="text" id="ti_${s.job_id}" value="${esc(s.title)}">
+        <label class="mt" style="font-size:13px;margin-bottom:4px">Mô tả</label>
+        <textarea id="de_${s.job_id}" style="min-height:80px;font-size:13px">${esc(s.description)}</textarea>
+        <div class="mt"><button class="btn-up" onclick="uploadOne('${s.job_id}')">⚡ Đăng Short này</button>
+          <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/download/${s.short}">⬇️ Tải</a>
+          <span id="us_${s.job_id}" class="muted" style="margin-left:8px"></span></div>
+      </div></div>`;
+  }).join('')+'</div>';
+}
+
+// Sua hook/nhan tren cung roi render lai chinh Short do
+async function rehook(jid){
+  const hook=document.getElementById('hk_'+jid).value.trim();
+  const st=document.getElementById('rh_'+jid);
+  st.className='muted'; st.textContent='⏳ Đang render lại…';
+  try{
+    const r=await fetch('/shorts/rehook/'+jid,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({hook})});
+    const j=await r.json();
+    if(j.error){ st.className='err'; st.textContent='❌ '+j.error; return; }
+    // nap lai video (cache-bust) + cap nhat tieu de/mo ta/thoi luong
+    const v=document.getElementById('vid_'+jid);
+    v.src='/video/'+j.short+'?t='+Date.now(); v.load();
+    if(j.title!==undefined) document.getElementById('ti_'+jid).value=j.title;
+    if(j.description!==undefined) document.getElementById('de_'+jid).value=j.description;
+    if(j.dur!==undefined) document.getElementById('dur_'+jid).textContent='('+j.dur+'s)';
+    st.className='ok'; st.textContent='✅ Đã đổi';
+  }catch(e){ st.className='err'; st.textContent='❌ '+e; }
+}
+
+// ----- kenh + hen gio -----
+async function loadChannels(){
+  const list=document.getElementById('channelList');
+  try{
+    const j=await (await fetch('/yt/channels')).json();
+    if(j.channels && j.channels.length){
+      list.innerHTML=j.channels.map((c,i)=>
+        `<label class="switch" style="display:flex;padding:4px 0"><input type="checkbox" class="chk" value="${c.id}" data-name="${esc(c.title)}" ${i===0?'checked':''}> ${esc(c.title)}</label>`).join('');
+    } else { list.innerHTML='<div class="warn">Chưa kết nối kênh nào. Vào trang đăng YouTube để kết nối kênh trước.</div>'; }
+  }catch(e){ list.innerHTML='<div class="err">lỗi tải kênh</div>'; }
+}
+function selectedChannels(){ return [...document.querySelectorAll('.chk:checked')].map(c=>({id:c.value,name:c.dataset.name})); }
+function onWhen(){
+  const mode=document.querySelector('input[name="when"]:checked').value;
+  const box=document.getElementById('schedBox'); const inp=document.getElementById('publishAt');
+  if(mode==='schedule'){ box.style.display='block';
+    if(!inp.value){ const d=new Date(Date.now()+3600*1000); d.setMinutes(0,0,0);
+      inp.value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+  } else box.style.display='none';
+}
+
+async function uploadOne(jid){
+  const chans=selectedChannels();
+  const us=document.getElementById('us_'+jid);
+  if(!chans.length){ us.className='err'; us.textContent='⚠️ chọn kênh ở trên'; return; }
+  const meta={ use_short:true, captions:false, set_thumb:false, post_comment:false,
+    title:document.getElementById('ti_'+jid).value, description:document.getElementById('de_'+jid).value,
+    tags:'', category:'27', privacy:'public' };
+  const when=document.querySelector('input[name="when"]:checked').value;
+  let sched='';
+  if(when==='schedule'){
+    const raw=document.getElementById('publishAt').value; const dt=raw?new Date(raw):null;
+    if(!dt||isNaN(dt)){ us.className='err'; us.textContent='⚠️ giờ hẹn không hợp lệ'; return; }
+    if(dt.getTime()<=Date.now()+60000){ us.className='err'; us.textContent='⚠️ giờ hẹn phải ở tương lai'; return; }
+    meta.publish_at=dt.toISOString(); meta.privacy='private'; sched=raw.replace('T',' ');
+  }
+  us.className='muted'; us.innerHTML='';
+  for(const c of chans){
+    const line=document.createElement('div'); line.className='st-line st-run';
+    line.innerHTML=`⏳ ${esc(c.name)}: đang đăng…`; us.appendChild(line);
+    try{
+      const r=await fetch('/yt/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(Object.assign({job_id:jid, channel:c.id}, meta))});
+      const j=await r.json();
+      if(j.url){ line.className='st-line'; line.innerHTML=`✅ ${esc(c.name)}: <a href="${j.url}" target="_blank">Mở ↗</a>${sched?' · ⏰ '+sched:''}`; }
+      else { line.className='st-line err'; line.innerHTML=`❌ ${esc(c.name)}: ${esc(j.error||'lỗi')}`; }
+    }catch(e){ line.className='st-line err'; line.innerHTML=`❌ ${esc(c.name)}: lỗi mạng`; }
+  }
+}
+</script>
+</body>
+</html>
