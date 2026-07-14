@@ -84,46 +84,54 @@ EDGE_ML_VOICES = [
 ]
 
 # Giong Azure (tu nhien hon, can key free) — value tien to "azure:"
+# Cap nhat 2026-07: bo sung giong MOI NHAT (DragonHD Omni, Xiaoxiao2, MAI-Voice-2) — da test that voi key.
 AZURE_VOICES = [
-    # --- HD / siêu thật (mới nhất) ---
-    ("azure:zh-CN-Xiaochen:DragonHDLatestNeural", "Hiểu Trần HD — Nữ, siêu thật ⭐ (mới nhất)"),
+    # ===== MỚI NHẤT — thế hệ Omni (siêu thật, tự nhiên nhất) =====
+    ("azure:zh-CN-Xiaoyue:DragonHDOmniLatestNeural", "Hiểu Nguyệt Omni — Nữ, SIÊU THẬT ⭐ (mới nhất)"),
+    ("azure:zh-CN-Yunqi:DragonHDOmniLatestNeural",   "Vân Kỳ Omni — Nam, SIÊU THẬT ⭐ (mới nhất)"),
+    # ===== MAI-Voice-2 (mới, biểu cảm nhiều style) =====
+    ("azure:zh-CN-Mei:MAI-Voice-2", "Mai MAI-2 — Nữ, biểu cảm phong phú ⭐ (mới)"),
+    ("azure:zh-CN-Lan:MAI-Voice-2", "Lan MAI-2 — Nữ, ấm, tự nhiên (mới)"),
+    ("azure:zh-CN-Bo:MAI-Voice-2",  "Bác MAI-2 — Nam, biểu cảm phong phú ⭐ (mới)"),
+    ("azure:zh-CN-Wei:MAI-Voice-2", "Vĩ MAI-2 — Nam, trầm ấm (mới)"),
+    # ===== DragonHD Latest (siêu thật) =====
+    ("azure:zh-CN-Xiaochen:DragonHDLatestNeural", "Hiểu Trần HD — Nữ, siêu thật ⭐"),
     ("azure:zh-CN-Yunfan:DragonHDLatestNeural",   "Vân Phàm HD — Nam, siêu thật ⭐"),
-    ("azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural", "Hiểu Hiểu HD Flash — Nữ, siêu thật"),
-    ("azure:zh-CN-Xiaochen:DragonHDFlashLatestNeural", "Hiểu Trần HD Flash — Nữ, nhanh"),
-    # --- Đa ngữ (đọc tốt cả Trung + Việt + Anh) ---
+    # ===== DragonHD Flash (siêu thật, nhanh) =====
+    ("azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural",  "Hiểu Hiểu HD — Nữ, ấm, kể chuyện"),
+    ("azure:zh-CN-Xiaoxiao2:DragonHDFlashLatestNeural", "Hiểu Hiểu 2 HD — Nữ, bản nâng cấp ⭐"),
+    ("azure:zh-CN-Xiaohan:DragonHDFlashLatestNeural",   "Hiểu Hàm HD — Nữ, dịu dàng"),
+    ("azure:zh-CN-Xiaoyi:DragonHDFlashLatestNeural",    "Hiểu Y HD — Nữ, trẻ trung"),
+    ("azure:zh-CN-Yunxiao:DragonHDFlashLatestNeural",   "Vân Tiêu HD — Nam, trẻ, tự nhiên ⭐"),
+    ("azure:zh-CN-Yunyi:DragonHDFlashLatestNeural",     "Vân Nghị HD — Nam, ấm"),
+    ("azure:zh-CN-Yunxi:DragonHDFlashLatestNeural",     "Vân Hi HD — Nam, nắng ấm"),
+    ("azure:zh-CN-Yunye:DragonHDFlashLatestNeural",     "Vân Diệp HD — Nam, kể chuyện"),
+    # ===== Đa ngữ (đọc tốt cả Trung + Việt + Anh) =====
     ("azure:zh-CN-XiaoxiaoMultilingualNeural", "Hiểu Hiểu Đa ngữ — Nữ, rất tự nhiên ⭐"),
-    ("azure:zh-CN-XiaochenMultilingualNeural", "Hiểu Trần Đa ngữ — Nữ trẻ, tự nhiên"),
+    ("azure:zh-CN-XiaochenMultilingualNeural", "Hiểu Trần Đa ngữ — Nữ trẻ"),
     ("azure:zh-CN-XiaoyuMultilingualNeural",   "Hiểu Vũ Đa ngữ — Nữ, ấm"),
-    ("azure:zh-CN-YunyiMultilingualNeural",    "Vân Nghị Đa ngữ — Nam, tự nhiên"),
-    # --- Nữ (giọng phổ thông biểu cảm) ---
-    ("azure:zh-CN-XiaoxiaoNeural", "Hiểu Hiểu — Nữ, ấm, kể chuyện"),
-    ("azure:zh-CN-XiaoyiNeural",   "Hiểu Y — Nữ, trẻ, hoạt náo"),
-    ("azure:zh-CN-XiaohanNeural",  "Hiểu Hàm — Nữ, dịu dàng"),
-    ("azure:zh-CN-XiaomengNeural", "Hiểu Mộng — Nữ, tươi vui"),
+    ("azure:zh-CN-YunyiMultilingualNeural",    "Vân Nghị Đa ngữ — Nam"),
+    ("azure:zh-CN-YunfanMultilingualNeural",   "Vân Phàm Đa ngữ — Nam"),
+    ("azure:zh-CN-YunxiaoMultilingualNeural",  "Vân Tiêu Đa ngữ — Nam, trẻ"),
+    # ===== Neural biểu cảm (nhiều style cảm xúc) =====
+    ("azure:zh-CN-XiaoxiaoNeural", "Hiểu Hiểu — Nữ, 20 style cảm xúc"),
     ("azure:zh-CN-XiaomoNeural",   "Hiểu Mặc — Nữ, đa cảm xúc"),
-    ("azure:zh-CN-XiaoruiNeural",  "Hiểu Duệ — Nữ, lớn tuổi, điềm đạm"),
-    ("azure:zh-CN-XiaoxuanNeural", "Hiểu Tuyên — Nữ, chững chạc"),
-    ("azure:zh-CN-XiaoyanNeural",  "Hiểu Yến — Nữ, dịch vụ KH"),
+    ("azure:zh-CN-XiaohanNeural",  "Hiểu Hàm — Nữ, dịu dàng"),
     ("azure:zh-CN-XiaozhenNeural", "Hiểu Trinh — Nữ, nghiêm túc"),
+    ("azure:zh-CN-XiaoruiNeural",  "Hiểu Duệ — Nữ, lớn tuổi, điềm đạm"),
+    ("azure:zh-CN-XiaoyiNeural",   "Hiểu Y — Nữ, trẻ, hoạt náo"),
     ("azure:zh-CN-XiaoshuangNeural", "Hiểu Sảng — Bé gái, dễ thương"),
-    # --- Nam ---
     ("azure:zh-CN-YunxiNeural",    "Vân Hi — Nam, trẻ, nắng ấm"),
     ("azure:zh-CN-YunjianNeural",  "Vân Kiện — Nam, kể chuyện biểu cảm"),
-    ("azure:zh-CN-YunyangNeural",  "Vân Dương — Nam, tin tức chuyên nghiệp"),
-    ("azure:zh-CN-YunxiaNeural",   "Vân Hạ — Nam, dễ thương"),
+    ("azure:zh-CN-YunyangNeural",  "Vân Dương — Nam, tin tức"),
+    ("azure:zh-CN-YunzeNeural",    "Vân Trạch — Nam, điềm tĩnh"),
     ("azure:zh-CN-YunfengNeural",  "Vân Phong — Nam, sôi nổi"),
-    ("azure:zh-CN-YunhaoNeural",   "Vân Hạo — Nam, quảng cáo"),
-    ("azure:zh-CN-YunyeNeural",    "Vân Diệp — Nam, lớn tuổi, kể chuyện"),
-    ("azure:zh-CN-YunzeNeural",    "Vân Trạch — Nam, lớn tuổi, điềm tĩnh"),
-    # --- Giọng vùng miền (tiếng phổ thông + chất địa phương) ---
-    ("azure:zh-CN-sichuan-YunxiNeural",   "Vân Hi — Nam, giọng Tứ Xuyên"),
-    ("azure:zh-CN-henan-YundengNeural",   "Vân Đăng — Nam, giọng Hà Nam"),
-    ("azure:zh-CN-shandong-YunxiangNeural", "Vân Tường — Nam, giọng Sơn Đông"),
+    # ===== Giọng vùng miền =====
+    ("azure:zh-CN-sichuan-YunxiNeural",    "Vân Hi — Nam, giọng Tứ Xuyên"),
     ("azure:zh-CN-liaoning-XiaobeiNeural", "Hiểu Bối — Nữ, giọng Đông Bắc"),
     ("azure:zh-CN-shaanxi-XiaoniNeural",   "Hiểu Ni — Nữ, giọng Thiểm Tây"),
-    # --- Quan Thoại Đài Loan ---
+    # ===== Quan Thoại Đài Loan =====
     ("azure:zh-TW-HsiaoChenNeural", "Hiểu Trăn — Nữ, Đài Loan"),
-    ("azure:zh-TW-HsiaoYuNeural",   "Hiểu Du — Nữ, Đài Loan, nhẹ"),
     ("azure:zh-TW-YunJheNeural",    "Vân Triết — Nam, Đài Loan"),
 ]
 
@@ -707,8 +715,9 @@ def thumb(fn):
 def skins_list():
     """Danh sach phong cach layout (key + nhan) cho gallery /shorts."""
     import short_native as _sn
-    order = ["ink", "royal", "night", "sunset", "ocean", "gradient",
-             "sakura", "cute", "notebook", "grid", "chalk", "bamboo", "paper", "white"]
+    order = ["ink", "royal", "night", "sunset", "ocean", "gradient", "neon",
+             "cute", "kawaii", "candy", "comic", "memphis", "sakura",
+             "notebook", "grid", "chalk", "bamboo", "paper", "white"]
     keys = [k for k in order if k in _sn.SKINS] + [k for k in _sn.SKINS if k not in order]
     return jsonify(skins=[{"key": k, "label": _sn.SKINS[k]["label"]} for k in keys])
 
@@ -872,7 +881,8 @@ def yt_connect():
 # ---------- SHORTS STUDIO: sinh Short doc TRUC TIEP tu cau (khong can video dai) ----------
 @app.route("/shorts")
 def shorts_page():
-    return render_template("shorts.html", edge_voices=EDGE_VOICES)
+    return render_template("shorts.html", edge_voices=EDGE_VOICES, promo_link=PROMO_LINK,
+                           azure_voices=AZURE_VOICES, azure_ready=bool(load_azure()[0]))
 
 @app.route("/shorts/extract", methods=["POST"])
 def shorts_extract():
@@ -893,9 +903,19 @@ def shorts_extract():
     lines = "\n".join(f"{c['hanzi']} | {c['viet']}" for c in cands)
     return jsonify(lines=lines, count=len(cands))
 
+def _azure_for(voice):
+    """Neu voice la 'azure:...' -> tra (key, region) tu azure_config; con lai None (edge free)."""
+    if isinstance(voice, str) and voice.startswith("azure:"):
+        k, r = load_azure()
+        if k and r:
+            return (k, r)
+    return None
+
+
 def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid):
     """Render 1 Short tu cac cot da parse (dung chung boi /shorts/make va /shorts/rehook)."""
     import short_native as _sn
+    az = _azure_for(voice)
     hanzi = cols[0]
     viet = cols[1] if len(cols) > 1 else ""
     note = cols[2] if len(cols) > 2 else ""
@@ -903,7 +923,7 @@ def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid):
         return _sn.make_vocab_from_text(hanzi, viet, example=(cols[2] if len(cols) > 2 else ""),
                                         ex_viet=(cols[3] if len(cols) > 3 else ""),
                                         voice=voice, out_dir=OUT, reads=reads, name=jid,
-                                        lang=ui_lang, bg=bg, skin=skin, label=(hook or None))
+                                        lang=ui_lang, bg=bg, skin=skin, label=(hook or None), azure=az)
     if fmt == "pattern":
         exs = []
         for c in cols[2:]:
@@ -911,12 +931,14 @@ def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid):
             if han.strip():
                 exs.append((han.strip(), vi.strip()))
         return _sn.make_pattern_from_text(hanzi, viet, examples=exs, voice=voice, out_dir=OUT,
-                                          name=jid, lang=ui_lang, bg=bg, skin=skin, label=(hook or None))
+                                          name=jid, lang=ui_lang, bg=bg, skin=skin,
+                                          label=(hook or None), azure=az)
     if fmt == "quiz":
         return _sn.make_quiz_from_text(hanzi, viet, voice=voice, hook=hook, out_dir=OUT,
-                                       name=jid, lang=ui_lang, bg=bg, skin=skin)
+                                       name=jid, lang=ui_lang, bg=bg, skin=skin, azure=az)
     return _sn.make_short_from_text(hanzi, viet, voice=voice, hook=hook, out_dir=OUT,
-                                    reads=reads, name=jid, note=note, lang=ui_lang, bg=bg, skin=skin)
+                                    reads=reads, name=jid, note=note, lang=ui_lang, bg=bg,
+                                    skin=skin, azure=az)
 
 
 @app.route("/shorts/rehook/<job_id>", methods=["POST"])
@@ -934,7 +956,8 @@ def shorts_rehook(job_id):
             rows = [tuple(x) for x in rc["rows"]]
             r = _sn.make_short_from_lines(rows, voice=rc["voice"], hook=new_hook, out_dir=OUT,
                                           reads=rc["reads"], name=job_id, lang=rc["ui_lang"],
-                                          bg=rc["bg"], skin=rc["skin"])
+                                          bg=rc["bg"], skin=rc["skin"], title=rc.get("title"),
+                                          azure=_azure_for(rc["voice"]))
         else:
             r = _render_one_short(rc["fmt"], rc["cols"], new_hook, rc["voice"], rc["reads"],
                                   rc["ui_lang"], rc["bg"], rc["skin"], job_id)
@@ -942,11 +965,72 @@ def shorts_rehook(job_id):
         traceback.print_exc()
         return jsonify(error=str(e)), 500
     fn = os.path.basename(r["file"])
+    desc_i = _append_link(r["desc"], rc.get("link"))
     job["short"] = fn
-    job["short_seo"] = {"title": r["title"], "description": r["desc"]}
+    job["short_seo"] = {"title": r["title"], "description": desc_i}
     _save_job(job_id)
-    return jsonify(short=fn, title=r["title"], description=r["desc"],
+    return jsonify(short=fn, title=r["title"], description=desc_i,
                    hook=r["hook"], dur=r.get("dur"))
+
+
+# Link playlist gioi thieu / nghe bo tro — TU DONG noi vao mo ta moi Short.
+# Doi link kenh cua ban o day (hoac nhap o UI de ghi de tung dot).
+PROMO_LINK = "https://www.youtube.com/playlist?list=PLb7JsPPf3Pls"
+
+def _append_link(desc, link):
+    """Noi dong gioi thieu playlist (nghe & xem them) vao cuoi mo ta."""
+    link = (link or "").strip()
+    if not link:
+        return desc
+    return (f"{desc}\n\n▶️ Xem thêm & nghe bổ trợ — playlist đầy đủ:\n{link}"
+            "\n👉 Đăng ký kênh để học tiếng Trung mỗi ngày!")
+
+
+_SEC_LABEL = re.compile(r"^S\s*\d+\s*[·:.\-–—]\s*")   # bo tien to "S1 · " trong tieu de
+
+def _parse_sections(raw):
+    """Tach 1 khoi dan NHIEU BAI -> list section. Moi section:
+      - 1 dong TIEU DE (khong co '|'); ho tro '## S1 · Tieu de' hoac 'Tieu de' tran.
+      - cac @tag tuy chon: @title / @hook / @skin / @reads
+      - cac dong '汉字 | nghia | ghi chu'
+    Dong trong = ngan cach. Dong '#' don (1 dau thang) = comment -> bo qua.
+    Tra ve list dict {title, title_ov, hook, skin, reads, rows[(hz,vi,nt)]}."""
+    sections = []
+    cur = None
+    def _new(title=""):
+        s = {"title": title.strip(), "title_ov": "", "hook": "", "skin": "", "reads": "", "rows": []}
+        sections.append(s)
+        return s
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith("##"):                             # tieu de section (## S1 · ...)
+            cur = _new(_SEC_LABEL.sub("", s.lstrip("#").strip()))
+        elif s.startswith("#"):                             # comment 1 dau thang -> bo qua (ke ca co '|')
+            continue
+        elif s.startswith("@"):                             # @tag
+            k, _, v = s[1:].partition(" ")
+            k, v = k.lower(), v.strip()
+            if cur is None:                                 # @tag truoc section dau (file-level) -> bo
+                continue
+            if k == "title":   cur["title_ov"] = v
+            elif k == "hook":  cur["hook"] = v
+            elif k == "skin":  cur["skin"] = v
+            elif k == "reads": cur["reads"] = v
+        elif "|" in s or "｜" in s or "\t" in s:            # dong noi dung
+            parts = re.split(r"\s*[|｜\t]\s*", s, maxsplit=2)
+            hz = parts[0].strip()
+            if not hz:
+                continue
+            if cur is None:
+                cur = _new("")
+            vi = parts[1].strip() if len(parts) > 1 else ""
+            nt = parts[2].strip() if len(parts) > 2 else ""
+            cur["rows"].append((hz, vi, nt))
+        else:                                               # dong tran khong co '|' = tieu de bai
+            cur = _new(_SEC_LABEL.sub("", s))
+    return [s for s in sections if s["rows"]]
 
 
 @app.route("/shorts/make", methods=["POST"])
@@ -976,41 +1060,86 @@ def shorts_make():
     except Exception:
         reads = 2
     combine = bool(d.get("combine"))                    # True: GOP tat ca cau -> 1 Short
+    # Link gioi thieu/nghe bo tro -> tu noi vao mo ta. Mac dinh PROMO_LINK; UI co the ghi de.
+    link = d.get("link")
+    link = link.strip() if isinstance(link, str) else PROMO_LINK
+    if "link" not in d:
+        link = PROMO_LINK
     import short_native as _sn
 
-    # ---- GOP: tat ca cau trong o nhap -> 1 Short duy nhat (moi cau doc 'reads' lan, next) ----
+    # ---- GOP / DAN NHIEU BAI: moi 'section' (co dong tieu de) -> 1 Short gop rieng ----
+    # Dong tieu de (khong co '|') -> HOOK (chi HIEN, KHONG doc); cac dong '|' -> noi dung doc.
+    sections = _parse_sections(raw)
+
+    # TICK "Gop tat ca" -> DON HET moi cau (moi nhom) vao 1 Short duy nhat (bo qua tach nhom)
     if combine:
-        rows = []
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = re.split(r"\s*[|｜\t]\s*", line, maxsplit=2)
-            hanzi = parts[0].strip()
-            if not hanzi:
-                continue
-            viet = parts[1].strip() if len(parts) > 1 else ""
-            note = parts[2].strip() if len(parts) > 2 else ""
-            rows.append((hanzi, viet, note))
+        rows = [r for sec in sections for r in sec["rows"]]
         if not rows:
             return jsonify(error="Không có câu hợp lệ."), 400
+        hook_c = hook or (sections[0]["title"] or sections[0]["hook"] or None if sections else None)
         jid = "std_" + uuid.uuid4().hex[:10]
         try:
-            r = _sn.make_short_from_lines(rows, voice=voice, hook=hook,
-                                          out_dir=OUT, reads=reads, name=jid, lang=ui_lang, bg=bg, skin=skin)
+            r = _sn.make_short_from_lines(rows, voice=voice, hook=hook_c, out_dir=OUT,
+                                          reads=reads, name=jid, lang=ui_lang, bg=bg, skin=skin,
+                                          azure=_azure_for(voice))
         except Exception as e:
             traceback.print_exc()
             return jsonify(error=str(e)), 500
         fn = os.path.basename(r["file"])
+        desc_i = _append_link(r["desc"], link)
         jobs[jid] = {"status": "done", "video": None, "short": fn,
-                     "short_seo": {"title": r["title"], "description": r["desc"]},
-                     "recipe": {"kind": "combine", "rows": rows, "voice": voice,
-                                "reads": reads, "ui_lang": ui_lang, "bg": bg, "skin": skin}}
+                     "short_seo": {"title": r["title"], "description": desc_i},
+                     "recipe": {"kind": "combine", "rows": rows, "voice": voice, "reads": reads,
+                                "ui_lang": ui_lang, "bg": bg, "skin": skin, "title": None, "link": link}}
         _save_job(jid)
         return jsonify(shorts=[{"job_id": jid, "short": fn, "title": r["title"],
-                                "description": r["desc"], "hanzi": rows[0][0],
-                                "pinyin": "", "viet": rows[0][1], "hook": r.get("hook", ""),
+                                "description": desc_i, "hanzi": rows[0][0], "pinyin": "",
+                                "viet": rows[0][1], "hook": hook_c or "",
                                 "count": r["count"], "dur": r["dur"]}])
+
+    # KHONG tick gop: co nhieu nhom/tieu de -> tu tach moi nhom 1 Short
+    multi = len(sections) > 1 or any(
+        s["title"] or s["title_ov"] or s["skin"] or s["hook"] for s in sections)
+    if multi:
+        if not sections:
+            return jsonify(error="Không có câu hợp lệ."), 400
+        out = []
+        for sec in sections:
+            rows = sec["rows"]
+            if not rows:
+                continue
+            hook_i = sec["hook"] or sec["title"] or hook          # tieu de -> hook (chi hien)
+            skin_i = sec["skin"] if sec["skin"] in _snmod.SKINS else skin
+            title_i = sec["title_ov"] or (
+                f'{sec["title"]} | Tiếng Trung mỗi ngày #Shorts' if sec["title"] else None)
+            try:
+                reads_i = max(1, min(3, int(sec["reads"]))) if sec["reads"] else reads
+            except Exception:
+                reads_i = reads
+            jid = "std_" + uuid.uuid4().hex[:10]
+            try:
+                r = _sn.make_short_from_lines(rows, voice=voice, hook=hook_i, out_dir=OUT,
+                                              reads=reads_i, name=jid, lang=ui_lang, bg=bg,
+                                              skin=skin_i, title=title_i, azure=_azure_for(voice))
+            except Exception as e:
+                traceback.print_exc()
+                out.append({"error": str(e), "hanzi": rows[0][0]})
+                continue
+            fn = os.path.basename(r["file"])
+            desc_i = _append_link(r["desc"], link)
+            jobs[jid] = {"status": "done", "video": None, "short": fn,
+                         "short_seo": {"title": r["title"], "description": desc_i},
+                         "recipe": {"kind": "combine", "rows": rows, "voice": voice,
+                                    "reads": reads_i, "ui_lang": ui_lang, "bg": bg,
+                                    "skin": skin_i, "title": title_i, "link": link}}
+            _save_job(jid)
+            out.append({"job_id": jid, "short": fn, "title": r["title"],
+                        "description": desc_i, "hanzi": rows[0][0],
+                        "pinyin": "", "viet": rows[0][1], "hook": hook_i or "",
+                        "count": r["count"], "dur": r["dur"]})
+        if not out:
+            return jsonify(error="Không có câu hợp lệ."), 400
+        return jsonify(shorts=out)
 
     out = []
     for line in raw.splitlines():
@@ -1031,13 +1160,15 @@ def shorts_make():
             out.append({"error": str(e), "hanzi": hanzi})
             continue
         fn = os.path.basename(r["file"])
+        desc_i = _append_link(r["desc"], link)
         jobs[jid] = {"status": "done", "video": None, "short": fn,
-                     "short_seo": {"title": r["title"], "description": r["desc"]},
+                     "short_seo": {"title": r["title"], "description": desc_i},
                      "recipe": {"kind": "line", "fmt": fmt, "cols": cols, "voice": voice,
-                                "reads": reads, "ui_lang": ui_lang, "bg": bg, "skin": skin}}
+                                "reads": reads, "ui_lang": ui_lang, "bg": bg, "skin": skin,
+                                "link": link}}
         _save_job(jid)
         out.append({"job_id": jid, "short": fn, "title": r["title"],
-                    "description": r["desc"], "hanzi": r["hanzi"],
+                    "description": desc_i, "hanzi": r["hanzi"],
                     "pinyin": r["pinyin"], "viet": r["viet"], "hook": r.get("hook", ""),
                     "dur": r["dur"]})
     if not out:

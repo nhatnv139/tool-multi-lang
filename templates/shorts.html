@@ -63,8 +63,8 @@
 
   <!-- FORM NHAP -->
   <div class="card">
-    <label>📝 Danh sách câu <span class="hint" id="linesHint">— mỗi dòng: <code>汉字 | nghĩa | ghi chú cách dùng</code> (2 cột sau bỏ trống được)</span></label>
-    <textarea id="lines" placeholder="你好 | Xin chào&#10;不到长城非好汉 | Chưa đến Trường Thành, chưa phải hảo hán | Dùng để khích lệ nhau kiên trì&#10;你吃了吗 | Bạn ăn cơm chưa"></textarea>
+    <label>📝 Danh sách câu <span class="hint" id="linesHint">— mỗi dòng: <code>汉字 | nghĩa | ghi chú cách dùng</code>. Dán NHIỀU BÀI: mỗi bài 1 dòng tiêu đề (không có |) + block câu, cách nhau dòng trống → tự tách thành nhiều Short.</span></label>
+    <textarea id="lines" onblur="autoHook()" placeholder="Từ mới: Chào hỏi&#10;你好 | Xin chào | chào cơ bản&#10;谢谢 | Cảm ơn | dùng mỗi ngày&#10;&#10;Cấu trúc câu: A + 是 + B&#10;我是学生。 | Tôi là học sinh. | A 是 B"></textarea>
     <div class="row mt">
       <div style="flex:0 0 220px">
         <label>🎬 Kiểu Short</label>
@@ -76,14 +76,20 @@
         </select>
       </div>
       <div>
-        <label>🎙️ Giọng đọc <span class="hint">(edge — free)</span></label>
+        <label>🎙️ Giọng đọc <span class="hint">(edge free · Azure = xịn hơn)</span></label>
         <select id="voice">
+          <optgroup label="Edge (miễn phí)">
           {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          {% if azure_ready %}<optgroup label="Azure HD / Omni / MAI (xịn — cần key)">
+          {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>{% endif %}
         </select>
       </div>
       <div>
-        <label>✍️ Hook trên cùng <span class="hint">(trống = tự chọn)</span></label>
+        <label>✍️ Hook trên cùng <span class="hint">(tự lấy từ dòng tiêu đề khi dán)</span></label>
         <input type="text" id="hook" placeholder="vd: Câu này ai cũng cần">
+        <span id="hookAuto" class="hint" style="display:block;margin-top:2px;color:#2e7d32"></span>
       </div>
       <div style="flex:0 0 150px" id="readsWrap">
         <label>🔁 Đọc mấy lần</label>
@@ -101,8 +107,8 @@
     </div>
     <div class="mt" style="padding:8px 10px;background:#fff7f2;border:1px solid #f0d9cc;border-radius:8px">
       <label style="cursor:pointer"><input type="checkbox" id="combine">
-        <b>🎬 Gộp tất cả câu thành 1 Short</b>
-        <span class="hint">— mỗi câu đọc theo số lần trên, rồi tự chuyển câu sau (thay vì mỗi câu 1 short riêng)</span></label>
+        <b>🎬 Gộp TẤT CẢ câu (mọi nhóm) thành 1 Short duy nhất</b>
+        <span class="hint">— dồn hết vào 1 video, bỏ qua tách nhóm. Bỏ tick: mỗi nhóm (dòng tiêu đề) tự thành 1 Short riêng.</span></label>
     </div>
     <div class="mt" style="padding:8px 10px;background:#f2f7ff;border:1px solid #cfe0f5;border-radius:8px">
       <label style="margin:0">🖼️ Ảnh nền Short <span class="hint">(tuỳ chọn — để trống = nền mực đen vàng kim mặc định; ảnh sẽ tự làm tối + mờ để chữ đọc rõ)</span></label>
@@ -111,6 +117,10 @@
         <button class="btn-ghost" type="button" id="bgClear" style="display:none" onclick="clearBg()">✖ Bỏ ảnh nền</button>
         <span id="bgSt" class="hint"></span>
       </div>
+    </div>
+    <div class="mt" style="padding:8px 10px;background:#f2fff5;border:1px solid #cfe8d6;border-radius:8px">
+      <label style="margin:0">🎬 Link giới thiệu / nghe bổ trợ <span class="hint">(tự thêm vào mô tả mọi Short; để trống = bỏ)</span></label>
+      <input type="text" id="promoLink" value="{{ promo_link }}" style="margin-top:6px" placeholder="https://www.youtube.com/playlist?list=...">
     </div>
     <button class="btn-go mt" id="genBtn" onclick="genShorts()">✨ Tạo Short</button>
     <div id="genSt" class="mt"></div>
@@ -121,15 +131,17 @@
     <label style="margin:0">📺 Kênh đăng <span class="hint">(tick nhiều kênh — áp dụng khi bấm Đăng ở từng Short)</span></label>
     <div id="channelList" class="mt"><div class="muted">— đang tải kênh… —</div></div>
     <div class="mt">
-      <label style="margin:0">🕒 Thời điểm đăng</label>
-      <div class="modes">
-        <label class="switch"><input type="radio" name="when" value="now" checked onchange="onWhen()"> Đăng ngay</label>
-        <label class="switch"><input type="radio" name="when" value="schedule" onchange="onWhen()"> Hẹn giờ</label>
+      <label style="margin:0">🕒 Rải lịch hàng loạt <span class="hint">(tuỳ chọn — tự giãn cách tất cả Short bên dưới; vẫn chỉnh riêng từng cái được)</span></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <span class="hint">Bắt đầu</span>
+        <input type="datetime-local" id="schedStart" style="max-width:220px">
+        <span class="hint">mỗi video cách</span>
+        <input type="number" id="schedStep" value="1" min="0" step="1" style="width:64px">
+        <select id="schedUnit"><option value="day">ngày</option><option value="hour">giờ</option></select>
+        <button class="btn-ghost" type="button" onclick="applyStagger()">📅 Rải lịch cho tất cả</button>
+        <button class="btn-ghost" type="button" onclick="clearStagger()">✖ Bỏ hẹn (tất cả)</button>
       </div>
-      <div id="schedBox" style="display:none;margin-top:8px">
-        <input type="datetime-local" id="publishAt" style="max-width:280px">
-        <div class="warn mt">Khi hẹn giờ, Short để <b>Riêng tư</b> đến giờ hẹn rồi tự công khai. Giờ theo máy bạn.</div>
-      </div>
+      <div class="warn mt">Hẹn giờ = Short để <b>Riêng tư</b> đến giờ rồi tự công khai (giờ theo máy bạn). Mỗi Short bên dưới có ô giờ riêng.</div>
     </div>
   </div>
 
@@ -155,6 +167,39 @@ function onFormat(){
     hint.innerHTML='— mỗi dòng: <code>汉字 | nghĩa | ghi chú cách dùng</code> (2 cột sau bỏ trống được)';
     box.placeholder='你好 | Xin chào\n不到长城非好汉 | Chưa đến Trường Thành, chưa phải hảo hán | Dùng để khích lệ nhau kiên trì\n你吃了吗 | Bạn ăn cơm chưa';
   }
+}
+
+// Tách các "bài" từ text dán (mirror backend) — dòng tiêu đề (không có |) => hook
+function parseSections(text){
+  const secs=[]; let cur=null;
+  const label=/^S\s*\d+\s*[·:.\-–—]\s*/;
+  const nw=(t)=>{cur={title:(t||'').trim(),hook:'',rows:0}; secs.push(cur); return cur;};
+  for(const raw of (text||'').split('\n')){
+    const s=raw.trim();
+    if(!s) continue;
+    if(s.startsWith('##')){ nw(s.replace(/^#+/,'').trim().replace(label,'')); }
+    else if(s.startsWith('#')){ continue; }
+    else if(s.startsWith('@')){
+      const rest=s.slice(1), i=rest.indexOf(' ');
+      const k=(i<0?rest:rest.slice(0,i)).toLowerCase(), v=(i<0?'':rest.slice(i+1)).trim();
+      if(cur){ if(k==='hook') cur.hook=v; else if(k==='title'&&!cur.title) cur.title=v; }
+    }
+    else if(s.includes('|')||s.includes('｜')||s.includes('\t')){ if(!cur) cur=nw(''); cur.rows++; }
+    else { nw(s.replace(label,'')); }
+  }
+  return secs.filter(x=>x.rows>0);
+}
+// Khi click ra ngoài ô câu: tự map hook trên cùng theo tiêu đề đã dán
+function autoHook(){
+  const secs=parseSections(document.getElementById('lines').value);
+  const hooks=secs.map(x=>x.hook||x.title).filter(Boolean);
+  const hk=document.getElementById('hook'), note=document.getElementById('hookAuto');
+  if(hooks.length){
+    hk.value=hooks[0];
+    note.textContent = secs.length>1
+      ? `↳ tự tách ${secs.length} bài — mỗi bài lấy tiêu đề riêng làm hook`
+      : '↳ hook lấy từ dòng tiêu đề đã dán';
+  } else { note.textContent=''; }
 }
 
 // Gallery phong cách layout: bấm 1 thẻ để chọn skin (danh sách lấy từ /skins)
@@ -236,6 +281,7 @@ async function genShorts(){
       uiLang:document.getElementById('uiLang').value,
       combine:document.getElementById('combine').checked,
       skin:document.getElementById('skin').value,
+      link:document.getElementById('promoLink').value,
       bg:BG_PATH};
     const r=await fetch('/shorts/make',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json();
@@ -267,11 +313,17 @@ function renderResults(shorts){
         <input type="text" id="ti_${s.job_id}" value="${esc(s.title)}">
         <label class="mt" style="font-size:13px;margin-bottom:4px">Mô tả</label>
         <textarea id="de_${s.job_id}" style="min-height:80px;font-size:13px">${esc(s.description)}</textarea>
+        <div class="mt" style="font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          🕒 <label class="switch"><input type="radio" name="when_${s.job_id}" value="now" checked onchange="onWhenCard('${s.job_id}')"> Đăng ngay</label>
+          <label class="switch"><input type="radio" name="when_${s.job_id}" value="schedule" onchange="onWhenCard('${s.job_id}')"> Hẹn giờ</label>
+          <input type="datetime-local" id="pubAt_${s.job_id}" style="display:none;max-width:220px">
+        </div>
         <div class="mt"><button class="btn-up" onclick="uploadOne('${s.job_id}')">⚡ Đăng Short này</button>
           <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/download/${s.short}">⬇️ Tải</a>
           <span id="us_${s.job_id}" class="muted" style="margin-left:8px"></span></div>
       </div></div>`;
   }).join('')+'</div>';
+  LAST_JIDS=shorts.filter(s=>s.job_id).map(s=>s.job_id);
 }
 
 // Sua hook/nhan tren cung roi render lai chinh Short do
@@ -306,13 +358,37 @@ async function loadChannels(){
   }catch(e){ list.innerHTML='<div class="err">lỗi tải kênh</div>'; }
 }
 function selectedChannels(){ return [...document.querySelectorAll('.chk:checked')].map(c=>({id:c.value,name:c.dataset.name})); }
-function onWhen(){
-  const mode=document.querySelector('input[name="when"]:checked').value;
-  const box=document.getElementById('schedBox'); const inp=document.getElementById('publishAt');
-  if(mode==='schedule'){ box.style.display='block';
-    if(!inp.value){ const d=new Date(Date.now()+3600*1000); d.setMinutes(0,0,0);
-      inp.value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
-  } else box.style.display='none';
+let LAST_JIDS=[];
+function _fmtLocal(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+
+// Bật/tắt ô giờ của TỪNG thẻ khi đổi radio
+function onWhenCard(jid){
+  const mode=document.querySelector(`input[name="when_${jid}"]:checked`).value;
+  const inp=document.getElementById('pubAt_'+jid);
+  if(mode==='schedule'){ inp.style.display='';
+    if(!inp.value){ const d=new Date(Date.now()+3600*1000); d.setMinutes(0,0,0); inp.value=_fmtLocal(d); }
+  } else inp.style.display='none';
+}
+// Rải lịch: bắt đầu + bước -> điền giờ tăng dần cho mọi thẻ, bật "Hẹn giờ"
+function applyStagger(){
+  if(!LAST_JIDS.length){ alert('Chưa có Short nào.'); return; }
+  const raw=document.getElementById('schedStart').value;
+  let start=raw?new Date(raw):new Date(Date.now()+3600*1000);
+  if(!raw){ start.setMinutes(0,0,0); }
+  const step=Math.max(0, parseInt(document.getElementById('schedStep').value||'0',10));
+  const unit=document.getElementById('schedUnit').value;
+  const ms=(unit==='day'?86400:3600)*1000*step;
+  LAST_JIDS.forEach((jid,i)=>{
+    const t=new Date(start.getTime()+ms*i);
+    document.querySelector(`input[name="when_${jid}"][value="schedule"]`).checked=true;
+    const inp=document.getElementById('pubAt_'+jid); inp.style.display=''; inp.value=_fmtLocal(t);
+  });
+}
+function clearStagger(){
+  LAST_JIDS.forEach(jid=>{
+    document.querySelector(`input[name="when_${jid}"][value="now"]`).checked=true;
+    const inp=document.getElementById('pubAt_'+jid); inp.style.display='none';
+  });
 }
 
 async function uploadOne(jid){
@@ -322,10 +398,10 @@ async function uploadOne(jid){
   const meta={ use_short:true, captions:false, set_thumb:false, post_comment:false,
     title:document.getElementById('ti_'+jid).value, description:document.getElementById('de_'+jid).value,
     tags:'', category:'27', privacy:'public' };
-  const when=document.querySelector('input[name="when"]:checked').value;
+  const when=document.querySelector(`input[name="when_${jid}"]:checked`).value;
   let sched='';
   if(when==='schedule'){
-    const raw=document.getElementById('publishAt').value; const dt=raw?new Date(raw):null;
+    const raw=document.getElementById('pubAt_'+jid).value; const dt=raw?new Date(raw):null;
     if(!dt||isNaN(dt)){ us.className='err'; us.textContent='⚠️ giờ hẹn không hợp lệ'; return; }
     if(dt.getTime()<=Date.now()+60000){ us.className='err'; us.textContent='⚠️ giờ hẹn phải ở tương lai'; return; }
     meta.publish_at=dt.toISOString(); meta.privacy='private'; sched=raw.replace('T',' ');

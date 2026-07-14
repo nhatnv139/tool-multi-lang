@@ -115,6 +115,7 @@ F = {
     "badge":  _latin("Bold"),        # badge HSK (toan Latin -> Lexend, giu net dam)
     "sans":   _latin("Regular"),     # van ban thuong
     "sansb":  _latin("SemiBold"),    # van ban dam
+    "note":   _latin_uni("Regular"), # ghi chu: CO THE lot chu Han (vd 我的 = cua toi) -> Arial Unicode
 }
 EMOJI = _pick_font("C:/Windows/Fonts/seguiemj.ttf",
                    "/System/Library/Fonts/Apple Color Emoji.ttc")

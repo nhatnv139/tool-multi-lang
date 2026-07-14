@@ -362,10 +362,12 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
         return urllib.request.urlopen(req, timeout=60).read()
 
     print(f"[DEBUG-TTS] synth_azure goi voice={voice!r} region={region!r} url={url!r}")
+    # MAI-Voice-2 KHONG ho tro mstts:express-as (tra 502) -> dung thang SSML thuong
+    _no_style = "MAI-Voice" in (voice or "")
     try:
-        data = _post(ssml_x)
+        data = _post(ssml_plain if _no_style else ssml_x)
     except urllib.error.HTTPError as e:
-        if e.code == 400:               # giong/style khong ho tro express-as -> SSML thuong
+        if e.code in (400, 500, 502, 503):   # giong/style khong ho tro express-as -> SSML thuong
             data = _post(ssml_plain)
         else:
             detail = ""
