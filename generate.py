@@ -40,7 +40,23 @@ EMO_CONF = {
                     gm="buồn man mác, chậm rãi, lắng đọng"),
     "gentle":  dict(dr=-7,  pitch="-2Hz",  az=("gentle", "1.2"),   el=(+0.06, +0.06),
                     gm="dịu dàng, vỗ về, thủ thỉ tâm tình"),
+    # --- bộ cảm xúc cho PHIM (đặt tay qua tag {emo} trong kịch bản) ---
+    "tender":  dict(dr=-8,  pitch="-3Hz",  az=("affectionate", "1.6"), el=(+0.04, +0.10),
+                    gm="âu yếm, trìu mến, nghẹn ngào yêu thương"),
+    "calm":    dict(dr=-6,  pitch="-2Hz",  az=("calm", "1.1"),        el=(+0.04, +0.04),
+                    gm="điềm tĩnh, nhẹ nhàng, sâu lắng"),
+    "hopeful": dict(dr=-2,  pitch="+2Hz",  az=("hopeful", "1.3"),     el=(-0.04, +0.10),
+                    gm="hi vọng, ấm áp, hướng về phía trước"),
+    "lyrical": dict(dr=-6,  pitch="-2Hz",  az=("lyrical", "1.3"),     el=(+0.04, +0.08),
+                    gm="tự sự, trữ tình, như đang kể chuyện xúc động"),
+    "sorrow":  dict(dr=-15, pitch="-11Hz", az=("sad", "1.7"),        el=(+0.14, +0.14),
+                    gm="đau xót, nghẹn ngào, chực trào nước mắt"),
 }
+
+def emo_by_name(name):
+    """Lay emo dict theo TEN (dat tay trong kich ban phim), None neu khong co."""
+    c = EMO_CONF.get((name or "").strip().lower())
+    return dict(name=name.strip().lower(), **c) if c else None
 import re as _re
 _EMO_PAT = [   # uu tien tu tren xuong: buon > diu dang > phan khich > vui
     ("sad",     _re.compile(r"难过|伤心|哭|可惜|遗憾|唉|孤单|寂寞|想念|失望|心疼|分手|离开了|再见了|痛")),
@@ -1157,8 +1173,13 @@ def mix_music(narr_mp4, out_mp4, vol=None, mood="calm"):
                    check=True, capture_output=True)
 
 # ---------- SEGMENT (TINH / DONG) ----------
+_BG_VIDEO_EXT = (".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi")
+def _is_bg_video(p):
+    return bool(p) and os.path.splitext(p)[1].lower() in _BG_VIDEO_EXT
+
+
 def make_static_segment(seg, ctx, i):
-    """Slide tinh: 1 hinh + audio, co fade."""
+    """Slide tinh: 1 hinh + audio, co fade. Neu ctx['_bg_video'] -> overlay chu len VIDEO nen dong."""
     sp = os.path.join(SLIDES, f"s{i:02d}.png")
     render_slide(seg, ctx, sp)
     text, voice = tts_for(seg, ctx)
@@ -1179,6 +1200,36 @@ def make_static_segment(seg, ctx, i):
         pass
     seg_total = adur + pad
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
+    bgv = ctx.get("_bg_video")
+    if bgv and os.path.exists(bgv):
+        # NEN VIDEO DONG: loop video phu kin WxH -> overlay lop chu (PNG trong suot) len tren.
+        # -ss theo moc thoi gian (mod thoi luong video) -> bg CHAY LIEN TUC xuyen cac cau, KHONG restart.
+        # KHONG fade den giua cau (tranh "nhay den"); bg noi lien mach nen cat cung van muot.
+        try:
+            _bd = dur_of(bgv)
+        except Exception:
+            _bd = 0
+        _off = round((ctx.get("_seg_start", 0.0) % _bd), 3) if _bd and _bd > 0.5 else 0
+        vfc = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+               f"crop={W}:{H},fps={FPS},format=yuv420p[bgv];"
+               f"[bgv][1:v]overlay=0:0:format=auto[v]")
+        _bg_in = ["-stream_loop","-1","-ss",str(_off),"-i",bgv]
+        if ap:
+            cmd = ["ffmpeg","-y",*_bg_in,"-loop","1","-i",sp,"-i",ap,
+                   "-t",f"{seg_total:.2f}",
+                   "-filter_complex",vfc + f";[2:a]aresample=44100,apad=pad_dur={pad}[a]",
+                   "-map","[v]","-map","[a]",
+                   *X264,"-r",str(FPS),"-pix_fmt","yuv420p",
+                   "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp]
+        else:
+            cmd = ["ffmpeg","-y",*_bg_in,"-loop","1","-i",sp,
+                   "-f","lavfi","-i","anullsrc=r=44100:cl=stereo",
+                   "-t",f"{seg_total:.2f}","-filter_complex",vfc,
+                   "-map","[v]","-map","2:a",
+                   *X264,"-r",str(FPS),"-pix_fmt","yuv420p",
+                   "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp]
+        subprocess.run(cmd, check=True, capture_output=True)
+        return vp, seg_total
     vf = (f"scale={W}:{H},format=yuv420p,"
           f"fade=t=in:st=0:d=0.35:c=0xFFEBED,"
           f"fade=t=out:st={seg_total-0.35:.2f}:d=0.35:c=0xFFEBED")
@@ -1446,11 +1497,58 @@ def build(lesson, progress=None):
         if ctx.get("_mascot_png"):
             ctx["_skip_mascot_in_slide"] = True
 
+    # NEN NHIEU NGUON (anh HOAC video dong): chia DEU theo thoi luong (uoc luong = do dai text doc)
+    # -> moi doan gan 1 nguon theo moc tich luy, xoay vong THEO THU TU. Nguon = anh (bake) hoac video (overlay).
+    _bg_list = list(ctx.get("bg_images") or [])
+    if not _bg_list and ctx.get("bg_image"):
+        _bg_list = [ctx["bg_image"]]
+    _bg_list = [p for p in _bg_list if p and os.path.exists(p)]
+    _seg_bg = None
+    if _bg_list and ctx.get("bg_by_scene"):
+        # THEO PHAN CANH: moi MUC '#' (section) dung 1 nguon theo thu tu (clamp o nguon cuoi)
+        _seg_bg, _sec, _started = [], 0, False
+        for s in segs:
+            if s.get("type") == "section":
+                if _started:
+                    _sec += 1
+                _started = True
+            _seg_bg.append(_bg_list[min(len(_bg_list) - 1, _sec)])
+        _nsec = _sec + 1 if _started else 1
+        _nvid = sum(1 for p in _bg_list if _is_bg_video(p))
+        print(f"  [BG] {len(_bg_list)} nguồn ({len(_bg_list)-_nvid} ảnh + {_nvid} video) "
+              f"— THEO PHÂN CẢNH ({_nsec} mục '#')")
+    elif _bg_list:
+        # CHIA DEU theo thoi luong (uoc luong = do dai text doc)
+        _weights = []
+        for s in segs:
+            try:
+                _t, _ = tts_for(s, ctx)
+            except Exception:
+                _t = s.get("hanzi", "")
+            _weights.append(max(1, len(_t or "")))
+        _tot = sum(_weights) or 1
+        _win = _tot / len(_bg_list)
+        _seg_bg, _cum = [], 0.0
+        for _w in _weights:
+            _seg_bg.append(_bg_list[min(len(_bg_list) - 1, int(_cum / _win))])
+            _cum += _w
+        _nvid = sum(1 for p in _bg_list if _is_bg_video(p))
+        print(f"  [BG] {len(_bg_list)} nguồn nền ({len(_bg_list)-_nvid} ảnh + {_nvid} video) "
+              f"— chia đều theo thời lượng")
+
     seg_videos = []
     seg_meta = []          # [{index,type,dur,start,end,hanzi,viet,label}] cho timestamp YouTube
     _clock = 0.0
     for i, seg in enumerate(segs):
-        if seg["type"] in ANIM_TYPES:
+        if _seg_bg:                       # dat nguon nen cho doan nay truoc khi render
+            _src = _seg_bg[i]
+            if _is_bg_video(_src):        # video dong -> render chu trong suot + overlay
+                ctx["_bg_video"] = _src; ctx["_transparent"] = True; ctx["bg_image"] = None
+            else:                         # anh tinh -> bake nhu cu
+                ctx["_bg_video"] = None;  ctx["_transparent"] = False; ctx["bg_image"] = _src
+        ctx["_seg_start"] = _clock            # moc thoi gian -> bg video chay LIEN TUC xuyen cac cau
+        # nen VIDEO -> di duong static (overlay chu day du len video; bo hieu ung hien dan v1)
+        if seg["type"] in ANIM_TYPES and not ctx.get("_bg_video"):
             vp, seg_total = make_anim_segment(seg, ctx, i)
         else:
             vp, seg_total = make_static_segment(seg, ctx, i)

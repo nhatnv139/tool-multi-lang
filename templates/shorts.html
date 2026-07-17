@@ -42,6 +42,7 @@
 <body>
 <div class="wrap">
   <a class="back" href="/">← Về trang tạo video</a>
+  &nbsp;·&nbsp; <a class="back" href="/film">🎬 Film Studio</a>
   <h1>⚡ Shorts Studio</h1>
   <p class="sub">Nhập câu → sinh Short dọc 9:16 (chữ Hán to + pinyin tô thanh điệu + nghĩa, đọc 2 lần, loop). <b>Không cần video dài.</b></p>
 
@@ -104,6 +105,18 @@
       <label>🎨 Phong cách layout <span class="hint">— bấm chọn 1 mẫu (bỏ qua nếu có ảnh nền riêng)</span></label>
       <input type="hidden" id="skin" value="ink">
       <div id="skinGallery" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px"></div>
+    </div>
+    <div class="mt" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+      <label style="margin:0">🎨 Màu pinyin</label>
+      <select id="pyColor" style="flex:0 0 190px">
+        <option value="tone">Tô thanh điệu (mặc định)</option>
+        <option value="gold">Vàng kim (1 màu)</option>
+        <option value="white">Trắng (1 màu)</option>
+        <option value="cyan">Xanh ngọc (1 màu)</option>
+        <option value="green">Xanh lá (1 màu)</option>
+        <option value="amber">Hổ phách (1 màu)</option>
+      </select>
+      <span class="hint">✨ Highlight từ mới/mẫu câu: bọc <code>[ ]</code> trong câu — vd <code>给我这个[面试]的[机会]</code></span>
     </div>
     <div class="mt" style="padding:8px 10px;background:#fff7f2;border:1px solid #f0d9cc;border-radius:8px">
       <label style="cursor:pointer"><input type="checkbox" id="combine">
@@ -280,6 +293,7 @@ async function genShorts(){
       format:document.getElementById('format').value,
       uiLang:document.getElementById('uiLang').value,
       combine:document.getElementById('combine').checked,
+      py_color:document.getElementById('pyColor').value,
       skin:document.getElementById('skin').value,
       link:document.getElementById('promoLink').value,
       bg:BG_PATH};
@@ -319,7 +333,8 @@ function renderResults(shorts){
           <input type="datetime-local" id="pubAt_${s.job_id}" style="display:none;max-width:220px">
         </div>
         <div class="mt"><button class="btn-up" onclick="uploadOne('${s.job_id}')">⚡ Đăng Short này</button>
-          <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/download/${s.short}">⬇️ Tải</a>
+          <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/download/${s.short}">⬇️ Tải video</a>
+          ${s.thumb?`<a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/download/${s.thumb}">🖼️ Thumbnail</a>`:''}
           <span id="us_${s.job_id}" class="muted" style="margin-left:8px"></span></div>
       </div></div>`;
   }).join('')+'</div>';

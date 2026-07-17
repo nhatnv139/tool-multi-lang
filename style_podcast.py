@@ -373,14 +373,15 @@ def _shadow_text(d, xy, text, f, fill, dark_bg):
 
 
 def _hanzi_lines(d, text, size, max_w, char_gap):
-    """Chia dong nhu SP._hanzi_wrap_lines (toa do 2x)."""
-    cw = lambda ch: SP.text_w(d, ch, SP._charfont(ch, size))
+    """Chia dong (gom tu Latin thanh 1 khoi -> khong tach le/cat giua tu)."""
+    zf = SP.font("zh", size); lf = SP.font("viet", int(size * 0.86))
+    uw = lambda u, h: SP.text_w(d, u, zf if h else lf)
     lines, cur, curw, gi = [], [], 0, 0
-    for ch, p, h in SP.flatten(text):
-        w = cw(ch) + char_gap
-        if curw + w > max_w and cur and ch not in SP._CLOSERS:
+    for unit, p, h in SP.group_units(text):
+        w = uw(unit, h) + char_gap
+        if curw + w > max_w and cur and unit not in SP._CLOSERS:
             lines.append(cur); cur, curw = [], 0
-        cur.append((ch, gi)); curw += w; gi += 1
+        cur.append((unit, bool(h), gi)); curw += w; gi += 1
     if cur:
         lines.append(cur)
     return lines
@@ -401,21 +402,22 @@ def _draw_hanzi(d, text, cx, top, size, max_w, color, dark_bg,
     char_gap = char_gap if char_gap is not None else 8 * S
     line_gap = line_gap if line_gap is not None else 22 * S
     lines = _hanzi_lines(d, text, size, max_w, char_gap)
-    cw = lambda ch: SP.text_w(d, ch, SP._charfont(ch, size))
+    zf = SP.font("zh", size); lf = SP.font("viet", int(size * 0.86))
+    uw = lambda u, h: SP.text_w(d, u, zf if h else lf)
     lh = size + line_gap
     y = top
     for ln in lines:
-        total = sum(cw(ch) + char_gap for ch, _ in ln) - char_gap
+        total = sum(uw(u, h) + char_gap for u, h, _ in ln) - char_gap
         x = cx - total // 2
         if hl:   # vet but da quang sau chu (study style)
             d.rounded_rectangle([x - 14 * S, y + size * 0.06, x + total + 14 * S,
                                  y + size * 1.12], radius=10 * S, fill=tuple(hl) + (160,))
-        for ch, idx in ln:
+        for unit, h, idx in ln:
             if reveal_t is None or reveal_t[idx] <= t_now:
-                f = SP._charfont(ch, size)
-                oy = 0 if SP._is_cjk(ch) else int(size * 0.12)
-                _shadow_text(d, (x, y + oy), ch, f, color, dark_bg)
-            x += cw(ch) + char_gap
+                f = zf if h else lf
+                oy = 0 if h else int(size * 0.12)
+                _shadow_text(d, (x, y + oy), unit, f, color, dark_bg)
+            x += uw(unit, h) + char_gap
         y += lh
     return len(lines) * lh
 
@@ -424,13 +426,11 @@ def _draw_pinyin(d, text, cx, y, max_w, neutral, tone_map, tone=True, size=None,
     size = size or 46 * S
     gap = gap or 10 * S
     toks = []
-    for ch, p, h in SP.flatten(text):
-        if ch.strip() == "":
-            continue
+    for unit, p, h in SP.group_units(text):     # gom tu Latin -> khong giãn rời từng chữ cái
         if h and p:
             toks.append((p, False))
         else:
-            toks.append((ch, SP._is_cjk(ch)))
+            toks.append((unit, bool(h)))
     # tinh be rong TRUOC roi moi thu nho dan — size nho san (nguoi dung ep px)
     # cung phai chay it nhat 1 lan, khong duoc de bien chua gan (bug 'ws')
     while True:
@@ -477,12 +477,14 @@ def _ruby_wrap(d, text, zsize, pysize, max_w, col_gap):
     """Chia cot ruby thanh cac dong <= max_w. Moi cot = (ch, py, col_w, wz, wp).
        Be rong cot = max(be rong chu Han, be rong pinyin). Dau cau dong khong dung dau dong."""
     pf = SP.font("pinyin", pysize)
+    zf = SP.font("zh", zsize)
+    lf = SP.font("viet", int(zsize * 0.86))       # từ Latin (chèn tiếng Anh) -> font Latin, cả từ 1 ô
     cols = []
-    for ch, p, h in SP.flatten(text):
-        f = SP._charfont(ch, zsize)
-        wz = SP.text_w(d, ch, f)
+    for unit, p, h in SP.group_units(text):
+        f = zf if h else lf
+        wz = SP.text_w(d, unit, f)
         wp = SP.text_w(d, p, pf) if (h and p) else 0
-        cols.append((ch, p if h else "", max(wz, wp), wz, wp))
+        cols.append((unit, p if h else "", max(wz, wp), wz, wp, bool(h)))
     lines, cur, curw = [], [], 0
     gi = 0
     for col in cols:
@@ -519,6 +521,8 @@ def _draw_ruby(d, text, cx, top, zsize, pysize, max_w, ink, py_neutral, tone_map
     py_gap = py_gap if py_gap is not None else 10 * S
     line_gap = line_gap if line_gap is not None else 26 * S
     pf = SP.font("pinyin", pysize)
+    zf = SP.font("zh", zsize)
+    lf = SP.font("viet", int(zsize * 0.86))
     lines = _ruby_wrap(d, text, zsize, pysize, max_w, col_gap)
     lh = _ruby_line_h(zsize, pysize, py_gap, line_gap)
     y = top
@@ -529,15 +533,15 @@ def _draw_ruby(d, text, cx, top, zsize, pysize, max_w, ink, py_neutral, tone_map
             d.rounded_rectangle([x - 12 * S, y + pysize + py_gap + zsize * 0.04,
                                  x + total + 12 * S, y + pysize + py_gap + zsize * 1.1],
                                 radius=10 * S, fill=tuple(hl) + (160,))
-        for ch, py, colw, wz, wp, idx in ln:
+        for unit, py, colw, wz, wp, h, idx in ln:
             if reveal_t is None or reveal_t[idx] <= t_now:
                 if py:
                     col = tone_map[SP._tone_of(py)] if tone else py_neutral
                     d.text((x + (colw - wp) // 2, y), py, font=pf, fill=col)
-                f = SP._charfont(ch, zsize)
-                oy = 0 if SP._is_cjk(ch) else int(zsize * 0.12)
+                f = zf if h else lf
+                oy = 0 if h else int(zsize * 0.12)
                 _shadow_text(d, (x + (colw - wz) // 2, y + pysize + py_gap + oy),
-                             ch, f, ink, dark)
+                             unit, f, ink, dark)
             x += colw + col_gap
         y += lh
     return len(lines) * lh
@@ -589,7 +593,7 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
     viet = seg.get("viet", "")
     hide_viet = bool(seg.get("_hide_viet"))
     cx = W * S // 2
-    max_w = int(W * S * 0.86)
+    max_w = int(W * S * 0.78)          # margin thoáng 2 bên -> câu dài tự thu nhỏ, không sát mép
     tone = bool(ctx.get("tone_colors", True))
     tone_map = TONE_DARK if dark else TONE_LIGHT
     mode = ctx.get("pinyin_mode") or ("ruby" if cfg.get("ruby") else "line")
@@ -695,7 +699,10 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
         _draw_counter(d, seg, dark)
         _draw_progress(d, seg, off=bar_h)
 
-    out = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    if ctx.get("_transparent"):        # giu RGBA -> overlay len video (panel co mau, ria trong suot)
+        out = im.resize((W, H), Image.LANCZOS)
+    else:
+        out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
 
@@ -797,7 +804,9 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
 
     # 1) nen
     bgimg = ctx.get("bg_image")
-    if bgimg and os.path.exists(bgimg):
+    if ctx.get("_transparent"):        # nen VIDEO dong -> canvas trong suot (chi ve panel+chu)
+        im = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
+    elif bgimg and os.path.exists(bgimg):
         im = _cover_bg_2x(bgimg).convert("RGBA")
     else:
         base = tuple(cfg.get("bgfill") or ((18, 20, 28) if dark else SP.BG))
@@ -820,6 +829,8 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
     # 2) panel / scrim
     alpha = ctx.get("panel_alpha")
     alpha = cfg["alpha"] if alpha is None else int(alpha)
+    if ctx.get("_transparent") and alpha > 0:     # nen video -> hop kem DAM hon cho chu ro
+        alpha = min(240, max(215, alpha + 70))
     if cfg.get("slats"):
         _draw_slats(im, ImageDraw.Draw(im, "RGBA"), (x0, y0, x1, y1), cfg["panel"])
     elif cfg["scrim"]:
@@ -897,7 +908,7 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
     pinyin_top = bool(ctx.get("pinyin_top", True))   # pinyin TREN chu Han (chuan kenh lon)
     cx = (x0 + x1) // 2
     box_w = x1 - x0
-    max_w = int(box_w * 0.90)
+    max_w = int(box_w * 0.86)          # margin trong panel -> câu dài tự thu nhỏ, không sát viền
 
     sp_name = seg.get("_sp")
     chips = CHIP_DARK if dark else CHIP_LIGHT
@@ -996,7 +1007,10 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
         _draw_counter(d, seg, dark)
         _draw_progress(d, seg, off=bar_h)
 
-    out = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    if ctx.get("_transparent"):        # giu RGBA -> overlay len video (panel co mau, ria trong suot)
+        out = im.resize((W, H), Image.LANCZOS)
+    else:
+        out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
 
@@ -1034,7 +1048,10 @@ def render_section(seg, ctx, path):
     _shadow_text(d, (cx - tw // 2, cy - (108 * S) // 2 - 12 * S), lbl, lf, ink, dark)
     _divider(d, cx, cy + (108 * S) // 2 + 26 * S, div_style, cfg["border"])
     _draw_bottom_bar(im, d, ctx)
-    out = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    if ctx.get("_transparent"):        # giu RGBA -> overlay len video (panel co mau, ria trong suot)
+        out = im.resize((W, H), Image.LANCZOS)
+    else:
+        out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
 

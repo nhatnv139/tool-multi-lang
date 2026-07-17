@@ -54,6 +54,16 @@ def apply_theme(name):
     global TEXT_GLOW
     TEXT_GLOW = (name == "none")
 
+def use_light_palette():
+    """Nen VIDEO/toi -> chu SANG cho de doc (ghi de mau theme toi)."""
+    global INK, PINYIN, VIET, HEADER, SOFT, LINE
+    INK    = (246, 246, 240)     # chu Han: trang nga
+    PINYIN = (255, 216, 138)     # pinyin: vang nhat
+    VIET   = (255, 234, 168)     # nghia Viet: ho phach sang
+    HEADER = (238, 238, 232)
+    SOFT   = (208, 208, 214)
+    LINE   = (198, 198, 205)
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Kaiti (thu phap) duoc copy san vao assets/fonts; du phong STHeiti/Songti neu thieu
 _KAITI = os.path.join(_HERE, "assets", "fonts", "Kaiti.ttc")
@@ -204,36 +214,57 @@ def flatten(text):
         flat.append((ch, p, h)); pi += 1
     return flat
 
+
+def group_units(text):
+    """Gom [(unit, pinyin, is_cjk)]: mỗi chữ Hán/dấu CJK = 1 đơn vị; nhưng 1 TỪ Latin
+    (vd 'approve', 'pī') gom thành 1 đơn vị — KHÔNG tách lẻ từng chữ cái (khỏi bị giãn rời
+    'a p p r o v e' hay cắt giữa từ). Chèn tiếng Anh trong câu Hán vẫn hiển thị gọn."""
+    out, buf = [], ""
+    for ch, p, h in flatten(text):
+        is_latin_word = (not _is_cjk(ch)) and (not ch.isspace())
+        if is_latin_word:
+            buf += ch
+            continue
+        if buf:
+            out.append((buf, "", False)); buf = ""
+        if ch.isspace():
+            continue                         # khoảng trắng: bỏ, khoảng cách do col_gap lo
+        out.append((ch, p if h else "", bool(h)))
+    if buf:
+        out.append((buf, "", False))
+    return out
+
 def py_hanzi(d, text, cx, top, zh_size=130, py_size=44,
              char_gap=14, py_gap=16, max_w=1640, draw=True,
              reveal_t=None, t_now=BIG):
     """Ve chu Han + pinyin tren tung chu. Tra ve chieu cao.
        reveal_t: mang thoi-gian-hien moi chu (cung do dai flat); chi ve chu i
        neu reveal_t[i] <= t_now. None = ve het."""
-    flat = flatten(text)
     zf, pf = font("zh", zh_size), font("pinyin", py_size)
-    cw = lambda ch: text_w(d, ch, zf)
+    lf = font("viet", int(zh_size * 0.86))     # tu Latin (chèn tiếng Anh) -> font Latin, cả từ 1 khối
+    uw = lambda u, h: text_w(d, u, zf if h else lf)
     # chia dong (giu vi tri co dinh cho moi chu du da hien hay chua)
     lines, cur, curw, gidx = [], [], 0, 0
-    for ch, p, h in flat:
-        w = cw(ch) + char_gap
+    for unit, p, h in group_units(text):
+        w = uw(unit, h) + char_gap
         if curw + w > max_w and cur:
             lines.append(cur); cur, curw = [], 0
-        cur.append((ch, p, gidx)); curw += w; gidx += 1
+        cur.append((unit, p, bool(h), gidx)); curw += w; gidx += 1
     if cur: lines.append(cur)
     line_h = py_size + py_gap + zh_size + 28
     y = top
     for ln in lines:
-        total = sum(cw(ch)+char_gap for ch, _, _ in ln) - char_gap
+        total = sum(uw(u, h) + char_gap for u, _, h, _ in ln) - char_gap
         x = cx - total//2
-        for ch, p, idx in ln:
-            w = cw(ch)
+        for unit, p, h, idx in ln:
+            w = uw(unit, h)
             shown = draw and (reveal_t is None or reveal_t[idx] <= t_now)
-            if shown and p:
+            if shown and p and h:
                 pw = text_w(d, p, pf)
                 d.text((x + (w-pw)//2, y), p, font=pf, fill=PINYIN)
             if shown:
-                d.text((x, y + py_size + py_gap), ch, font=zf, fill=INK)
+                oy = 0 if h else int(zh_size * 0.12)
+                d.text((x, y + py_size + py_gap + oy), unit, font=(zf if h else lf), fill=INK)
             x += w + char_gap
         y += line_h
     return len(lines) * line_h
@@ -347,11 +378,17 @@ def brand_logo(h):
     return _logo_cache[key]
 
 def base_slide(ctx, header=None):
-    bgimg = ctx.get("bg_image")
-    if bgimg and os.path.exists(bgimg):
-        im = _prep_bg(bgimg)
+    if ctx.get("_transparent"):
+        # nen TRONG SUOT (de overlay len VIDEO dong) — bake lop scrim toi vua phai cho chu ro
+        im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        scrim = Image.new("RGBA", (W, H), (16, 12, 18, 150))   # den ~59% -> chu ro, van thay video
+        im = Image.alpha_composite(im, scrim)
     else:
-        im = Image.new("RGB", (W, H), BG)
+        bgimg = ctx.get("bg_image")
+        if bgimg and os.path.exists(bgimg):
+            im = _prep_bg(bgimg)
+        else:
+            im = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(im)
     if header is None:
         header = ctx.get("title") or ctx.get("header") or f'BÀI {int(ctx["id"])}'
@@ -448,14 +485,15 @@ def _charfont(ch, size):
     return font("zh", size) if _is_cjk(ch) else font("viet", int(size * 0.86))
 
 def _hanzi_wrap_lines(d, text, size, max_w, char_gap=8):
-    """Chia thanh cac dong <= max_w (dung font dung cho tung ky tu); dau cau dong khong dung dau dong."""
-    cw = lambda ch: text_w(d, ch, _charfont(ch, size))
+    """Chia dong <= max_w; gom TU Latin thanh 1 khoi (khong tach le/cat giua tu)."""
+    zf = font("zh", size); lf = font("viet", int(size * 0.86))
+    uw = lambda u, h: text_w(d, u, zf if h else lf)
     lines, cur, curw, gi = [], [], 0, 0
-    for ch, p, h in flatten(text):
-        w = cw(ch) + char_gap
-        if curw + w > max_w and cur and ch not in _CLOSERS:
+    for unit, p, h in group_units(text):
+        w = uw(unit, h) + char_gap
+        if curw + w > max_w and cur and unit not in _CLOSERS:
             lines.append(cur); cur, curw = [], 0
-        cur.append((ch, gi)); curw += w; gi += 1
+        cur.append((unit, bool(h), gi)); curw += w; gi += 1
     if cur:
         lines.append(cur)
     return lines
@@ -474,19 +512,20 @@ def _draw_hanzi_wrapped(d, text, cx, top, size, max_w,
                         char_gap=8, line_gap=22, reveal_t=None, t_now=BIG, color=INK):
     """Ve chu Han to (KHONG pinyin tren chu), tu xuong dong, canh giua. Tra ve chieu cao."""
     lines = _hanzi_wrap_lines(d, text, size, max_w, char_gap)
-    cw = lambda ch: text_w(d, ch, _charfont(ch, size))
+    zf = font("zh", size); lf = font("viet", int(size * 0.86))
+    uw = lambda u, h: text_w(d, u, zf if h else lf)
     lh = size + line_gap
     y = top
     for ln in lines:
-        total = sum(cw(ch) + char_gap for ch, _ in ln) - char_gap
+        total = sum(uw(u, h) + char_gap for u, h, _ in ln) - char_gap
         x = cx - total // 2
-        for ch, idx in ln:
+        for unit, h, idx in ln:
             if reveal_t is None or reveal_t[idx] <= t_now:
                 # canh chan day chu Han va chu Latin (Latin nho hon -> ha xuong chut)
-                f = _charfont(ch, size)
-                oy = 0 if _is_cjk(ch) else int(size * 0.12)
-                d.text((x, y + oy), ch, font=f, fill=color)
-            x += cw(ch) + char_gap
+                f = zf if h else lf
+                oy = 0 if h else int(size * 0.12)
+                d.text((x, y + oy), unit, font=f, fill=color)
+            x += uw(unit, h) + char_gap
         y += lh
     return len(lines) * lh
 
@@ -495,13 +534,11 @@ def _draw_pinyin_line(d, text, cx, y, max_w, size=46, gap=10, tone=False, neutra
        tone=True: to mau tung am tiet theo thanh dieu. neutral: mau khi KHONG to thanh dieu."""
     neutral = neutral or PC_PINYIN
     toks = []
-    for ch, p, h in flatten(text):
-        if ch.strip() == "":
-            continue
+    for unit, p, h in group_units(text):       # gom tu Latin -> khong giãn rời
         if h and p:
             toks.append((p, False))            # am tiet pinyin -> font Latin
         else:
-            toks.append((ch, _is_cjk(ch)))     # dau cau CJK -> font Han; Latin/Viet -> font Latin
+            toks.append((unit, bool(h)))       # dau cau CJK -> font Han; tu Latin -> font Latin
     while size > 26:
         pf = font("pinyin", size); zf = font("zh", int(size * 0.92))
         ws = [(t, isc, text_w(d, t, zf if isc else pf)) for t, isc in toks]
@@ -529,7 +566,9 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
     """Layout podcast (Chinese Daily): chi ve KHOI NOI DUNG CHINH (Han to + pinyin + Viet)
        trong khung do + lop nen mo de chu ro. Nen (nguoi dan + tranh) lay tu ctx['bg_image']."""
     bgimg = ctx.get("bg_image")
-    if bgimg and os.path.exists(bgimg):
+    if ctx.get("_transparent"):               # nen VIDEO dong -> canvas trong suot (chi ve hop+chu)
+        im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    elif bgimg and os.path.exists(bgimg):
         im = _cover_bg(bgimg)                 # nen nguoi dung (nguoi dan + tranh)
     else:
         im = Image.new("RGB", (W, H), BG)     # chua upload -> dung nen pastel theo theme
@@ -537,7 +576,16 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
     # lop nen mo (readability) — mep MO DAN (feather) de hoa vao tranh, khong co vet doc
     alpha = int(ctx.get("panel_alpha", 170))
     x0, y0, x1, y1 = PODCAST_BOX
-    if alpha > 0:
+    panel_c = hex2rgb(ctx.get("panel_color")) or (255, 253, 248)
+    if ctx.get("_transparent"):
+        # nen VIDEO: ve hop kem SACH len canvas trong suot (dam hon chut cho chu ro tren video),
+        # phan RIA de trong suot -> video hien; video chay quanh hop doc.
+        pa = min(238, max(150, alpha + 45))
+        panel = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        pd = ImageDraw.Draw(panel)
+        pd.rounded_rectangle([x0, y0, x1, y1], radius=26, fill=tuple(panel_c) + (pa,))
+        im = Image.alpha_composite(im, panel.filter(ImageFilter.GaussianBlur(2)))
+    elif alpha > 0:
         mask = Image.new("L", (W, H), 0)
         ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=26, fill=255)
         mask = mask.filter(ImageFilter.GaussianBlur(16))     # mo mep -> khong vet cung
@@ -546,7 +594,6 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
         im = Image.composite(im.filter(ImageFilter.GaussianBlur(18)), im, mask)
         # 2) phu lop kem ban trong len tren nen da mo
         amask = mask.point(lambda p: p * alpha // 255)       # ap do mo panel len mask feather
-        panel_c = hex2rgb(ctx.get("panel_color")) or (255, 253, 248)
         white = Image.new("RGBA", (W, H), tuple(panel_c) + (255,))
         im = Image.composite(white, im, amask)
     # vien co dien + goc trang tri (net sac)
@@ -557,7 +604,8 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
         od.rounded_rectangle([x0 + 10, y0 + 10, x1 - 10, y1 - 10],
                              radius=20, outline=PC_BORDER + (110,), width=2)
         im = Image.alpha_composite(im, ov)
-    im = im.convert("RGB")
+    if not ctx.get("_transparent"):           # trong suot -> giu RGBA de overlay len video
+        im = im.convert("RGB")
     d = ImageDraw.Draw(im)
     if ctx.get("podcast_frame", True):
         _ornament_corners(d, PODCAST_BOX, color=PC_CORNER)
@@ -567,7 +615,7 @@ def render_podcast_main(seg, ctx, path, reveal_t=None, t_now=BIG):
     x0, y0, x1, y1 = PODCAST_BOX
     cx = W // 2
     box_w = x1 - x0
-    max_w = int(box_w * 0.90)
+    max_w = int(box_w * 0.86)          # margin thoáng hơn -> câu dài tự thu nhỏ, không sát viền
     # mau tuy chinh tung dong (nguoi dung chon trong app; rong = mac dinh)
     ink_c = hex2rgb(ctx.get("zh_color")) or INK
     py_c = hex2rgb(ctx.get("py_color")) or PC_PINYIN
@@ -628,6 +676,8 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
     """t_now/reveal_t: hieu ung chu hien dan (vocab/sentence/practice_a).
        n_visible: so dong hoi thoai da hien (dialogue)."""
     apply_theme(ctx.get("theme", "pink"))
+    if ctx.get("_transparent") and not ctx.get("podcast_layout"):
+        use_light_palette()          # nen video (layout classic, chu tren video) -> chu sang
     t = seg["type"]
     # Layout podcast: chi ve khoi noi dung chinh (Han+pinyin+Viet) tren nen nguoi dung
     if ctx.get("podcast_layout") and t in ("sentence", "vocab", "practice_a"):
@@ -682,7 +732,7 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
         vh = len(wrap_text(d, seg.get("viet", ""), vf, int(W*0.9))) * (vf.size+10) if show_viet else 0
         top = (H - (h + vgap + vh))//2 - 20
         td, ov = d, None
-        if TEXT_GLOW:
+        if TEXT_GLOW and not ctx.get("_transparent"):
             ov = Image.new("RGBA", (W, H), (0, 0, 0, 0)); td = ImageDraw.Draw(ov)
         py_hanzi(td, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
                  reveal_t=reveal_t, t_now=t_now)
@@ -702,7 +752,7 @@ def render_slide(seg, ctx, path, t_now=BIG, reveal_t=None,
         vh = len(wrap_text(d, seg.get("viet", ""), vf, int(W*0.9))) * (vf.size+10) if show_viet else 0
         top = (H - (h + vgap + vh))//2 - 20
         td, ov = d, None
-        if TEXT_GLOW:
+        if TEXT_GLOW and not ctx.get("_transparent"):
             ov = Image.new("RGBA", (W, H), (0, 0, 0, 0)); td = ImageDraw.Draw(ov)
         py_hanzi(td, seg["hanzi"], W//2, top, zh_size=zh, py_size=py,
                  reveal_t=reveal_t, t_now=t_now)

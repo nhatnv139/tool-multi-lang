@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film Studio — Dựng phim tiếng Trung</title>
+<style>
+  :root { --ac:#6c5ce7; --bg:#f6f5ff; --ink:#2d2b3a; --soft:#847f9c; --red:#5b4bd6; --line:#e4e0f7; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:920px; margin:0 auto; padding:24px 20px 70px; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  .sub { color:var(--soft); margin:0 0 18px; font-size:14px; }
+  a.back { color:var(--ac); text-decoration:none; font-size:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px;
+          box-shadow:0 4px 18px rgba(108,92,231,.07); margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:0 0 7px; font-size:15px; }
+  .hint { font-weight:400; color:var(--soft); font-size:13px; }
+  textarea, input[type=text], input[type=number], select {
+          width:100%; border:1.5px solid var(--line); border-radius:10px;
+          padding:11px 12px; font-size:14px; font-family:inherit; background:#fff; }
+  textarea { min-height:180px; line-height:1.7; resize:vertical; font-size:15px; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:190px; }
+  .mt { margin-top:14px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:14px; font-weight:600; padding:9px 14px; }
+  .btn-ghost { background:#eeeafd; color:var(--ac); }
+  .btn-go { background:var(--red); color:#fff; padding:14px 22px; font-size:16px; width:100%; border-radius:12px; }
+  .btn-go:disabled { opacity:.5; cursor:not-allowed; }
+  .switch { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:500; font-size:14px; }
+  .switches { display:flex; gap:20px; flex-wrap:wrap; margin-top:6px; }
+  .muted { color:var(--soft); font-size:13px; }
+  .err { color:#c0392b; } .ok { color:#27ae60; }
+  .st-line { padding:6px 0; font-size:14px; }
+  .scene { border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; background:#fbfaff; }
+  .scene h3 { margin:0 0 4px; font-size:15px; }
+  .scene .subs { font-size:13px; color:var(--soft); margin:6px 0 10px; max-height:96px; overflow:auto; line-height:1.6; }
+  .scene .subs b { color:var(--ink); font-weight:600; }
+  .slot { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .slot .fname { font-size:13px; }
+  .pill { display:inline-block; background:#eeeafd; color:var(--ac); border-radius:20px; padding:3px 10px; font-size:12px; font-weight:600; }
+  video.res { width:100%; max-width:520px; border-radius:12px; background:#000; margin-top:10px; }
+  .warn { background:#fff7e6; border:1px solid #ffe0a3; border-radius:10px; padding:10px 12px; font-size:13px; color:#8a6d3b; }
+  .bar { height:8px; background:var(--line); border-radius:6px; overflow:hidden; margin:8px 0; }
+  .bar > i { display:block; height:100%; width:0; background:var(--ac); transition:width .3s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Về trang tạo video</a>
+  <h1>🎬 Film Studio</h1>
+  <p class="sub">Dựng <b>phim tình huống</b>: mỗi cảnh 1 clip (video/ảnh) của bạn + phụ đề Hán · pinyin · nghĩa + lồng tiếng.
+     <b>Không có layout học</b> — phim thuần, chữ chạy dưới đáy như phụ đề điện ảnh.</p>
+
+  <!-- 1. NOI DUNG -->
+  <div class="card">
+    <label>① Kịch bản phim <span class="hint">— dán content.md (có @title, @voices, chia cảnh bằng dòng <code>#</code>, mỗi câu <code>汉字 | nghĩa</code>)</span></label>
+    <textarea id="content" placeholder="@title Cái Bàn Nhầm&#10;@voices 小明=nam, 小美=nữ&#10;&#10;# Cảnh 1 — Quán cà phê&#10;今天，小明第一次去相亲。 | Hôm nay, Tiểu Minh lần đầu đi xem mắt。&#10;..."></textarea>
+    <div class="mt">
+      <button class="btn-ghost" type="button" onclick="parseScenes()">🎞️ Phân tích cảnh → nhận ô upload nền</button>
+      <span id="parseSt" class="hint"></span>
+    </div>
+  </div>
+
+  <!-- 2. TUY CHON GIONG + PHU DE -->
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>🎙️ Giọng dẫn <span class="hint">(lời dẫn + nhân vật chưa khai)</span></label>
+        <select id="voice">
+          <optgroup label="Edge (miễn phí)">
+          {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          {% if azure_ready %}<optgroup label="Azure HD / Omni / MAI (xịn — cần key)">
+          {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>{% endif %}
+        </select>
+      </div>
+      <div style="flex:0 0 150px">
+        <label>⏩ Tốc độ</label>
+        <select id="rate">
+          <option value="-15%">Chậm</option>
+          <option value="-8%" selected>Vừa</option>
+          <option value="0%">Bình thường</option>
+        </select>
+      </div>
+    </div>
+    <div class="switches mt">
+      <label class="switch"><input type="checkbox" id="subPinyin" checked> Hiện pinyin (tô thanh điệu)</label>
+      <label class="switch"><input type="checkbox" id="narrate" checked> Lồng tiếng đọc câu (TTS)</label>
+      <label class="switch"><input type="checkbox" id="keepAudio"> Giữ tiếng gốc của clip</label>
+    </div>
+    <div class="mt">
+      <label>🗣️ Giọng riêng từng nhân vật <span class="hint">(tuỳ chọn — mỗi dòng <code>Tên=giọng</code>, vd <code>小明=edge:zh-CN-YunjianNeural</code>). Bỏ trống thì tự gán theo @voices.</span></label>
+      <textarea id="charVoices" style="min-height:60px" placeholder="小明=edge:zh-CN-YunjianNeural&#10;小美=azure:..."></textarea>
+    </div>
+  </div>
+
+  <!-- 2b. CHAT DIEN ANH -->
+  <div class="card">
+    <label>🎞️ Chất điện ảnh <span class="hint">— biến “slideshow” thành “phim”</span></label>
+    <div class="switches">
+      <label class="switch"><input type="checkbox" id="filmMode" checked><b>🎭 Chế độ PHIM</b> — mỗi câu 1 shot máy quay (toàn/trung/cận) + nhân vật CHỈ nói lời thoại (có cảm xúc), nhịp phim</label>
+      <label class="switch"><input type="checkbox" id="sceneSfx" checked><b>🔊 SFX theo cảnh</b> — không khí nền (quán/phố/mưa/đêm…) tự gợi ý từ bối cảnh</label>
+    </div>
+    <div class="switches mt">
+      <label class="switch"><input type="checkbox" id="kenburns" checked> Ảnh tĩnh chuyển động (Ken Burns)</label>
+      <label class="switch"><input type="checkbox" id="transition" checked> Chuyển cảnh mờ (dissolve)</label>
+      <label class="switch"><input type="checkbox" id="grade" checked> Tông màu điện ảnh (tự nhiên, nhẹ)</label>
+      <label class="switch"><input type="checkbox" id="letterbox"> Khung điện ảnh 2.39:1</label>
+      <label class="switch"><input type="checkbox" id="duck" checked> Nhạc né lời (ducking)</label>
+      <label class="switch"><input type="checkbox" id="titleCard" checked> Bìa đầu (tên phim)</label>
+      <label class="switch"><input type="checkbox" id="endCard" checked> Card kết “HẾT”</label>
+    </div>
+  </div>
+
+  <!-- 3. NHAC + NEN CANH -->
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>🎵 Nhạc nền <span class="hint">(file Suno &gt; bed cảm xúc built-in)</span></label>
+        <select id="musicBed" style="margin-bottom:8px">
+          <option value="warm">🎼 Bed ấm áp (bittersweet — mặc định)</option>
+          <option value="hope">🎼 Bed hi vọng (sáng, hướng tới)</option>
+          <option value="sad">🎼 Bed buồn (lắng, chia ly)</option>
+          <option value="none">🔇 Không nhạc bed</option>
+        </select>
+        <div class="slot">
+          <input type="file" id="musicFile" accept="audio/*" onchange="upMusic()">
+          <span id="musicSt" class="fname muted"></span>
+        </div>
+        <span class="hint">Có file nhạc thật (Suno…) thì tự ưu tiên; không thì dùng bed trên.</span>
+      </div>
+      <div style="flex:0 0 160px">
+        <label>🔉 Âm lượng nhạc</label>
+        <input type="number" id="musicVol" value="0.12" min="0" max="1" step="0.02">
+      </div>
+    </div>
+    <div id="aibar" class="mt" style="display:none;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="margin:0">🤖 Engine</label>
+        <select id="bgEngine" style="flex:0 0 340px">
+          <option value="pollinations">Pollinations · FLUX (free, không cần key)</option>
+          <option value="together" {% if not together_ready %}disabled{% endif %}>Together.ai · FLUX schnell (cần nạp $5 lấy key)</option>
+          <option value="imagen" {% if not gemini_ready %}disabled{% endif %}>Google · Imagen 4 (cần key CÓ billing)</option>
+          <option value="gemini" {% if not gemini_ready %}disabled{% endif %}>Google · Gemini / Nano Banana (cần key CÓ billing)</option>
+        </select>
+        <span class="hint">
+          Prompt đã tối ưu (câu tự nhiên → ảnh đẹp hơn). Muốn <b>nét hơn nữa</b>: đăng ký free ở
+          <code>auth.pollinations.ai</code> → lưu <code>pollinations_config.json</code> {"token":"…"} để mở lại model <b>FLUX</b>
+          (mặc định ẩn danh dùng Sana). Google/Together đã bỏ free-tier ảnh.
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="margin:0">🎨 Phong cách</label>
+        <select id="bgStyle" style="flex:0 0 220px">
+          <option value="2d">2D minh hoạ ấm (khớp phim)</option>
+          <option value="anime">Anime (Ghibli)</option>
+          <option value="photo">Điện ảnh thật (photo)</option>
+          <option value="ink">Thuỷ mặc Trung Hoa</option>
+        </select>
+        <button class="btn-ghost" type="button" onclick="genAll()">✨ Tạo ảnh AI cho mọi cảnh trống</button>
+        <span id="aiAllSt" class="hint"></span>
+      </div>
+    </div>
+    <div id="scenes" class="mt"></div>
+    <p class="warn" id="noScenes">Bấm <b>“Phân tích cảnh”</b> ở trên để hiện ô nền cho từng cảnh.
+       Mỗi cảnh: <b>✨ tạo ảnh AI</b> theo bối cảnh, hoặc tự <b>upload</b> video/ảnh. Bỏ trống → nền tối mặc định.</p>
+  </div>
+
+  <button class="btn-go" id="goBtn" onclick="makeFilm()" disabled>🎬 Dựng phim</button>
+
+  <!-- TIEN DO + KET QUA -->
+  <div class="card mt" id="progCard" style="display:none">
+    <div class="st-line" id="progLbl">Đang xử lý…</div>
+    <div class="bar"><i id="progBar"></i></div>
+  </div>
+  <div class="card" id="resCard" style="display:none">
+    <h3 id="resTitle" style="margin:0 0 6px"></h3>
+    <video class="res" id="resVid" controls></video>
+    <div class="mt">
+      <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resDl">⬇️ Tải phim</a>
+      <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resThumb" target="_blank">🖼️ Thumbnail</a>
+      <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resSrtHz">📄 SRT Hán</a>
+      <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resSrtPy">📄 SRT pinyin</a>
+      <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resSrtVi">📄 SRT Việt</a>
+      <button class="btn-ghost" type="button" onclick="copyDesc()">📋 Copy mô tả YouTube</button>
+      <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" href="/library">📚 Thư viện</a>
+    </div>
+    <div class="mt"><label>📝 Mô tả YouTube (chapters + từ vựng)</label>
+      <textarea id="resDesc" style="min-height:130px;font-size:13px" readonly></textarea></div>
+  </div>
+</div>
+
+<script>
+let SCENES = [];        // [{label, count, subs, prompt, sfx}]
+let CLIPS = [];         // path nen / canh (theo index)
+let SEEDS = [];         // seed AI / canh (đổi khi bấm 🎲)
+let SFXKINDS = {};      // {kind: nhãn} bộ SFX built-in (từ /film/parse)
+let SFXUP = [];         // path file SFX tự upload / cảnh
+
+async function upFile(f, kind){
+  const fd=new FormData(); fd.append('file', f); fd.append('kind', kind);
+  const r=await fetch('/upload',{method:'POST',body:fd});
+  const j=await r.json(); if(j.error) throw new Error(j.error); return j.path;
+}
+
+async function upMusic(){
+  const f=document.getElementById('musicFile').files[0]; if(!f) return;
+  document.getElementById('musicSt').textContent='⏳ đang tải…';
+  try{ window._music=await upFile(f,'filmmusic');
+       document.getElementById('musicSt').textContent='✓ '+f.name; }
+  catch(e){ document.getElementById('musicSt').innerHTML='<span class="err">'+e.message+'</span>'; }
+}
+
+async function parseScenes(){
+  const st=document.getElementById('parseSt'); st.textContent='⏳ đang phân tích…';
+  const content=document.getElementById('content').value;
+  const r=await fetch('/film/parse',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({content})});
+  const j=await r.json();
+  if(j.error){ st.innerHTML='<span class="err">'+j.error+'</span>'; return; }
+  SCENES=j.scenes; CLIPS=new Array(SCENES.length).fill(''); SEEDS=new Array(SCENES.length).fill(0);
+  SFXKINDS=j.sfx_kinds||{}; SFXUP=new Array(SCENES.length).fill('');
+  st.innerHTML='<span class="ok">✓ '+SCENES.length+' cảnh'+(j.voices.length?(' · '+j.voices.length+' nhân vật: '+j.voices.join(', ')):'')+'</span>';
+  document.getElementById('noScenes').style.display='none';
+  document.getElementById('aibar').style.display='flex';
+  renderScenes();
+  document.getElementById('goBtn').disabled=false;
+}
+
+function renderScenes(){
+  const box=document.getElementById('scenes'); box.innerHTML='';
+  SCENES.forEach((s,i)=>{
+    const subs=s.subs.slice(0,6).map(x=>'<b>'+esc(x.hz)+'</b> '+(x.vi?('— '+esc(x.vi)):'')).join('<br>');
+    const more=s.count>6?('<br><i>… +'+(s.count-6)+' câu</i>'):'';
+    const el=document.createElement('div'); el.className='scene';
+    el.innerHTML=
+      '<h3>'+esc(s.label)+' <span class="pill">'+s.count+' câu</span></h3>'+
+      '<div class="subs">'+subs+more+'</div>'+
+      '<div class="slot" style="align-items:flex-start">'+
+        '<img id="pv'+i+'" class="pv" style="display:none;width:150px;border-radius:8px;flex:none">'+
+        '<div class="grow" style="min-width:220px">'+
+          '<input type="text" id="pr'+i+'" value="'+esc(s.prompt||'')+'" '+
+                 'placeholder="bối cảnh (tiếng Anh càng tốt)" style="font-size:13px">'+
+          '<div class="slot mt" style="gap:8px">'+
+            '<button class="btn-ghost" type="button" style="padding:7px 12px" onclick="genOne('+i+')">✨ Tạo ảnh AI</button>'+
+            '<button class="btn-ghost" type="button" style="padding:7px 10px" onclick="reroll('+i+')" title="Đổi ảnh khác">🎲</button>'+
+            '<label class="switch" style="font-size:12px;margin:0">hoặc upload '+
+              '<input type="file" accept="video/*,image/*" onchange="upClip('+i+',this)" style="font-size:11px"></label>'+
+          '</div>'+
+          '<span class="fname muted" id="cf'+i+'">chưa có nền — dùng nền tối mặc định</span>'+
+          '<div class="slot mt" style="gap:8px">'+
+            '<span class="hint">🔊 SFX:</span>'+
+            '<select id="sfx'+i+'" style="flex:0 0 210px;font-size:13px">'+sfxOptions(s.sfx)+'</select>'+
+            '<label class="switch" style="font-size:12px;margin:0">upload '+
+              '<input type="file" accept="audio/*" onchange="upSfx('+i+',this)" style="font-size:11px"></label>'+
+            '<span class="hint" id="sfxst'+i+'"></span>'+
+          '</div>'+
+        '</div>'+
+      '</div>';
+    box.appendChild(el);
+  });
+}
+
+function sfxOptions(suggest){
+  const sugLbl = suggest && SFXKINDS[suggest] ? (' (gợi ý: '+SFXKINDS[suggest]+')') : ' (không có gợi ý)';
+  let h='<option value="auto">🤖 Tự gợi ý'+sugLbl+'</option><option value="none">🔇 Không</option>';
+  for(const k in SFXKINDS) h+='<option value="'+k+'">'+SFXKINDS[k]+'</option>';
+  h+='<option value="upload">📁 File tự upload</option>';
+  return h;
+}
+
+async function upSfx(i, inp){
+  const f=inp.files[0]; if(!f) return;
+  const st=document.getElementById('sfxst'+i); st.textContent='⏳…';
+  try{ SFXUP[i]=await upFile(f,'filmsfx');
+       document.getElementById('sfx'+i).value='upload';
+       st.innerHTML='<span class="ok">✓ '+esc(f.name)+'</span>'; }
+  catch(e){ st.innerHTML='<span class="err">'+e.message+'</span>'; }
+}
+
+const ENGNAME={pollinations:'FLUX',together:'Together FLUX',imagen:'Imagen 4',gemini:'Gemini'};
+async function genOne(i){
+  const backend=document.getElementById('bgEngine').value;
+  const lbl=document.getElementById('cf'+i);
+  lbl.innerHTML='⏳ đang vẽ ảnh AI ('+(ENGNAME[backend]||backend)+')…';
+  const prompt=document.getElementById('pr'+i).value.trim();
+  const style=document.getElementById('bgStyle').value;
+  try{
+    const r=await fetch('/film/ai_bg',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt,label:SCENES[i].label,subs:SCENES[i].subs,style,seed:SEEDS[i],backend})});
+    const j=await r.json(); if(j.error) throw new Error(j.error);
+    CLIPS[i]=j.path;
+    const pv=document.getElementById('pv'+i); pv.src=j.url+'?t='+Date.now(); pv.style.display='block';
+    lbl.innerHTML='<span class="ok">✓ ảnh AI ('+(ENGNAME[j.backend]||j.backend)+')</span>'
+                 +(j.note?' <span class="hint">⚠️ '+esc(j.note)+'</span>':'');
+  }catch(e){ lbl.innerHTML='<span class="err">'+e.message+'</span>'; }
+}
+
+function reroll(i){ SEEDS[i]=Math.floor(Math.random()*1e6); genOne(i); }
+
+async function genAll(){
+  const st=document.getElementById('aiAllSt');
+  let done=0, todo=[];
+  SCENES.forEach((s,i)=>{ if(!CLIPS[i]) todo.push(i); });
+  if(!todo.length){ st.textContent='Mọi cảnh đã có nền.'; return; }
+  for(const i of todo){ st.textContent='⏳ '+(++done)+'/'+todo.length+' …'; await genOne(i); }
+  st.innerHTML='<span class="ok">✓ xong '+todo.length+' cảnh</span>';
+}
+
+async function upClip(i, inp){
+  const f=inp.files[0]; if(!f) return;
+  const lbl=document.getElementById('cf'+i); lbl.textContent='⏳ đang tải…';
+  try{ CLIPS[i]=await upFile(f,'filmclip');
+       const pv=document.getElementById('pv'+i);
+       if(f.type.startsWith('image')){ pv.src=URL.createObjectURL(f); pv.style.display='block'; }
+       else { pv.style.display='none'; }
+       lbl.innerHTML='<span class="ok">✓ '+esc(f.name)+'</span>'; }
+  catch(e){ lbl.innerHTML='<span class="err">'+e.message+'</span>'; }
+}
+
+function parseCharVoices(){
+  const out={};
+  document.getElementById('charVoices').value.split('\n').forEach(ln=>{
+    const s=ln.trim(); if(!s||s.indexOf('=')<0) return;
+    const k=s.slice(0,s.indexOf('=')).trim(), v=s.slice(s.indexOf('=')+1).trim();
+    if(k&&v) out[k]=v;
+  });
+  return out;
+}
+
+async function makeFilm(){
+  const btn=document.getElementById('goBtn'); btn.disabled=true;
+  const body={
+    content: document.getElementById('content').value,
+    clips: CLIPS,
+    voice: document.getElementById('voice').value,
+    rate: document.getElementById('rate').value,
+    sub_pinyin: document.getElementById('subPinyin').checked,
+    narrate: document.getElementById('narrate').checked,
+    keep_audio: document.getElementById('keepAudio').checked,
+    char_voices: parseCharVoices(),
+    music_file: window._music||'',
+    music_bed: document.getElementById('musicBed').value,
+    music_vol: parseFloat(document.getElementById('musicVol').value)||0.16,
+    film_mode: document.getElementById('filmMode').checked,
+    scene_sfx: document.getElementById('sceneSfx').checked,
+    sfx: SCENES.map((s,i)=>{ const el=document.getElementById('sfx'+i);
+         const v=el?el.value:'auto'; return v==='upload'?(SFXUP[i]||''):v; }),
+    kenburns: document.getElementById('kenburns').checked,
+    transition: document.getElementById('transition').checked?'fade':'none',
+    grade: document.getElementById('grade').checked,
+    letterbox: document.getElementById('letterbox').checked,
+    duck: document.getElementById('duck').checked,
+    title_card: document.getElementById('titleCard').checked,
+    end_card: document.getElementById('endCard').checked,
+  };
+  const r=await fetch('/film/make',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.error){ alert(j.error); btn.disabled=false; return; }
+  document.getElementById('progCard').style.display='block';
+  document.getElementById('resCard').style.display='none';
+  poll(j.job_id);
+}
+
+function copyDesc(){
+  const t=document.getElementById('resDesc'); t.select();
+  navigator.clipboard.writeText(t.value).then(()=>alert('Đã copy mô tả YouTube!'));
+}
+
+async function poll(jid){
+  const r=await fetch('/progress/'+jid); const j=await r.json();
+  document.getElementById('progLbl').textContent=j.label||'…';
+  const pct=j.total?Math.round((j.done/j.total)*100):0;
+  document.getElementById('progBar').style.width=pct+'%';
+  if(j.status==='done'){
+    document.getElementById('progCard').style.display='none';
+    const c=document.getElementById('resCard'); c.style.display='block';
+    document.getElementById('resTitle').textContent=(j.seo&&j.seo.title)||'Phim đã dựng';
+    document.getElementById('resVid').src='/video/'+j.video;
+    document.getElementById('resDl').href='/download/'+j.video;
+    if(j.thumb) document.getElementById('resThumb').href='/video/'+j.thumb;
+    document.getElementById('resSrtHz').href='/srt/'+jid+'/hanzi';
+    document.getElementById('resSrtPy').href='/srt/'+jid+'/pinyin';
+    document.getElementById('resSrtVi').href='/srt/'+jid+'/viet';
+    document.getElementById('resDesc').value=(j.seo&&j.seo.description)||'';
+    document.getElementById('goBtn').disabled=false;
+    return;
+  }
+  if(j.status==='error'||j.status==='cancelled'){
+    document.getElementById('progLbl').innerHTML='<span class="err">'+(j.label||'Lỗi')+'</span>';
+    document.getElementById('goBtn').disabled=false; return;
+  }
+  setTimeout(()=>poll(jid), 1200);
+}
+
+function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+</script>
+</body>
+</html>

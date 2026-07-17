@@ -62,6 +62,11 @@
               padding:9px 16px;border-radius:10px;text-decoration:none;font-size:15px">
       ⚡ Shorts Studio
     </a>
+    <a href="/film"
+       style="display:inline-block;background:#eeeafd;color:#5b4bd6;font-weight:600;
+              padding:9px 16px;border-radius:10px;text-decoration:none;font-size:15px">
+      🎬 Film Studio
+    </a>
     <button type="button" class="btn-ghost" onclick="importExistingVideo()"
             style="padding:9px 16px;font-size:15px">📤 Đăng video có sẵn</button>
     <span id="importSt" class="hint"></span>
@@ -75,6 +80,8 @@
     <div class="toolbar">
       <label style="margin:0">📝 Nội dung <span class="hint">— mỗi dòng: <code>汉字 | nghĩa tiếng Việt</code></span></label>
       <button class="btn-ghost" type="button" onclick="loadSample()">Điền mẫu</button>
+      <button class="btn-ghost" type="button" onclick="makePdf()" title="Xuất bài đọc ra PDF đẹp (Hán + pinyin tô thanh điệu + nghĩa)">📄 Tải PDF bài đọc</button>
+      <span id="pdfSt" class="hint"></span>
     </div>
     <textarea id="content" spellcheck="false" placeholder="@title Chủ đề bài học
 @header CHINESE PODCAST · HSK 3-4-5
@@ -392,9 +399,13 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           </select>
         </div>
         <div>
-          <label>🖼️ Hoặc tải ảnh nền lên <span class="hint">(để trống = dùng màu)</span></label>
-          <input type="file" id="bg_file" accept="image/*" onchange="up('bg_file','bg')">
+          <label>🖼️ Hoặc tải ẢNH / VIDEO nền lên <span class="hint">(ảnh hoặc video động .mp4; chọn nhiều: Cmd/Ctrl-click hoặc chọn nhiều lần — TỰ CỘNG DỒN. Nhiều nguồn = chia đều theo thời lượng, đổi lần lượt)</span></label>
+          <input type="file" id="bg_file" accept="image/*,video/*" multiple onchange="upBgs(this)">
           <div class="hint" id="bg_name"></div>
+          <label class="switch" style="margin-top:6px;font-size:13px">
+            <input type="checkbox" id="bg_by_scene">
+            🎬 Gán nền <b>theo phân cảnh</b> (mỗi mục <code>#</code> trong bài = 1 nền, theo thứ tự) — bỏ tick = chia đều theo thời lượng
+          </label>
         </div>
       </div>
 
@@ -565,9 +576,38 @@ async function importDrive(){
 }
 
 // ----- upload file (bg / music) -----
-const uploaded = { bg: "{{ bg_saved }}", music:'' };
+const uploaded = { bg: "{{ bg_saved }}", bgs: [], bgNames: [], music:'' };
 // hien trang thai anh nen da luu (khong mat khi F5)
-if(uploaded.bg){ const e=document.getElementById('bg_name'); if(e) e.textContent='— ✅ đã có ảnh nền (tự lưu, F5 không mất)'; }
+if(uploaded.bg){ uploaded.bgs=[uploaded.bg]; uploaded.bgNames=['ảnh đã lưu']; }
+
+// Upload NHIEU anh nen -> CONG DON vao uploaded.bgs (chon nhieu lan deu them)
+async function upBgs(input){
+  const files = Array.from(input.files||[]);
+  if(!files.length) return;
+  const lbl = document.getElementById('bg_name');
+  lbl.textContent = '⏳ Đang tải '+files.length+' ảnh...';
+  for(const f of files){
+    const fd = new FormData(); fd.append('file', f); fd.append('kind','bg');
+    try{ const j = await (await fetch('/upload',{method:'POST',body:fd})).json();
+      if(j.path){ uploaded.bgs.push(j.path); uploaded.bgNames.push(j.name||f.name); } }catch(e){}
+  }
+  input.value='';                     // reset -> lan sau chon tiep se CONG DON
+  uploaded.bg = uploaded.bgs[0] || '';
+  renderBgList();
+}
+function renderBgList(){
+  const lbl=document.getElementById('bg_name');
+  const n=uploaded.bgs.length;
+  if(!n){ lbl.textContent=''; return; }
+  const names = uploaded.bgNames.map((nm,i)=>(i+1)+'. '+nm).join('  ·  ');
+  lbl.innerHTML = '✅ <b>'+n+' ảnh nền</b> (đổi lần lượt, chia đều theo thời lượng)<br>'+
+    '<span style="color:#8a7f82">'+names+'</span> &nbsp; '+
+    '<a href="#" onclick="clearBgs();return false" style="color:#c0392b">✖ Xoá hết</a>';
+}
+function clearBgs(){ uploaded.bgs=[]; uploaded.bgNames=[]; uploaded.bg=''; renderBgList(); }
+// hien lai neu co anh da luu
+if(uploaded.bgs.length) renderBgList();
+
 async function up(inputId, kind){
   const f = document.getElementById(inputId).files[0];
   if(!f) return;
@@ -788,6 +828,21 @@ function rateLabel(v){ v=parseInt(v,10);
   document.getElementById('rate_lbl').textContent = t+' ('+(v>=0?'+':'')+v+'%)'; }
 rateLabel(document.getElementById('rate').value);
 
+async function makePdf(){
+  const content=document.getElementById('content').value.trim();
+  if(!content){ alert('Bạn chưa nhập nội dung.'); return; }
+  const st=document.getElementById('pdfSt'); st.textContent='⏳ đang tạo PDF…';
+  try{
+    const r=await fetch('/pdf',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({content})});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||('HTTP '+r.status)); }
+    const blob=await r.blob();
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=(r.headers.get('X-Filename')||'bai-doc')+'.pdf'; a.click();
+    st.innerHTML='<span style="color:#27ae60">✓ đã tải PDF</span>';
+  }catch(e){ st.innerHTML='<span style="color:#c0392b">'+e.message+'</span>'; }
+}
+
 async function generate(){
   const content = document.getElementById('content').value.trim();
   if(!content){ alert('Bạn chưa nhập nội dung.'); return; }
@@ -854,6 +909,8 @@ async function generate(){
     dialogue_map: collectDialogueVoices(),
     character: document.getElementById('character').checked,
     bg_image:  uploaded.bg,
+    bg_images: uploaded.bgs,
+    bg_by_scene: document.getElementById('bg_by_scene').checked,
     music_file: uploaded.music,
     music_vol: document.getElementById('music_vol').value/100,
     chattts_style: document.getElementById('chattts_style').value,

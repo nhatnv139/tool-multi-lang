@@ -458,6 +458,35 @@ def import_drive():
     except Exception as e:
         return jsonify(error=f"Lỗi đọc Drive: {e}"), 500
 
+@app.route("/pdf", methods=["POST"])
+def pdf_route():
+    """Xuất NỘI DUNG BÀI ĐỌC ra PDF Study Guide đẹp (Hán + pinyin tô thanh điệu + nghĩa)."""
+    import study_pdf
+    d = request.get_json(force=True) or {}
+    content = (d.get("content") or "").strip()
+    if not content:
+        return jsonify(error="Chưa có nội dung."), 400
+    # tiêu đề file từ @title
+    title = "bai-doc"
+    for ln in content.splitlines():
+        if ln.strip().lower().startswith("@title") and " " in ln.strip():
+            title = slugify(ln.split(" ", 1)[1].strip())[:60] or "bai-doc"; break
+    out_pdf = os.path.join(OUT, f"pdf_{int(time.time()*1000)}.pdf")
+    try:
+        study_pdf.build_pdf(content, out_pdf, link=(d.get("link") or PROMO_LINK))
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify(error="Tạo PDF lỗi: " + str(e)), 500
+    from flask import send_file
+    import unicodedata
+    ascii_name = (unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+                  or "bai-doc")                                  # "Vịt"->"Vit"; header HTTP phải ASCII
+    resp = send_file(out_pdf, mimetype="application/pdf", as_attachment=True,
+                     download_name=ascii_name + ".pdf")
+    resp.headers["X-Filename"] = ascii_name
+    return resp
+
+
 @app.route("/generate", methods=["POST"])
 def generate_route():
     data = request.get_json(force=True)
@@ -597,6 +626,9 @@ def run_job(job_id, data):
                 "emotion_auto": bool(data.get("emotion_auto", True)),
                 "mood":      data.get("mood", "calm"),
                 "bg_image":  (data.get("bg_image") or "").strip(),
+                "bg_images": [p.strip() for p in (data.get("bg_images") or [])
+                              if isinstance(p, str) and p.strip()],
+                "bg_by_scene": bool(data.get("bg_by_scene")),
                 "music_file": (data.get("music_file") or "").strip(),
                 "out_name":  slugify(ctx["title"]) + "_" + job_id,
             })
@@ -912,7 +944,7 @@ def _azure_for(voice):
     return None
 
 
-def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid):
+def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid, py_color=None):
     """Render 1 Short tu cac cot da parse (dung chung boi /shorts/make va /shorts/rehook)."""
     import short_native as _sn
     az = _azure_for(voice)
@@ -938,7 +970,7 @@ def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid):
                                        name=jid, lang=ui_lang, bg=bg, skin=skin, azure=az)
     return _sn.make_short_from_text(hanzi, viet, voice=voice, hook=hook, out_dir=OUT,
                                     reads=reads, name=jid, note=note, lang=ui_lang, bg=bg,
-                                    skin=skin, azure=az)
+                                    skin=skin, azure=az, py_color=py_color)
 
 
 @app.route("/shorts/rehook/<job_id>", methods=["POST"])
@@ -957,10 +989,10 @@ def shorts_rehook(job_id):
             r = _sn.make_short_from_lines(rows, voice=rc["voice"], hook=new_hook, out_dir=OUT,
                                           reads=rc["reads"], name=job_id, lang=rc["ui_lang"],
                                           bg=rc["bg"], skin=rc["skin"], title=rc.get("title"),
-                                          azure=_azure_for(rc["voice"]))
+                                          azure=_azure_for(rc["voice"]), py_color=rc.get("py_color"))
         else:
             r = _render_one_short(rc["fmt"], rc["cols"], new_hook, rc["voice"], rc["reads"],
-                                  rc["ui_lang"], rc["bg"], rc["skin"], job_id)
+                                  rc["ui_lang"], rc["bg"], rc["skin"], job_id, py_color=rc.get("py_color"))
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=str(e)), 500
@@ -977,11 +1009,20 @@ def shorts_rehook(job_id):
 # Doi link kenh cua ban o day (hoac nhap o UI de ghi de tung dot).
 PROMO_LINK = "https://www.youtube.com/playlist?list=PLb7JsPPf3Pls"
 
-def _append_link(desc, link):
-    """Noi dong gioi thieu playlist (nghe & xem them) vao cuoi mo ta."""
+def _append_link(desc, link, lang=None):
+    """Noi dong gioi thieu playlist vao cuoi mo ta. lang tu dong theo short_native.UI_LANG neu None."""
     link = (link or "").strip()
     if not link:
         return desc
+    if lang is None:
+        try:
+            import short_native as _sn
+            lang = _sn.UI_LANG
+        except Exception:
+            lang = "vi"
+    if lang == "en":
+        return (f"{desc}\n\n▶️ Watch the full playlist here:\n{link}"
+                "\n👉 Subscribe to learn Chinese every day!")
     return (f"{desc}\n\n▶️ Xem thêm & nghe bổ trợ — playlist đầy đủ:\n{link}"
             "\n👉 Đăng ký kênh để học tiếng Trung mỗi ngày!")
 
@@ -1060,6 +1101,7 @@ def shorts_make():
     except Exception:
         reads = 2
     combine = bool(d.get("combine"))                    # True: GOP tat ca cau -> 1 Short
+    py_color = (d.get("py_color") or "").strip() or None   # pinyin 1 màu (None=tô thanh điệu)
     # Link gioi thieu/nghe bo tro -> tu noi vao mo ta. Mac dinh PROMO_LINK; UI co the ghi de.
     link = d.get("link")
     link = link.strip() if isinstance(link, str) else PROMO_LINK
@@ -1081,18 +1123,19 @@ def shorts_make():
         try:
             r = _sn.make_short_from_lines(rows, voice=voice, hook=hook_c, out_dir=OUT,
                                           reads=reads, name=jid, lang=ui_lang, bg=bg, skin=skin,
-                                          azure=_azure_for(voice))
+                                          azure=_azure_for(voice), py_color=py_color)
         except Exception as e:
             traceback.print_exc()
             return jsonify(error=str(e)), 500
         fn = os.path.basename(r["file"])
+        thumb = _short_thumb(fn)
         desc_i = _append_link(r["desc"], link)
-        jobs[jid] = {"status": "done", "video": None, "short": fn,
+        jobs[jid] = {"status": "done", "video": None, "short": fn, "thumb": thumb,
                      "short_seo": {"title": r["title"], "description": desc_i},
                      "recipe": {"kind": "combine", "rows": rows, "voice": voice, "reads": reads,
-                                "ui_lang": ui_lang, "bg": bg, "skin": skin, "title": None, "link": link}}
+                                "ui_lang": ui_lang, "bg": bg, "skin": skin, "title": None, "link": link, "py_color": py_color}}
         _save_job(jid)
-        return jsonify(shorts=[{"job_id": jid, "short": fn, "title": r["title"],
+        return jsonify(shorts=[{"job_id": jid, "short": fn, "thumb": thumb, "title": r["title"],
                                 "description": desc_i, "hanzi": rows[0][0], "pinyin": "",
                                 "viet": rows[0][1], "hook": hook_c or "",
                                 "count": r["count"], "dur": r["dur"]}])
@@ -1120,20 +1163,21 @@ def shorts_make():
             try:
                 r = _sn.make_short_from_lines(rows, voice=voice, hook=hook_i, out_dir=OUT,
                                               reads=reads_i, name=jid, lang=ui_lang, bg=bg,
-                                              skin=skin_i, title=title_i, azure=_azure_for(voice))
+                                              skin=skin_i, title=title_i, azure=_azure_for(voice), py_color=py_color)
             except Exception as e:
                 traceback.print_exc()
                 out.append({"error": str(e), "hanzi": rows[0][0]})
                 continue
             fn = os.path.basename(r["file"])
+            thumb = _short_thumb(fn)
             desc_i = _append_link(r["desc"], link)
-            jobs[jid] = {"status": "done", "video": None, "short": fn,
+            jobs[jid] = {"status": "done", "video": None, "short": fn, "thumb": thumb,
                          "short_seo": {"title": r["title"], "description": desc_i},
                          "recipe": {"kind": "combine", "rows": rows, "voice": voice,
                                     "reads": reads_i, "ui_lang": ui_lang, "bg": bg,
-                                    "skin": skin_i, "title": title_i, "link": link}}
+                                    "skin": skin_i, "title": title_i, "link": link, "py_color": py_color}}
             _save_job(jid)
-            out.append({"job_id": jid, "short": fn, "title": r["title"],
+            out.append({"job_id": jid, "short": fn, "thumb": thumb, "title": r["title"],
                         "description": desc_i, "hanzi": rows[0][0],
                         "pinyin": "", "viet": rows[0][1], "hook": hook_i or "",
                         "count": r["count"], "dur": r["dur"]})
@@ -1154,20 +1198,21 @@ def shorts_make():
             continue
         jid = "std_" + uuid.uuid4().hex[:10]
         try:
-            r = _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid)
+            r = _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid, py_color=py_color)
         except Exception as e:
             traceback.print_exc()
             out.append({"error": str(e), "hanzi": hanzi})
             continue
         fn = os.path.basename(r["file"])
+        thumb = _short_thumb(fn)
         desc_i = _append_link(r["desc"], link)
-        jobs[jid] = {"status": "done", "video": None, "short": fn,
+        jobs[jid] = {"status": "done", "video": None, "short": fn, "thumb": thumb,
                      "short_seo": {"title": r["title"], "description": desc_i},
-                     "recipe": {"kind": "line", "fmt": fmt, "cols": cols, "voice": voice,
+                     "recipe": {"kind": "line", "fmt": fmt, "cols": cols, "voice": voice, "py_color": py_color,
                                 "reads": reads, "ui_lang": ui_lang, "bg": bg, "skin": skin,
                                 "link": link}}
         _save_job(jid)
-        out.append({"job_id": jid, "short": fn, "title": r["title"],
+        out.append({"job_id": jid, "short": fn, "thumb": thumb, "title": r["title"],
                     "description": desc_i, "hanzi": r["hanzi"],
                     "pinyin": r["pinyin"], "viet": r["viet"], "hook": r.get("hook", ""),
                     "dur": r["dur"]})
@@ -1441,6 +1486,555 @@ def srt_download(job_id, kind):
     fn = f"{job_id}_{kind}.srt"
     return Response(text, mimetype="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+# =========================== TRANG DUNG PHIM (/film) ===========================
+def _parse_film(content):
+    """Tach content.md phim -> (voices_spec, scenes). Moi scene: {label, subs:[{hz,vi}]}.
+    '#' = ranh gioi canh; '@voices' = khai giong; '---' = het (phu luc bo qua)."""
+    import lesson_parser as lp
+    voices_spec, scenes, cur = {}, [], None
+    for raw in (content or "").splitlines():
+        line = raw.strip()
+        if lp._HR_RE.match(line):
+            break
+        if not line:
+            continue
+        if line.startswith("@"):
+            key, _, val = line[1:].partition(" ")
+            if key.strip().lower() == "voices":
+                voices_spec = lp._parse_voices(val)
+            continue
+        if line.startswith("#"):
+            cur = {"label": line.lstrip("#").strip(), "subs": []}
+            scenes.append(cur)
+            continue
+        if cur is None:
+            cur = {"label": "", "subs": []}
+            scenes.append(cur)
+        hz, _, vi = line.partition("|")
+        hz, vi = hz.strip(), vi.strip()
+        # TAG CẢM XÚC đầu dòng: '{sad}汉字…' -> đọc buồn (Azure express-as). Bóc khỏi hz hiển thị.
+        emo_name = ""
+        m = re.match(r"^\{([a-zA-Z]+)\}\s*", hz)
+        if m:
+            emo_name = m.group(1).lower()
+            hz = hz[m.end():].strip()
+        if hz or vi:
+            cur["subs"].append({"hz": hz, "vi": vi, "emo_name": emo_name})
+    scenes = [s for s in scenes if s["subs"]]
+    return voices_spec, scenes
+
+
+def _film_char_voices(spec, overrides=None, prefer_azure=False):
+    """spec {ten: 'nam'/'nữ'/ma-giong} + overrides {ten: voice} -> {ten: voice cu the}.
+    prefer_azure=True (co key): cast nhan vat bang giong Azure (dien cam xuc express-as duoc).
+    Nguoc lai gan giong edge free, moi nhan vat 1 giong."""
+    import lesson_parser as lp
+    AZ_F = ["azure:zh-CN-XiaoxiaoNeural", "azure:zh-CN-XiaoyiNeural", "azure:zh-CN-XiaomengNeural"]
+    AZ_M = ["azure:zh-CN-YunxiNeural", "azure:zh-CN-YunjianNeural", "azure:zh-CN-YunyangNeural"]
+    VF = AZ_F if prefer_azure else ["edge:" + v for v in lp.VOICES_F]
+    VM = AZ_M if prefer_azure else ["edge:" + v for v in lp.VOICES_M]
+    out, fi, mi = {}, 0, 0
+    for name, v in (spec or {}).items():
+        vl = (v or "").strip().lower()
+        if vl in ("nữ", "nu", "female", "f", "女", "gái", "gai"):
+            out[name] = VF[fi % len(VF)]; fi += 1
+        elif vl in ("nam", "male", "m", "男", "trai"):
+            out[name] = VM[mi % len(VM)]; mi += 1
+        elif v:                                  # ma giong cu the (edge:/azure:/zh-CN-...)
+            out[name] = v if ":" in v else ("edge:" + v)
+    for name, v in (overrides or {}).items():    # override tay tu UI (uu tien cao nhat)
+        if (v or "").strip():
+            out[name] = v.strip()
+    return out
+
+
+@app.route("/film")
+def film_page():
+    akey, _ = load_azure()
+    return render_template("film.html", edge_voices=EDGE_VOICES, promo_link=PROMO_LINK,
+                           azure_voices=AZURE_VOICES, azure_ready=bool(akey),
+                           gemini_ready=bool(load_gemini()),
+                           together_ready=bool(_load_together_key()))
+
+
+@app.route("/film/parse", methods=["POST"])
+def film_parse():
+    """Nhan content.md -> tra ve danh sach canh (label + subs) + ten nhan vat @voices.
+    De UI hien 1 o upload nen cho MOI canh + xem truoc phu de."""
+    d = request.get_json(force=True) or {}
+    spec, scenes = _parse_film(d.get("content") or "")
+    if not scenes:
+        return jsonify(error="Chưa tách được cảnh nào. Cần dòng '# Cảnh N — ...' và câu '汉字 | nghĩa'."), 400
+    import film as _fl
+    out = [{"label": s["label"] or f"Cảnh {i+1}", "count": len(s["subs"]),
+            "subs": s["subs"], "prompt": _film_bg_base(s["label"]),
+            "sfx": _sfx_suggest(s["label"])}
+           for i, s in enumerate(scenes)]
+    kinds = {k: v[0] for k, v in _fl.AMBIENCES.items()}
+    return jsonify(scenes=out, voices=list(spec.keys()), sfx_kinds=kinds)
+
+
+# goi y SFX khong khi tu boi canh cua canh (tu khoa tieng Viet trong label)
+_SFX_MAP = [
+    (("cà phê", "cafe", "quán", "nhà hàng", "chợ", "tiệm"), "cafe"),
+    (("đường", "phố", "xe", "bến", "ga", "sân bay"), "street"),
+    (("mưa",), "rain"),
+    (("biển", "bãi", "đảo"), "ocean"),
+    (("công viên", "vườn", "rừng", "núi", "cánh đồng", "gió"), "wind"),
+    (("đêm", "tối", "khuya"), "night"),
+    (("suối", "sông", "hồ", "thác"), "stream"),
+    (("nhà", "phòng", "văn phòng", "lớp", "trường", "bệnh viện"), "room"),
+]
+
+def _sfx_suggest(label):
+    low = (label or "").lower()
+    for keys, kind in _SFX_MAP:
+        if any(k in low for k in keys):
+            return kind
+    return ""
+
+
+def _resolve_sfx(spec, label):
+    """spec tu UI: '' / 'none' / 'auto' / ten-kind / path file upload -> path file (hoac '')."""
+    import film as _fl
+    spec = (spec or "").strip()
+    if not spec or spec == "none":
+        return ""
+    if spec == "auto":
+        spec = _sfx_suggest(label)
+        if not spec:
+            return ""
+    if spec in _fl.AMBIENCES:
+        try:
+            return _fl.ensure_ambience(spec)
+        except Exception:
+            traceback.print_exc()
+            return ""
+    return spec if os.path.exists(spec) else ""
+
+
+# style nền cảnh — CÂU MÔ TẢ TỰ NHIÊN (Sana/FLUX ra đẹp hơn keyword-soup nhiều)
+_BG_STYLES = {
+    "2d":    ("A warm, highly detailed flat 2D storybook illustration of {S}. "
+              "Soft rounded shapes, cozy cream and amber colour palette, gentle golden lighting, "
+              "nostalgic peaceful atmosphere, beautiful composition, masterpiece, no people, no text."),
+    "anime": ("A beautiful Studio Ghibli style anime background painting of {S}. "
+              "Painterly hand-drawn detail, warm golden hour light, lush and cozy, soft shadows, "
+              "dreamy nostalgic mood, masterpiece, highly detailed, no people, no text."),
+    "photo": ("A cinematic photograph of {S}. Realistic, shallow depth of field, soft natural window "
+              "light, warm film-grain colour grade, atmospheric, professional composition, no people, no text."),
+    "ink":   ("A traditional Chinese ink wash painting (shuimo) of {S}. Elegant minimal brushwork, "
+              "muted ink tones, poetic empty space, serene mood, masterpiece, no people, no text."),
+}
+# dịch nhanh vài từ bối cảnh VN -> EN (đủ để Pollinations bắt đúng khung cảnh)
+_LOC_VN2EN = {
+    "quán cà phê": "cozy cafe interior", "cà phê": "cafe", "quán ăn": "small restaurant interior",
+    "nhà hàng": "restaurant interior", "đường phố": "city street", "phố": "street",
+    "công viên": "park", "nhà": "living room interior", "phòng": "room interior",
+    "văn phòng": "office", "trường": "school", "lớp học": "classroom", "chợ": "market",
+    "ga": "train station", "bến xe": "bus station", "sân bay": "airport", "biển": "seaside",
+    "núi": "mountain landscape", "vườn": "garden", "bếp": "kitchen", "phòng khách": "living room",
+    "quán trà": "tea house", "sáng": "morning light", "chiều": "afternoon light",
+    "tối": "night", "đêm": "night", "hoàng hôn": "sunset", "mưa": "rainy",
+}
+
+def _film_bg_base(label):
+    """Mô tả bối cảnh (EN) từ label cảnh — CHƯA gồm phong cách (style ghép sau)."""
+    lab = re.sub(r"^\s*C[ảa]nh\s*\d+\s*[—\-–:·]*\s*", "", (label or "").strip(), flags=re.IGNORECASE).strip()
+    low = lab.lower()
+    hits = [en for vn, en in _LOC_VN2EN.items() if vn in low]
+    return ", ".join(dict.fromkeys(hits)) if hits else (lab or "quiet indoor scene")
+
+
+def _load_together_key():
+    """Key Together.ai từ together_config.json {api_key|key} hoặc env TOGETHER_API_KEY."""
+    p = os.path.join(ROOT, "together_config.json")
+    if os.path.exists(p):
+        try:
+            dd = json.load(open(p, encoding="utf-8"))
+            k = dd.get("api_key") or dd.get("key")
+            if k:
+                return k.strip()
+        except Exception:
+            pass
+    return (os.environ.get("TOGETHER_API_KEY") or "").strip()
+
+
+def _ai_together(prompt, w=1024, h=576):
+    """Together.ai FLUX.1 [schnell] Free -> PNG bytes. Cần key (free tier)."""
+    import urllib.request, base64
+    key = _load_together_key()
+    if not key:
+        raise RuntimeError("chưa có key Together (together_config.json)")
+    body = json.dumps({"model": "black-forest-labs/FLUX.1-schnell-Free", "prompt": prompt,
+                       "width": w, "height": h, "steps": 4, "n": 1,
+                       "response_format": "b64_json"}).encode()
+    req = urllib.request.Request("https://api.together.xyz/v1/images/generations", data=body,
+                                 headers={"Authorization": "Bearer " + key,
+                                          "Content-Type": "application/json"})
+    resp = json.loads(urllib.request.urlopen(req, timeout=150).read())
+    dd = (resp.get("data") or [{}])[0]
+    if dd.get("b64_json"):
+        return base64.b64decode(dd["b64_json"])
+    if dd.get("url"):
+        return urllib.request.urlopen(dd["url"], timeout=150).read()
+    raise RuntimeError("Together không trả ảnh: " + str(resp)[:200])
+
+
+def _ai_imagen(prompt):
+    """Google Imagen 4 (Gemini API :predict) -> PNG bytes. Cần key có quyền Imagen."""
+    import ai_visuals
+    return ai_visuals.gen_gemini_image(prompt, aspect="16:9")
+
+
+def _ai_gemini_nano(prompt):
+    """Google Gemini image (Nano Banana, gemini-2.5-flash-image) -> PNG bytes. Free tier."""
+    import urllib.request, base64
+    key = load_gemini()
+    if not key:
+        raise RuntimeError("chưa có key Gemini (gemini_config.json)")
+    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+           "gemini-2.5-flash-image:generateContent?key=" + key)
+    body = json.dumps({"contents": [{"parts": [{"text": prompt + ", 16:9 wide cinematic aspect ratio"}]}]}).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
+    for c in resp.get("candidates", []):
+        for part in (c.get("content", {}).get("parts") or []):
+            inl = part.get("inlineData") or part.get("inline_data")
+            if inl and inl.get("data"):
+                return base64.b64decode(inl["data"])
+    raise RuntimeError("Gemini image không trả ảnh: " + str(resp)[:200])
+
+
+_AI_ENGINES = {                                       # backend -> (nhãn hiển thị, hàm -> PNG bytes)
+    "together": ("Together FLUX", _ai_together),
+    "imagen":   ("Imagen 4",      _ai_imagen),
+    "gemini":   ("Gemini Nano",   _ai_gemini_nano),
+}
+
+
+@app.route("/film/ai_bg", methods=["POST"])
+def film_ai_bg():
+    """Tạo 1 ảnh nền AI cho 1 cảnh. backend: pollinations | together | imagen | gemini.
+    Engine cần-key lỗi/thiếu key -> tự rơi về Pollinations (không bao giờ kẹt)."""
+    import film as _fl, shutil
+    d = request.get_json(force=True) or {}
+    style = (d.get("style") or "2d").strip()
+    seed = int(d.get("seed") or 0)
+    backend = (d.get("backend") or "pollinations").strip().lower()
+    base = (d.get("prompt") or "").strip() or _film_bg_base(d.get("label", ""))
+    tmpl = _BG_STYLES.get(style, _BG_STYLES["2d"])
+    prompt = tmpl.replace("{S}", base + " (empty establishing shot, wide angle)")
+    dst, used, note = None, "pollinations", ""
+
+    if backend in _AI_ENGINES:
+        label, fn = _AI_ENGINES[backend]
+        try:
+            png = fn(prompt + ", no text, no watermark")
+            name = f"filmai_{int(time.time()*1000)}_{seed}.png"
+            dst = os.path.join(UP, name)
+            with open(dst, "wb") as f:
+                f.write(png)
+            used = backend
+        except Exception as e:
+            traceback.print_exc()
+            note = f"{label} lỗi → dùng Pollinations. ({str(e)[:110]})"
+
+    if not dst:                                       # Pollinations (mặc định / fallback)
+        try:
+            img = _fl.ai_scene_bg(prompt, seed=seed)
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify(error="Tạo ảnh AI lỗi: " + str(e)), 500
+        name = f"filmai_{int(time.time()*1000)}_{seed}.jpg"
+        dst = os.path.join(UP, name)
+        shutil.copyfile(img, dst)
+
+    return jsonify(path=dst, prompt=prompt, url="/filmimg/" + os.path.basename(dst),
+                   backend=used, note=note)
+
+
+@app.route("/filmimg/<path:fn>")
+def filmimg(fn):
+    """Xem preview ảnh nền đã tạo/upload (trong uploads/)."""
+    return send_from_directory(UP, fn, as_attachment=False)
+
+
+def _short_thumb(short_fn):
+    """Trích 1 frame đầu của Short làm thumbnail (poster flashcard). Trả tên file thumb (hoặc None)."""
+    import subprocess as _sp
+    base = short_fn[:-4] if short_fn.lower().endswith(".mp4") else short_fn
+    thumb = base + ".thumb.jpg"
+    try:
+        _sp.run(["ffmpeg", "-y", "-ss", "0.4", "-i", os.path.join(OUT, short_fn),
+                 "-frames:v", "1", "-q:v", "3", os.path.join(OUT, thumb)],
+                check=True, capture_output=True)
+        return thumb if os.path.exists(os.path.join(OUT, thumb)) else None
+    except Exception:
+        return None
+
+
+def _film_thumb(video_path, out_jpg):
+    """Rut 1 khung giua lam thumbnail phim."""
+    try:
+        import film as _fl
+        t = max(0.5, _fl._dur(video_path) * 0.4)
+        subprocess = __import__("subprocess")
+        subprocess.run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", video_path,
+                        "-frames:v", "1", "-q:v", "3", out_jpg],
+                       check=True, capture_output=True)
+    except Exception:
+        pass
+
+
+def run_film_job(job_id, data):
+    import film as _fl
+    try:
+        content = data.get("content") or ""
+        spec, scenes = _parse_film(content)
+        if not scenes:
+            raise ValueError("Không có cảnh nào để dựng.")
+        # tieu de + header phim (@title / @header)
+        title, header = "Phim tiếng Trung", "PHIM TIẾNG TRUNG · HSK 2-3"
+        for ln in content.splitlines():
+            s = ln.strip()
+            if s.lower().startswith("@title") and " " in s:
+                title = s.split(" ", 1)[1].strip()
+            elif s.lower().startswith("@header") and " " in s:
+                header = s.split(" ", 1)[1].strip()
+        clips = data.get("clips") or []             # 1 path / canh (theo thu tu)
+        base_voice = data.get("voice") or "edge:zh-CN-YunxiNeural"
+        base_az = _azure_for(base_voice)
+        narrate = bool(data.get("narrate", True))
+        keep_audio = bool(data.get("keep_audio", False))
+        film_mode = bool(data.get("film_mode", True))
+        has_azure = bool(load_azure()[0])
+        cvoices = _film_char_voices(spec, data.get("char_voices") or {},
+                                    prefer_azure=has_azure)
+
+        # giọng DẪN: có Azure thì dùng Azure (diễn cảm xúc); người dùng ép edge thì vẫn tôn trọng
+        narr_voice = base_voice
+        if has_azure and not base_voice.startswith("azure:"):
+            narr_voice = "azure:zh-CN-XiaoxiaoNeural"       # giọng diễn cảm xúc giàu nhất (lyrical/sad/…)
+        narr_az = _azure_for(narr_voice)
+
+        # DAO DIEN THOAI + CẢM XÚC: thoại -> nhân vật đọc câu thoại; câu có tag {emo} -> diễn đúng
+        # cảm xúc (Azure express-as). Câu buồn/nghẹn -> chậm + nghỉ dài hơn.
+        names = list(cvoices)
+        SLOW_EMO = {"sad", "sorrow", "tender", "lyrical"}
+        for sc in scenes:
+            for s in sc["subs"]:
+                hz = s["hz"]
+                emo_name = s.get("emo_name") or ""
+                dlg = _fl_split(hz, names) if film_mode else None
+                if dlg:
+                    who, quote = dlg
+                    s["tts"] = quote
+                    s["pad"] = 0.4
+                else:
+                    who = _fl_tag(hz, names) if names else None
+                    s["pad"] = 0.6
+                    s.setdefault("voice", narr_voice)        # dẫn = giọng Azure ấm
+                    s.setdefault("azure", narr_az)
+                # cảm xúc: tag tay > tự nhận theo từ khoá
+                try:
+                    s["emo"] = generate.emo_by_name(emo_name) if emo_name \
+                        else generate.detect_emotion(s.get("tts") or hz)
+                except Exception:
+                    pass
+                if s.get("emo", {}) and s["emo"].get("name") in SLOW_EMO:
+                    s["pad"] = float(s["pad"]) + 0.6         # câu xúc động: nghỉ lâu hơn cho ngấm
+                if who and who in cvoices:
+                    v = cvoices[who]
+                    s["voice"] = v
+                    s["azure"] = _azure_for(v)
+            if sc["subs"]:                                  # BEAT cuối cảnh
+                sc["subs"][-1]["pad"] = float(sc["subs"][-1].get("pad", 0.6)) + 0.8
+
+        # dung scene model cho film.make_film (+ SFX khong khi tung canh)
+        sfx_specs = data.get("sfx") or []
+        scene_sfx = bool(data.get("scene_sfx", True))
+        fscenes = []
+        for i, sc in enumerate(scenes):
+            clip = clips[i] if i < len(clips) else ""
+            spec = sfx_specs[i] if i < len(sfx_specs) else "auto"
+            sfx = _resolve_sfx(spec, sc["label"]) if scene_sfx else ""
+            fscenes.append({"clip": clip, "subs": sc["subs"], "sfx": sfx,
+                            "narrate": narrate, "keep_audio": keep_audio})
+
+        # NHẠC NỀN: file upload > bed cảm xúc built-in (warm/hope/sad) > không
+        music_file = (data.get("music_file") or "").strip()
+        bed = (data.get("music_bed") or "").strip().lower()
+        if not music_file and bed and bed != "none":
+            try:
+                music_file = _fl.make_music_bed(bed)
+            except Exception:
+                traceback.print_exc()
+        opts = {"voice": base_voice, "azure": base_az,
+                "sub_pinyin": bool(data.get("sub_pinyin", True)),
+                "rate": data.get("rate") or "-8%",
+                "music_file": music_file,
+                "music_vol": float(data.get("music_vol") or 0.16),
+                # nâng cấp điện ảnh
+                "kenburns": bool(data.get("kenburns", True)),
+                "film_mode": film_mode,               # da shot (fake coverage) + thoai dien
+                "roomtone": bool(data.get("roomtone", True)),
+                "transition": (data.get("transition") or "fade"),
+                "grade": bool(data.get("grade", True)),
+                "letterbox": bool(data.get("letterbox", False)),
+                "duck": bool(data.get("duck", True)),
+                "title_card": bool(data.get("title_card", True)),
+                "end_card": bool(data.get("end_card", True)),
+                "film_title": title, "film_header": header}
+
+        total = len(fscenes)
+        jobs[job_id].update(total=total + 2, label="Đang dựng cảnh 1...")
+
+        seg_videos, seg_durs, tsec = [], [], 0.0
+        scene_seg_idx = []                              # segment index của mỗi CẢNH (để tính chapter)
+        # BÌA ĐẦU (title card)
+        if opts["title_card"]:
+            jobs[job_id].update(label="Dựng bìa đầu…")
+            cp, cd = _fl.make_card("title", title, header, dur=3.5, opts=opts)
+            seg_videos.append(cp); seg_durs.append(cd); tsec += cd
+        # DỰNG TỪNG CẢNH (cập nhật tiến độ)
+        for i, sc in enumerate(fscenes):
+            if jobs[job_id].get("cancel"):
+                raise _Cancelled()
+            jobs[job_id].update(done=i, label=f"Dựng cảnh {i+1}/{total}: {scenes[i]['label'] or ''}")
+            vp, dsec = _fl.make_scene(sc, opts, i)
+            scene_seg_idx.append(len(seg_videos))
+            seg_videos.append(vp); seg_durs.append(dsec); tsec += dsec
+        # CARD "HẾT"
+        if opts["end_card"]:
+            cp, cd = _fl.make_card("end", "HẾT", "", dur=3.0, opts=opts)
+            seg_videos.append(cp); seg_durs.append(cd); tsec += cd
+        jobs[job_id].update(done=total, label="Ghép phim + chuyển cảnh + nhạc…")
+
+        out_path = os.path.join(OUT, f"film_{job_id}.mp4")
+        _fl._concat_and_music(seg_videos, opts, out_path, tsec)
+
+        thumb = f"film_{job_id}.thumb.jpg"
+        # ưu tiên 1 ảnh nền SẠCH (không dính phụ đề) làm thumbnail — chọn cảnh giữa cho "đắt"
+        _clean_bg = next((c for c in (clips[len(clips)//2:] + clips) if c and os.path.exists(c)
+                          and not _fl._is_video(c)), None)
+        try:
+            _fl.make_title_thumb(out_path, title, header, os.path.join(OUT, thumb), bg_image=_clean_bg)
+        except Exception:
+            traceback.print_exc()
+            _film_thumb(out_path, os.path.join(OUT, thumb))       # fallback: khung trơn
+        try:
+            with open(out_path + ".meta.json", "w", encoding="utf-8") as f:
+                json.dump({"title": title}, f, ensure_ascii=False)
+        except Exception:
+            pass
+        # CHAPTERS: mốc bắt đầu mỗi segment (bù trừ transition overlap)
+        TD = 0.75 if (opts["transition"] in ("fade", "dissolve") and len(seg_videos) >= 2) else 0.0
+        seg_start, cum = [], 0.0
+        for k, dd in enumerate(seg_durs):
+            seg_start.append(max(0.0, cum - k * TD)); cum += dd
+        scene_starts = [seg_start[si] for si in scene_seg_idx]
+        seo = _film_seo(content, scenes, scene_starts, title, opts["title_card"])
+        # SRT (hanzi / pinyin / viet) — offset mốc câu theo mốc cảnh
+        try:
+            seo.update(_film_srt(fscenes, scene_starts))
+        except Exception:
+            traceback.print_exc()
+        jobs[job_id].update(status="done", video=f"film_{job_id}.mp4",
+                            thumb=(thumb if os.path.exists(os.path.join(OUT, thumb)) else None),
+                            seo=seo, dur=round(tsec, 1), label="Hoàn tất!")
+        _save_job(job_id)
+    except _Cancelled:
+        jobs[job_id].update(status="cancelled", label="⏹ Đã huỷ")
+    except Exception as e:
+        traceback.print_exc()
+        jobs[job_id].update(status="error", error=str(e), label="Lỗi: " + str(e))
+
+
+def _mmss(sec):
+    sec = int(round(sec)); return f"{sec//60}:{sec%60:02d}"
+
+def _film_seo(content, scenes, scene_starts, title, has_title_card):
+    """Sinh SEO YouTube cho phim: mô tả + CHAPTERS (mốc cảnh) + từ vựng (phụ lục sau ---) + hashtag."""
+    # phụ lục sau dòng '---' (từ vựng/mẫu câu) -> đưa vào mô tả cho người học
+    appendix = ""
+    if "---" in content:
+        appendix = content.split("---", 1)[1].strip()
+        appendix = re.sub(r"^#+\s*", "", appendix, flags=re.MULTILINE)   # bỏ dấu ## markdown
+    # chapters (YouTube cần mốc đầu 0:00)
+    ch_lines = ["0:00 Mở đầu"]
+    for i, sc in enumerate(scenes):
+        t = scene_starts[i] if i < len(scene_starts) else 0
+        lab = (sc.get("label") or f"Cảnh {i+1}").strip()
+        if _mmss(t) != "0:00" or i == 0:
+            ch_lines.append(f"{_mmss(t)} {lab}")
+    chapters = "\n".join(dict.fromkeys(ch_lines))         # bỏ trùng mốc 0:00
+    body = (f"🎬 {title}\n"
+            f"Phim tình huống học tiếng Trung — luyện NGHE + đọc chữ Hán, pinyin & nghĩa (HSK 2-3).\n\n"
+            f"⏱ NỘI DUNG PHIM:\n{chapters}\n")
+    if appendix:
+        body += f"\n📚 TỪ VỰNG & MẪU CÂU TRONG PHIM:\n{appendix}\n"
+    body = _append_link(body, PROMO_LINK, lang="vi")     # phim = kênh tiếng Việt
+    tags = ["học tiếng trung", "phim tiếng trung", "tiếng trung giao tiếp", "HSK",
+            "luyện nghe tiếng trung", "chinese short film", "learn chinese", "chinese listening"]
+    hashtags = ["#hoctiengtrung", "#phimtiengtrung", "#tiengtrung", "#HSK", "#learnchinese"]
+    body += "\n\n" + " ".join(hashtags)
+    return {"title": title, "titles": [title], "description": body,
+            "tags": tags, "hashtags": hashtags, "privacy": "public",
+            "chapters": chapters}
+
+
+def _srt_time(sec):
+    sec = max(0, sec); h = int(sec // 3600); m = int(sec % 3600 // 60)
+    s = int(sec % 60); ms = int(round((sec - int(sec)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+def _film_srt(fscenes, scene_starts):
+    """Gộp _subtimes mọi cảnh -> 3 file SRT: hanzi / pinyin / viet (mốc offset theo cảnh)."""
+    import style_pastel as _sp
+    rows = []
+    for i, sc in enumerate(fscenes):
+        off = scene_starts[i] if i < len(scene_starts) else 0
+        for st in sc.get("_subtimes", []):
+            hz = st["hz"]
+            try:
+                py = " ".join(p for _, p, h in _sp.group_units(hz) if p) if hz else ""
+            except Exception:
+                py = ""
+            rows.append((off + st["s"], off + st["e"], hz, py, st.get("vi", "")))
+    def _build(idx):
+        out = []
+        for n, r in enumerate(rows, 1):
+            txt = r[idx]
+            if not txt:
+                continue
+            out.append(f"{n}\n{_srt_time(r[0])} --> {_srt_time(r[1])}\n{txt}\n")
+        return "\n".join(out)
+    return {"srt_hanzi": _build(2), "srt_pinyin": _build(3), "srt_viet": _build(4)}
+
+
+def _fl_tag(hz, names):
+    import lesson_parser as lp
+    return lp._tag_speaker_by_names(hz, names)
+
+
+def _fl_split(hz, names):
+    import film as _fl
+    return _fl.split_dialogue(hz, names)
+
+
+@app.route("/film/make", methods=["POST"])
+def film_make():
+    data = request.get_json(force=True) or {}
+    if not (data.get("content") or "").strip():
+        return jsonify(error="Chưa dán nội dung phim."), 400
+    job_id = str(int(time.time() * 1000))
+    jobs[job_id] = {"done": 0, "total": 1, "label": "Đang xếp hàng...",
+                    "status": "running", "video": None, "error": None, "cancel": False}
+    threading.Thread(target=run_film_job, args=(job_id, data), daemon=True).start()
+    return jsonify(job_id=job_id)
+
 
 if __name__ == "__main__":
     print("\n  ✅ Mở trình duyệt: http://127.0.0.1:5001\n")
