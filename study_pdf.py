@@ -44,7 +44,7 @@ def _parse(content):
             continue
         if re.match(r"^-{3,}$", s):
             in_appendix = True
-            blocks.append(("sec", "📚 Từ vựng & mẫu câu")); continue
+            blocks.append(("sec", "__VOCAB__")); continue      # sentinel -> localize sau
         if s.startswith("@"):
             k, _, v = s[1:].partition(" ")
             k = k.lower().strip()
@@ -72,11 +72,14 @@ _CSS = """
        --card:#fbf8f4; --line:#ece1d5; --sub:#9a8c7d; --bg:#ffffff; }
 *{ box-sizing:border-box; }
 @page{ size:A4; margin:16mm 14mm 18mm;
-  @bottom-center{ content:"Học tiếng Trung mỗi ngày  ·  " counter(page) " / " counter(pages);
+  @bottom-center{ content:"__PAGEFOOT__  ·  " counter(page) " / " counter(pages);
                   font-family:sans-serif; font-size:9px; color:#b7a897; } }
 html,body{ margin:0; background:var(--bg); }
-body{ font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC",
-      -apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--eng); }
+/* Latin/Việt = Arial (nhúng VECTOR); chữ Hán lẫn trong dòng -> fallback Noto/Songti SC (cũng VECTOR).
+   TRÁNH PingFang/Hiragino ở đầu (Chrome nhúng Type3 bitmap -> lỗi glyph khi in PDF). */
+body{ font-family:Arial,"Helvetica Neue","Noto Sans SC","Songti SC",sans-serif; color:var(--eng); }
+/* Chữ Hán: Songti/Noto SC — nhúng VECTOR (CIDFontType2), không lỗi glyph khi in PDF. */
+.han,.hz{ font-family:"Noto Sans SC","Songti SC","Heiti SC",serif; }
 .wrap{ max-width:820px; margin:0 auto; padding:6px 6px 30px; }
 /* ---- COVER ---- */
 .cover{ text-align:center; padding:20px 10px 8px; border-bottom:2px solid var(--accent);
@@ -107,22 +110,45 @@ body{ font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC",
 @media print{ .card,.vocab{ box-shadow:none; } }
 """
 
+# chuỗi cố định theo ngôn ngữ dòng nghĩa (bài EN -> PDF EN, bài VI -> PDF VI)
+_VN_CHARS = set("ăâđêôơưÀÁẢÃẠẰẮẲẴẶẦẤẨẪẬÈÉẺẼẸỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌỒỐỔỖỘỜỚỞỠỢÙÚỦŨỤỪỨỬỮỰỲÝỶỸỴ"
+                "àáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ")
+_STR = {
+    "vi": {"sub": "Hán tự · Pinyin (tô thanh điệu) · Nghĩa — bản học kèm video",
+           "vocab": "📚 Từ vựng & mẫu câu", "foot": "Tài liệu học kèm video — chúc bạn học vui!",
+           "page": "Học tiếng Trung mỗi ngày"},
+    "en": {"sub": "Hanzi · Pinyin (tone-colored) · Meaning — study companion for the video",
+           "vocab": "📚 Vocabulary &amp; Key Sentences", "foot": "Study companion for the video — happy learning!",
+           "page": "Learn Chinese Daily"},
+}
+def _detect_lang(blocks):
+    for b in blocks:
+        txt = b[2] if b[0] == "card" else (b[1] if b[0] == "vocab" else "")
+        for ch in (txt or ""):
+            if ch in _VN_CHARS:
+                return "vi"
+    return "en"
+
 def build_html(content, channel="Học tiếng Trung mỗi ngày", level="HSK · Luyện nghe", link=""):
     meta, blocks = _parse(content)
-    title = meta.get("title") or "Bài đọc tiếng Trung"
+    lang = _detect_lang(blocks)
+    S = _STR[lang]
+    title = meta.get("title") or ("Bài đọc tiếng Trung" if lang == "vi" else "Chinese Reading")
     header = meta.get("header") or f"{channel} · {level}"
     hz_title = meta.get("hanzi", "")
-    parts = [f'<!doctype html><html lang="vi"><head><meta charset="utf-8">',
-             f'<title>{_html.escape(title)}</title><style>{_CSS}</style></head><body><div class="wrap">']
+    css = _CSS.replace("__PAGEFOOT__", S["page"])
+    parts = [f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">',
+             f'<title>{_html.escape(title)}</title><style>{css}</style></head><body><div class="wrap">']
     parts.append('<div class="cover">'
                  f'<div class="kick">{_html.escape(header)}</div>'
                  + (f'<div class="hz">{_html.escape(hz_title)}</div>' if hz_title else "")
                  + f'<h1>{_html.escape(title)}</h1>'
-                 f'<p class="sub">Hán tự · Pinyin (tô thanh điệu) · Nghĩa — bản học kèm video</p>'
+                 f'<p class="sub">{S["sub"]}</p>'
                  '<div class="band"></div></div>')
     for b in blocks:
         if b[0] == "sec":
-            parts.append(f'<div class="sec"><span class="t">{_html.escape(b[1])}</span><span class="l"></span></div>')
+            lab = S["vocab"] if b[1] == "__VOCAB__" else _html.escape(b[1])
+            parts.append(f'<div class="sec"><span class="t">{lab}</span><span class="l"></span></div>')
         elif b[0] == "vocab":
             txt = _html.escape(b[1])
             txt = re.sub(r"^([^—\-(（]+)", r"<b>\1</b>", txt)     # tô đậm từ đứng đầu
@@ -134,7 +160,7 @@ def build_html(content, channel="Học tiếng Trung mỗi ngày", level="HSK ·
                          f'<p class="py">{_pinyin_html(hz)}</p>'
                          + (f'<p class="eng">{_html.escape(vi)}</p>' if vi else "")
                          + '</div>')
-    foot = "Tài liệu học kèm video — chúc bạn học vui!"
+    foot = S["foot"]
     if link:
         foot += f'<br>▶ {_html.escape(link)}'
     parts.append(f'<div class="foot">{foot}</div></div></body></html>')

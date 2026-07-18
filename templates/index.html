@@ -141,6 +141,20 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           font-size:12.5px;padding:4px 10px;border-radius:8px;cursor:pointer">
           🗑 Xoá cache giọng</button>
         <span id="clearCacheMsg" class="hint" style="margin-left:8px"></span>
+        <label style="display:block;margin-top:8px;cursor:pointer;font-weight:400;font-size:13.5px">
+          <input type="checkbox" id="autoVoices" checked>
+          🎭 Tự chia giọng theo nhân vật khi có hội thoại (小明:/小美:…)
+          <span class="hint">— bỏ tick để đọc TẤT CẢ bằng đúng 1 giọng đã chọn ở trên</span></label>
+        <!-- CHỌN GIỌNG TỪNG NHÂN VẬT (mọi engine: edge/azure/eleven) -->
+        <div class="mt" style="background:#faf5ff;border:1px solid #e6d6fb;border-radius:10px;padding:12px">
+          <label style="margin:0">🗣️ Chọn giọng riêng cho từng nhân vật <span class="hint">(tuỳ chọn — mỗi người 1 giọng như đối thoại thật; áp dụng cả Azure/edge/ElevenLabs)</span></label>
+          <button type="button" id="scan_speakers" onclick="scanSpeakers()"
+                  style="margin:6px 0 2px;padding:6px 12px;border:1px solid #c9a6f0;background:#fff;border-radius:8px;cursor:pointer">
+            🔍 Quét người nói trong nội dung
+          </button>
+          <div id="dialogue_voices"></div>
+          <p class="hint" style="margin:8px 0 0">Bấm <b>Quét người nói</b> → tool tìm các nhân vật (小雨, 司机, A, B…) trong phần hội thoại và cho bạn <b>chọn giọng từng người</b>. Đặt tay ở đây sẽ <b>ưu tiên hơn</b> ô "tự chia giọng". Bỏ trống người nào → dùng giọng chính.</p>
+        </div>
       </div>
       <div>
         <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
@@ -484,14 +498,6 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <option value="">— Tải giọng để chọn, hoặc gõ Voice ID bên dưới —</option>
         </select>
         <input type="text" id="eleven_voice" placeholder="Voice ID (tự điền khi chọn ở trên — hoặc gõ tay nếu chưa tải giọng)" style="margin-top:6px">
-        <label style="margin-top:10px">🗣️ Hội thoại nhiều giọng <span class="hint">(tuỳ chọn — mỗi người 1 giọng cho giống đối thoại thật)</span></label>
-        <button type="button" id="scan_speakers" onclick="scanSpeakers()"
-                style="margin:4px 0 2px;padding:6px 12px;border:1px solid #c9a6f0;background:#fff;border-radius:8px;cursor:pointer">
-          🔍 Quét người nói trong nội dung
-        </button>
-        <div id="dialogue_voices"></div>
-        <p class="hint" style="margin:8px 0 0">Bấm <b>Quét người nói</b> → tool tự tìm các nhân vật (A, B, C, D…) trong phần <b>HỘI THOẠI</b> và sinh ô nhập Voice ID cho từng người. Bỏ trống người nào thì người đó dùng giọng mặc định.<br>
-          Lấy key: elevenlabs.io → <b>API Keys</b> → Create. Voice ID lấy ở <b>Voices</b> (mỗi giọng có nút "ID").</p>
       </div>
       <div class="mt switch">
         <input type="checkbox" id="mascot_motion" checked>
@@ -702,8 +708,17 @@ let MS_VOICES = [], GM_VOICES = [];
 (function(){
   document.querySelectorAll('#voice option').forEach(o=>{
     if(o.value.startsWith('edge:')) MS_VOICES.push({id:o.value.slice(5), name:o.textContent.trim()});
+    if(o.value.startsWith('azure:')) MS_VOICES.push({id:o.value.slice(6), name:o.textContent.trim()});
     if(o.value.startsWith('gemini:')) GM_VOICES.push({id:o.value.slice(7), name:o.textContent.trim()});
   });
+})();
+// TỰ hiện ô chọn giọng từng nhân vật khi rời ô nội dung (nếu có hội thoại >=2 người)
+(function(){
+  const c=document.getElementById('content');
+  if(c){ c.addEventListener('blur', ()=>scanSpeakers(true));
+         setTimeout(()=>scanSpeakers(true), 300); }        // chạy 1 lần lúc mở (nếu đã có nội dung)
+  const v=document.getElementById('voice');
+  if(v) v.addEventListener('change', ()=>scanSpeakers(true)); // đổi engine -> cập nhật danh sách giọng
 })();
 // engine đang dùng: nếu đã nhập key ElevenLabs + (chọn giọng chính HOẶC đã tải giọng)
 // thì coi như đang dùng ElevenLabs (bất kể dropdown trên cùng) -> người nói chọn giọng EL.
@@ -724,7 +739,8 @@ function dialogueOptions(sel){
 }
 
 // ----- Hội thoại nhiều giọng: quét người nói (A,B,C,D...) trong phần HỘI THOẠI -----
-function scanSpeakers(){
+// auto=true: chỉ hiện ô chọn giọng khi phát hiện >=2 người nói (tự chạy khi rời ô nội dung).
+function scanSpeakers(auto){
   // dò TOÀN BỘ content (khớp backend detect_speakers): nhãn Latin/Hán/vai trò + ':'/'：',
   // bỏ timestamp (00:12), nhãn toàn số, từ khoá metadata.
   const text = document.getElementById('content').value;
@@ -743,7 +759,10 @@ function scanSpeakers(){
     if(!sp || /^\d+$/.test(sp) || NON.has(sp) || NON.has(sp.toLowerCase())) continue;
     if(!speakers.includes(sp)) speakers.push(sp);
   }
-  renderDialogueVoices(speakers.length>=2 ? speakers : speakers);  // hiện cả khi 1 (để user thấy)
+  if(auto && speakers.length<2){                     // auto: chỉ hiện khi CÓ hội thoại (>=2 người)
+    const box=document.getElementById('dialogue_voices'); if(box) box.innerHTML=''; return;
+  }
+  renderDialogueVoices(speakers);
 }
 function renderDialogueVoices(speakers){
   const box = document.getElementById('dialogue_voices');
@@ -853,6 +872,7 @@ async function generate(){
     voice:  (voiceEngine()==='eleven' && _elVoice) ? ('eleven:' + _elVoice)
                                                    : document.getElementById('voice').value,
     rate:   rateValue(),
+    auto_voices: document.getElementById('autoVoices').checked,
     pad:    document.getElementById('pad').value/10,
     comma_pause: document.getElementById('comma_pause').value/100,
     para_gap:    document.getElementById('para_gap').value/10,

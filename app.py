@@ -561,9 +561,14 @@ def run_job(job_id, data):
             auto_speakers = lesson_parser.detect_speakers(data["content"])
             # CHI tu-gan giong khi CHUA khai @voices va CHUA gan tay (tranh "mot dong giong sai").
             # Co @voices -> tin bang khai bao, khong doan mo nua.
-            if (not dialogue_map and not ctx.get("voices")
+            # auto_voices=False (nguoi dung tat) -> DUNG 1 GIONG DA CHON cho tat ca (khong tu chia).
+            # auto_voices=True -> nhan vat CHON TAY (dialogue_map) duoc uu tien, con lai TU GAN.
+            auto_voices = bool(data.get("auto_voices", True))
+            if (auto_voices and not ctx.get("voices")
                     and auto_speakers and engine in ("edge", "azure")):
-                dialogue_map = lesson_parser.assign_speaker_voices(auto_speakers)
+                auto_map = lesson_parser.assign_speaker_voices(auto_speakers)
+                for _sp, _v in auto_map.items():
+                    dialogue_map.setdefault(_sp, _v)          # chon tay thang, auto lap cho chua chon
                 jobs[job_id]["label"] = (f"Tự nhận diện {len(auto_speakers)} người nói, "
                                          "đã gán giọng…")
             elif ctx.get("voices"):
