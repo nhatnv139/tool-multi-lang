@@ -1,0 +1,19 @@
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:5001
+Press CTRL+C to quit
+127.0.0.1 - - [26/Jul/2026 09:59:19] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 09:59:19] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 09:59:26] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 09:59:26] "GET /youtube HTTP/1.1" 404 -
+127.0.0.1 - - [26/Jul/2026 09:59:26] "GET /film HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 09:59:26] "GET /short HTTP/1.1" 404 -
+127.0.0.1 - - [26/Jul/2026 09:59:26] "GET /podcast HTTP/1.1" 404 -
+127.0.0.1 - - [26/Jul/2026 09:59:26] "GET /social HTTP/1.1" 404 -
+127.0.0.1 - - [26/Jul/2026 10:00:17] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 10:00:17] "GET /brand_status HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 10:00:17] "GET /favicon.ico HTTP/1.1" 404 -
+127.0.0.1 - - [26/Jul/2026 10:00:17] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 10:00:18] "GET /brand_status HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 10:00:25] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 10:00:25] "GET /brand_status HTTP/1.1" 200 -
+127.0.0.1 - - [26/Jul/2026 10:00:26] "GET /favicon.ico HTTP/1.1" 404 -

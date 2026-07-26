@@ -260,17 +260,31 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
               <option value="bamboo">🎋 Thẻ tre cổ thư — bó trúc giản buộc dây</option>
               <option value="paper">📓 Vở kẻ ô — giấy caro + bút dạ quang + băng washi</option>
             </optgroup>
+            <optgroup label="── Mẫu kênh podcast lớn ──">
+              <option value="postcard">💌 Bưu thiếp — thanh tiêu đề cam bo tròn + pinyin nghiêng (studio ấm)</option>
+              <option value="showhead">🎙️ Đầu trang podcast — tên chương trình + sóng âm + chữ "Podcast" (Chinese Daily)</option>
+              <option value="halfleft">↖️ Nửa trái — khối chữ bên trái, chừa nhân vật bên phải + khẩu hiệu viết tay</option>
+              <option value="stage">🖼️ Sân khấu — tranh full, 1 dòng chữ nhỏ sát đáy</option>
+            </optgroup>
             <option value="classic">⬜ Bản cũ (classic)</option>
           </select>
         </div>
         <div>
           <label>🈴 Chữ khắc triện đỏ <span class="hint">(2-4 chữ Hán — trống = lấy từ tên kênh)</span></label>
           <input type="text" id="seal_text" placeholder="乐学">
+          <label class="mt">✍️ Chữ viết tay đầu trang <span class="hint">(biến thể "Đầu trang podcast" — mặc định Podcast)</span></label>
+          <input type="text" id="show_word" placeholder="Podcast">
         </div>
       </div>
       <div class="row mt">
         <div>
-          <label>🔤 Kiểu pinyin</label>
+          <label>🌑 Bóng đổ sau chữ</label>
+          <select id="text_shadow">
+            <option value="" selected>Tự động (chỉ đổ bóng khi có ảnh nền)</option>
+            <option value="off">Tắt hẳn — chữ sạch, nét gọn</option>
+            <option value="on">Bật luôn — chữ nổi hơn trên nền rối</option>
+          </select>
+          <label class="mt">🔤 Kiểu pinyin</label>
           <select id="pinyin_mode">
             <option value="">Tự động theo biến thể</option>
             <option value="ruby" selected>Trên TỪNG chữ Hán (kiểu Chinese Daily)</option>
@@ -798,7 +812,10 @@ document.getElementById('podcast_layout').addEventListener('change', function(){
 const PC_VARIANT_ALPHA = {inkwash:165, scroll:210, album:228, minimal:0, night:200, classic:150,
                           daily:0, flat:0, clean:0, top:0,
                           lantern:240, porcelain:242, board:248, card:255,
-                          song:246, bamboo:255, paper:255};
+                          song:246, bamboo:255, paper:255,
+                          postcard:0, showhead:0, halfleft:0, stage:0};
+// bien the "kenh lon" nao nen bat san thanh chan (bottom bar) cho dung mau
+const PC_VARIANT_BAR = {showhead:true};
 // dong bo o hex <-> bang chon mau (2 chieu)
 function bindColor(id){
   var t=document.getElementById(id), p=document.getElementById(id+'_pick');
@@ -811,6 +828,10 @@ function bindColor(id){
 ['zh_color','py_color','vi_color','panel_color','bar_bg'].forEach(bindColor);
 function pcVariantChanged(){
   const v = document.getElementById('podcast_variant').value;
+  if(PC_VARIANT_BAR[v]){            // mau can thanh chan -> bat san cho dung bo cuc
+    const bb = document.getElementById('bottom_bar');
+    if(bb && !bb.checked){ bb.checked = true; bb.dispatchEvent(new Event('change')); }
+  }
   const a = PC_VARIANT_ALPHA[v]; if(a===undefined) return;
   const s = document.getElementById('panel_alpha');
   s.value = a; document.getElementById('panel_alpha_lbl').textContent = a;
@@ -892,6 +913,8 @@ async function generate(){
     podcast_layout: document.getElementById('podcast_layout').checked,
     podcast_variant: document.getElementById('podcast_variant').value,
     pinyin_mode: document.getElementById('pinyin_mode').value,
+    show_word: document.getElementById('show_word').value.trim(),
+    text_shadow: document.getElementById('text_shadow').value,
     waveform: document.getElementById('waveform').value,
     fx: document.getElementById('fx').value,
     zh_px: document.getElementById('zh_px').value,
@@ -1051,8 +1074,8 @@ async function poll(id){
     'podcast_frame','theme','character','mascot','channel','infobar','music','music_vol',
     'eleven_model','eleven_voice','mascot_motion','ai_mascot','image_prompt',
     'intro_outro','use_intro','use_outro',
-    'podcast_variant','seal_text','pinyin_top','show_progress','repeat_slow','replay_loop',
-    'pinyin_mode','waveform','fx','zh_px','py_px','vi_px','emotion_auto',
+    'podcast_variant','seal_text','show_word','pinyin_top','show_progress','repeat_slow','replay_loop',
+    'pinyin_mode','text_shadow','waveform','fx','zh_px','py_px','vi_px','emotion_auto',
     'custom_colors','zh_color','py_color','vi_color','panel_color','bottom_bar','bar_left','bar_badge','bar_bg'];
   function $(id){return document.getElementById(id);}
   function isChk(el){return el&&el.type==='checkbox';}

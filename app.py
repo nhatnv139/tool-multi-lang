@@ -609,7 +609,11 @@ def run_job(job_id, data):
                 "tone_colors": bool(data.get("tone_colors", True)),
                 "podcast_frame": bool(data.get("podcast_frame", True)),
                 "seal_text": (data.get("seal_text") or "").strip(),
+                # chu viet tay dau trang cua bien the "showhead" (mac dinh: Podcast)
+                "show_word": (data.get("show_word") or "").strip(),
                 "pinyin_mode": (data.get("pinyin_mode") or "").strip(),
+                # bong do sau chu: ''=tu dong (chi khi co anh nen) / 'on' / 'off'
+                "text_shadow": (data.get("text_shadow") or "").strip(),
                 "waveform": (data.get("waveform") or "auto").strip(),
                 "fx": (data.get("fx") or "").strip(),
                 "zh_px": _px_opt(data.get("zh_px")),
