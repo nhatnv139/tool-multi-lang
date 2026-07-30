@@ -74,6 +74,12 @@
           {% if azure_ready %}<optgroup label="Azure HD / Omni / MAI (xịn — cần key)">
           {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>{% endif %}
+          <optgroup label="🇻🇳 Tiếng Việt — VieNeu local (offline free)">
+          {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="🇻🇳 Tiếng Việt — cloud">
+          {% for v,lbl in vi_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
         </select>
       </div>
       <div style="flex:0 0 150px">

@@ -116,6 +116,12 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       <div>
         <label>🎙️ Giọng đọc tiếng Trung</label>
         <select id="voice">
+          <optgroup label="🇻🇳 Tiếng Việt — VieNeu local (offline, free, không quota)">
+            {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="🇻🇳 Tiếng Việt — cloud (edge free / Azure / Gemini)">
+            {% for v,lbl in vi_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
           <optgroup label="🔥 Tự nhiên + Free (ChatTTS local - chạy trên máy, hơi chậm)">
             {% for v,lbl in chattts_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
@@ -154,6 +160,18 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           </button>
           <div id="dialogue_voices"></div>
           <p class="hint" style="margin:8px 0 0">Bấm <b>Quét người nói</b> → tool tìm các nhân vật (小雨, 司机, A, B…) trong phần hội thoại và cho bạn <b>chọn giọng từng người</b>. Đặt tay ở đây sẽ <b>ưu tiên hơn</b> ô "tự chia giọng". Bỏ trống người nào → dùng giọng chính.</p>
+        </div>
+        <div class="mt">
+          <label>🇻🇳 Giọng đọc tiếng Việt <span class="hint">— đọc phần lời dịch / nội dung tiếng Việt (giọng trên đọc tiếng Trung)</span></label>
+          <select id="voice_vi">
+            <option value="">Tự động (Hoài My edge · giọng đa ngữ thì đọc luôn cả 2 thứ tiếng)</option>
+            <optgroup label="🇻🇳 VieNeu local (offline, free, không quota)">
+              {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="🇻🇳 Cloud (edge free / Azure / Gemini)">
+              {% for v,lbl in vi_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+            </optgroup>
+          </select>
         </div>
       </div>
       <div>
@@ -433,6 +451,10 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <label class="switch" style="margin-top:6px;font-size:13px">
             <input type="checkbox" id="bg_by_scene">
             🎬 Gán nền <b>theo phân cảnh</b> (mỗi mục <code>#</code> trong bài = 1 nền, theo thứ tự) — bỏ tick = chia đều theo thời lượng
+          </label>
+          <label class="switch" style="margin-top:6px;font-size:13px">
+            <input type="checkbox" id="hide_section_slides">
+            🚫 <b>Ẩn thẻ tiêu đề phân cảnh</b> (vẫn đổi nền đúng mốc <code>#</code>, chỉ bỏ slide chữ ~1.6s mỗi cảnh)
           </label>
         </div>
       </div>
@@ -752,6 +774,31 @@ function dialogueOptions(sel){
   return o;
 }
 
+// Lọc mệnh đề TƯỜNG THUẬT (老师说/她想/妈妈说…) khỏi danh sách người nói — khớp backend.
+const _NARR_V1="说问答喊叫道想笑应叹哭写";
+const _NARR_V2=["补充","解释","回答","回应","插话","嘟囔","咕哝","嘀咕","告诉","表示","提醒","强调","反问","追问","感叹","点头","摇头","摆手","耸肩","写着"];
+const _NARR_TAIL="我你他她它们咱俺着了过道", _PRON="我你他她它咱俺";
+function _isNarration(sp){
+  if(_PRON.includes(sp[0])) return true;
+  let s=sp;
+  while(s.length>1 && _NARR_TAIL.includes(s[s.length-1])) s=s.slice(0,-1);
+  if(s && _NARR_V1.includes(s[s.length-1])) return true;
+  return _NARR_V2.some(v=>s.endsWith(v));
+}
+// Đoán giới tính nhân vật -> gợi ý chọn giọng nam/nữ.
+const _FEM_HAN=new Set("雨丽娜婷芳燕玲莉娟静秀红梅兰珍春花雪琴霞凤蕾欣怡颖琳云悦佳慧洁妍柔萍嫣媛璐妮");
+const _MALE_HAN=new Set("明强伟军磊勇刚峰涛斌波辉杰俊浩宇航昊鹏龙飞建国华");
+const _FEM_EN=new Set(["sarah","emma","anna","mary","lisa","aria","rachel","linda","lan","hoa"]);
+const _NEU=new Set(["记者","主持人","主播","专家","host","guest","mc","khách","người dẫn"]);
+function _guessGender(n){
+  if(!n) return ''; const low=n.toLowerCase();
+  if(_NEU.has(n)||_NEU.has(low)) return '';
+  const last=n[n.length-1];
+  if(_FEM_HAN.has(last)) return '👩 nữ';
+  if(_MALE_HAN.has(last)) return '👨 nam';
+  if(_FEM_EN.has(low)) return '👩 nữ';
+  return '';
+}
 // ----- Hội thoại nhiều giọng: quét người nói (A,B,C,D...) trong phần HỘI THOẠI -----
 // auto=true: chỉ hiện ô chọn giọng khi phát hiện >=2 người nói (tự chạy khi rời ô nội dung).
 function scanSpeakers(auto){
@@ -771,6 +818,7 @@ function scanSpeakers(auto){
     if(!m) continue;
     const sp = m[1].trim();
     if(!sp || /^\d+$/.test(sp) || NON.has(sp) || NON.has(sp.toLowerCase())) continue;
+    if(_isNarration(sp)) continue;                       // bỏ 老师说/她想/妈妈说… (tường thuật)
     if(!speakers.includes(sp)) speakers.push(sp);
   }
   if(auto && speakers.length<2){                     // auto: chỉ hiện khi CÓ hội thoại (>=2 người)
@@ -791,8 +839,9 @@ function renderDialogueVoices(speakers){
     const ctrl = useInput
       ? `<input type="text" data-sp="${sp}" value="${prev[sp]||''}" placeholder="Voice ID cho ${sp} (ElevenLabs) — hoặc bấm 'Tải giọng của tôi'">`
       : `<select data-sp="${sp}">${dialogueOptions(prev[sp]||'')}</select>`;
+    const g = _guessGender(sp);
     return `<div class="row" style="margin-top:6px;align-items:center">`+
-      `<div style="flex:0 0 96px">🗣️ Người <b>${sp}</b></div>`+
+      `<div style="flex:0 0 130px">🗣️ <b>${sp}</b>${g?`<br><span class="hint">${g}</span>`:''}</div>`+
       `<div style="flex:1">${ctrl}</div>`+
     `</div>`;
   }).join('');
@@ -892,6 +941,7 @@ async function generate(){
     // đã chọn giọng ElevenLabs -> dùng ElevenLabs (bất kể dropdown trên cùng)
     voice:  (voiceEngine()==='eleven' && _elVoice) ? ('eleven:' + _elVoice)
                                                    : document.getElementById('voice').value,
+    voice_vi: document.getElementById('voice_vi').value,
     rate:   rateValue(),
     auto_voices: document.getElementById('autoVoices').checked,
     pad:    document.getElementById('pad').value/10,
@@ -954,6 +1004,7 @@ async function generate(){
     bg_image:  uploaded.bg,
     bg_images: uploaded.bgs,
     bg_by_scene: document.getElementById('bg_by_scene').checked,
+    hide_section_slides: document.getElementById('hide_section_slides').checked,
     music_file: uploaded.music,
     music_vol: document.getElementById('music_vol').value/100,
     chattts_style: document.getElementById('chattts_style').value,

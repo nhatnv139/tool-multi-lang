@@ -666,13 +666,45 @@ def _edge_voice(voice):
     """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh."""
     return voice if (voice and "-" in voice and "Neural" in voice) else VOICE_ZH
 
+# ---------- VieNeu-TTS local (tieng Viet, offline, free) ----------
+# Dispatch theo TIEN TO ten giong ("vieneu:Thanh Bình") -> khong can them tham so
+# vao synth()/synth_timed() va moi call site (film.py, short_native.py...) tu chay.
+VIENEU_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         ".venv-vieneu", "bin", "python")
+VIENEU_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vieneu_tts.py")
+
+def _is_vieneu(voice):
+    return isinstance(voice, str) and voice.startswith("vieneu:")
+
+def synth_vieneu(text, voice, path, rate="-8%"):
+    """VieNeu v3 Turbo qua .venv-vieneu (Python 3.11, ONNX CPU). voice = ten preset
+       ('Thanh Bình'...). Helper ghi wav 48k -> ffmpeg mp3 24k + atempo theo rate."""
+    if not os.path.exists(VIENEU_PY):
+        raise RuntimeError("Chua cai VieNeu. Chay trong thu muc du an: "
+                           "uv venv -p 3.11 .venv-vieneu && "
+                           "uv pip install -p .venv-vieneu/bin/python vieneu soundfile")
+    w = path + ".vieneu.wav"
+    subprocess.run([VIENEU_PY, VIENEU_HELPER, "--voice", voice, "--out", w],
+                   input=text.encode("utf-8"), check=True, timeout=600,
+                   capture_output=True)
+    try:
+        pct = float(str(rate).replace("%", "").replace("+", ""))
+    except Exception:
+        pct = 0.0
+    tempo = max(0.5, min(2.0, 1.0 + pct / 100.0))
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", w,
+                    "-af", f"atempo={tempo}", "-ar", "24000", "-ac", "1",
+                    "-b:a", "96k", path], check=True)
+    os.remove(w)
+
 def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
           gemini=None, emo=None):
     """Giong doc co cache. chattts -> ChatTTS local; eleven=key -> ElevenLabs;
        gemini=key -> Gemini TTS; azure=(key,region) -> Azure; con lai -> edge-tts.
        emo (detect_emotion): doc bieu cam theo cam xuc cau — doi toc do/cao do/style.
        ChatTTS loi -> fallback edge."""
-    eng = ("ct-" + str(chattts)) if chattts else \
+    eng = "vn" if _is_vieneu(voice) else \
+          ("ct-" + str(chattts)) if chattts else \
           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
     if emo:
         eng = eng + "~" + emo["name"]          # cache rieng theo cam xuc
@@ -689,6 +721,8 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
         if _is_empty_tts(text):
             print(f"[DEBUG-TTS] synth() cau rong (chi dau cau) -> ghi im lang: {text!r}")
             _silence_mp3(c)
+        elif _is_vieneu(voice):
+            synth_vieneu(text, voice.split(":", 1)[1], c, rate)
         elif chattts:
             try:
                 import chattts_engine
@@ -713,7 +747,8 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
                 gemini=None, emo=None):
     """Ghi mp3 + tra ve list (start,end) cac cau. Co cache. emo: doc bieu cam theo cau.
        chattts/azure/eleven/gemini: khong co moc cau -> [] (fallback rai deu chu)."""
-    eng = ("ct-" + str(chattts)) if chattts else \
+    eng = "vn" if _is_vieneu(voice) else \
+          ("ct-" + str(chattts)) if chattts else \
           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
     if emo:
         eng = eng + "~" + emo["name"]          # cache rieng theo cam xuc
@@ -735,8 +770,11 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
         json.dump([], open(cj, "w", encoding="utf-8"))
         shutil.copyfile(c, path)
         return []
-    if chattts or azure or eleven or gemini:  # khong co moc cau -> [] (rai deu chu)
-        if chattts:
+    if chattts or azure or eleven or gemini or _is_vieneu(voice):
+        # khong co moc cau -> [] (rai deu chu)
+        if _is_vieneu(voice):
+            synth_vieneu(text, voice.split(":", 1)[1], c, rate)
+        elif chattts:
             try:
                 import chattts_engine
                 style = chattts if isinstance(chattts, str) else "warm"
@@ -1535,6 +1573,17 @@ def build(lesson, progress=None):
         _nvid = sum(1 for p in _bg_list if _is_bg_video(p))
         print(f"  [BG] {len(_bg_list)} nguồn nền ({len(_bg_list)-_nvid} ảnh + {_nvid} video) "
               f"— chia đều theo thời lượng")
+
+    # AN THE PHAN CANH: van dem muc '#' de doi nen (o tren), nhung KHONG render slide tieu de.
+    # Dung cho series dai: moi the la ~1.6s man hinh cam, khong giup gi cho nguoi hoc.
+    if ctx.get("hide_section_slides"):
+        _keep = [i for i, s in enumerate(segs) if s.get("type") != "section"]
+        _nhid = len(segs) - len(_keep)
+        if _nhid:
+            if _seg_bg:
+                _seg_bg = [_seg_bg[i] for i in _keep]
+            segs = [segs[i] for i in _keep]
+            print(f"  [BG] ẩn {_nhid} thẻ phân cảnh (vẫn giữ mốc đổi nền)")
 
     seg_videos = []
     seg_meta = []          # [{index,type,dur,start,end,hanzi,viet,label}] cho timestamp YouTube

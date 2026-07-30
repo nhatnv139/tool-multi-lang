@@ -50,10 +50,11 @@ _NON_SPEAKER = {"时间", "时长", "时候", "正文", "介绍", "目录", "日
 # Phan biet MENH DE tuong thuat ("陈师傅说：", "心里却想着：", "我又问他：") voi NHAN
 # nguoi noi that ("小明:", "记者:", "A:"). Menh de tuong thuat = chu ngu + dong tu noi/nghi
 # [+ tan ngu/tro tu]; nhan nguoi noi = danh tu rieng ngan.
-_NARR_VERB1 = "说问答喊叫道想笑应叹哭"          # dong tu noi/nghi 1 chu
+_NARR_VERB1 = "说问答喊叫道想笑应叹哭写回"      # dong tu noi/nghi 1 chu (写: '纸条上写着...'; 回: '朋友回：...')
 _NARR_VERB2 = ("补充", "解释", "回答", "回应", "插话", "嘟囔", "咕哝", "嘀咕",
                "告诉", "表示", "提醒", "强调", "反问", "追问", "感叹",
-               "点头", "摇头", "摆手", "耸肩")     # dong tu noi/hanh dong 2 chu
+               "点头", "摇头", "摆手", "耸肩",
+               "回复", "安慰", "惊讶", "吃惊", "沉默", "犹豫", "叹气")  # dong tu noi/hanh dong 2 chu
 _NARR_TAIL = "我你他她它们咱俺着了过道"           # tan ngu (dai tu)/tro tu bam sau dong tu:
                                                  # 问[我], 告诉[你], 想[着], 说[过/道]...
 
@@ -92,6 +93,14 @@ def _is_narration_label(sp):
     # that ('小明','记者','A'), ma la menh de tuong thuat: '我很惊讶', '她大笑起来', '他转过身'...
     # (dong tu co the o GIUA nhu '大笑起来' nen khong the chi neo o cuoi).
     if sp[0] in "我你他她它咱俺":
+        return True
+    # TEN NGUOI NOI THAT luon NGAN: '小明', '记者', '王师傅', '炒锅师傅' (toi da 4 chu).
+    # Dai hon -> chac chan la menh de tuong thuat: '老马安慰自己', '刘主任很吃惊'.
+    if len(sp) > 4:
+        return True
+    # TRO TU / PHO TU khong bao gio nam trong ten rieng -> co mat = menh de tuong thuat:
+    # '阿强愣了一下', '大伟低着头', '小婷很惊讶', '翻译的意思是'.
+    if any(ch in sp for ch in "了着过很的都又也就还才把被"):
         return True
     s = sp
     while len(s) > 1 and s[-1] in _NARR_TAIL:   # bo '他'/'着'/'了'/'道' o cuoi

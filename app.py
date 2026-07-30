@@ -178,6 +178,38 @@ GEMINI_VOICES = [
     ("gemini:Achird",     "Achird — Nam, thân thiện (Gemini)"),
 ]
 
+# Giong TIENG VIET — cho video thuan Viet (ke chuyen, nhan qua, co tich...)
+# edge: free 100% khong can key; azure: dung key da luu; gemini: cac giong da ngu
+# o nhom Gemini ben tren cung doc duoc tieng Viet rat tot (them cau dan cam xuc).
+VI_VOICES = [
+    ("edge:vi-VN-NamMinhNeural",  "Nam Minh — Nam, trầm, kể chuyện ⭐ (edge free)"),
+    ("edge:vi-VN-HoaiMyNeural",   "Hoài My — Nữ, ấm, dễ nghe ⭐ (edge free)"),
+    ("azure:vi-VN-NamMinhNeural", "Nam Minh — Nam (Azure, cần key)"),
+    ("azure:vi-VN-HoaiMyNeural",  "Hoài My — Nữ (Azure, cần key)"),
+    ("gemini:Gacrux",             "Gacrux — Giọng già dặn, hợp truyện xưa ⭐ (Gemini)"),
+    ("gemini:Algenib",            "Algenib — Nam, khàn trầm (Gemini)"),
+]
+
+# Giong VieNeu-TTS v3 Turbo — model TIENG VIET local (offline, free, khong quota).
+# Chay bang .venv-vieneu (Python 3.11) qua vieneu_tts.py; giu nguyen tien to
+# "vieneu:" trong ten giong de generate.synth() tu dispatch.
+VIENEU_VOICES = [
+    ("vieneu:Thanh Bình", "Thanh Bình — Nam Bắc, kể chuyện ⭐ (VieNeu local)"),
+    ("vieneu:Thái Sơn",   "Thái Sơn — Nam Nam, kể chuyện ⭐ (VieNeu local)"),
+    ("vieneu:Ngọc Linh",  "Ngọc Linh — Nữ Bắc, kể chuyện (VieNeu local)"),
+    ("vieneu:Thục Đoan",  "Thục Đoan — Nữ Nam, kể chuyện (VieNeu local)"),
+    ("vieneu:Phạm Tuyên", "Phạm Tuyên — Nam Bắc, tự nhiên (VieNeu local)"),
+    ("vieneu:Xuân Vĩnh",  "Xuân Vĩnh — Nam Nam, tự nhiên (VieNeu local)"),
+    ("vieneu:Trúc Ly",    "Trúc Ly — Nữ Bắc, tự nhiên (VieNeu local)"),
+    ("vieneu:Đoan Trang", "Đoan Trang — Nữ Bắc, tự nhiên (VieNeu local)"),
+    ("vieneu:Quang Sơn",  "Quang Sơn — Nam Trung, tự nhiên (VieNeu local)"),
+    ("vieneu:Ngọc Trân",  "Ngọc Trân — Nữ Trung, tự nhiên (VieNeu local)"),
+    ("vieneu:Minh Đức",   "Minh Đức — Nam Bắc, tin tức (VieNeu local)"),
+    ("vieneu:Mai Anh",    "Mai Anh — Nữ Bắc, tin tức (VieNeu local)"),
+    ("vieneu:Minh Triết", "Minh Triết — Nam Nam, tin tức (VieNeu local)"),
+    ("vieneu:Thùy Dung",  "Thùy Dung — Nữ Nam, tin tức (VieNeu local)"),
+]
+
 AZURE_CFG = os.path.join(ROOT, "azure_config.json")
 def load_azure():
     try:
@@ -358,6 +390,7 @@ def index():
                            azure_voices=AZURE_VOICES, chattts_voices=CHATTTS_VOICES,
                            chattts_styles=CHATTTS_STYLES, eleven_voices=ELEVEN_VOICES,
                            edge_ml_voices=EDGE_ML_VOICES, gemini_voices=GEMINI_VOICES,
+                           vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES,
                            rates=RATES, themes=THEMES, mascots=MASCOTS, moods=MOODS,
                            azure_key=akey, azure_region=aregion,
                            eleven_key=load_eleven(), bg_saved=load_bg(),
@@ -549,6 +582,31 @@ def run_job(job_id, data):
                                        "Hãy nhập ở mục 'Giọng Google Gemini'.")
                 save_gemini(gemini_key)                # luu de lan sau khoi nhap
                 voice_vi = vname                       # 1 giong da ngu: doc ca Trung + Viet
+            elif engine == "vieneu":
+                # VieNeu local (tieng Viet): GIU tien to trong ten giong ->
+                # generate.synth() tu nhan "vieneu:" va goi model local.
+                vname = "vieneu:" + vname
+                voice_vi = vname
+
+            # GIONG TIENG VIET chon rieng (dropdown "Giọng đọc tiếng Việt") —
+            # ghi de moi mac dinh o tren. "vieneu:" giu tien to (synth tu dispatch);
+            # edge/azure bo tien to (di theo engine chinh); gemini: giong da ngu,
+            # chi hop khi engine chinh cung la gemini (khac engine -> bo qua, giu auto).
+            vi_sel = (data.get("voice_vi") or "").strip()
+            if vi_sel:
+                e2, _, n2 = vi_sel.partition(":")
+                if e2 == "vieneu":
+                    voice_vi = "vieneu:" + n2
+                elif e2 == "gemini":
+                    if engine == "gemini":
+                        voice_vi = n2
+                    else:
+                        jobs[job_id]["label"] = ("Giọng Việt Gemini cần engine chính "
+                                                 "cũng là Gemini — dùng giọng Việt tự động.")
+                else:
+                    # edge:/azure: vi-VN-* la CUNG giong Microsoft -> bo tien to,
+                    # doc theo engine chinh (edge free hay Azure deu co giong nay)
+                    voice_vi = n2
 
             # Hoi thoai nhieu giong (MOI engine): map {nguoi_noi: voice}
             # voice = ten giong edge (vd zh-CN-YunjianNeural) hoac voice_id ElevenLabs,
@@ -638,6 +696,7 @@ def run_job(job_id, data):
                 "bg_images": [p.strip() for p in (data.get("bg_images") or [])
                               if isinstance(p, str) and p.strip()],
                 "bg_by_scene": bool(data.get("bg_by_scene")),
+                "hide_section_slides": bool(data.get("hide_section_slides")),
                 "music_file": (data.get("music_file") or "").strip(),
                 "out_name":  slugify(ctx["title"]) + "_" + job_id,
             })
@@ -923,7 +982,8 @@ def yt_connect():
 @app.route("/shorts")
 def shorts_page():
     return render_template("shorts.html", edge_voices=EDGE_VOICES, promo_link=PROMO_LINK,
-                           azure_voices=AZURE_VOICES, azure_ready=bool(load_azure()[0]))
+                           azure_voices=AZURE_VOICES, azure_ready=bool(load_azure()[0]),
+                           vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES)
 
 @app.route("/shorts/extract", methods=["POST"])
 def shorts_extract():
@@ -1564,7 +1624,8 @@ def film_page():
     return render_template("film.html", edge_voices=EDGE_VOICES, promo_link=PROMO_LINK,
                            azure_voices=AZURE_VOICES, azure_ready=bool(akey),
                            gemini_ready=bool(load_gemini()),
-                           together_ready=bool(_load_together_key()))
+                           together_ready=bool(_load_together_key()),
+                           vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES)
 
 
 @app.route("/film/parse", methods=["POST"])
