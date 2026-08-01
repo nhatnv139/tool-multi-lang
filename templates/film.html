@@ -54,7 +54,7 @@
 
   <!-- 1. NOI DUNG -->
   <div class="card">
-    <label>① Kịch bản phim <span class="hint">— dán content.md (có @title, @voices, chia cảnh bằng dòng <code>#</code>, mỗi câu <code>汉字 | nghĩa</code>)</span></label>
+    <label>① Kịch bản phim <span class="hint">— dán content.md (có @title, @voices, chia cảnh bằng dòng <code>#</code>, mỗi câu <code>汉字 | nghĩa</code>). <b>Phim kể chuyện tiếng Việt:</b> viết câu tiếng Việt trơn (không cần <code>|</code>), thêm <code>@bg prompt ảnh</code> dưới mỗi dòng <code>#</code> — tool tự nhận, tự chuyển giọng Việt, tắt pinyin</span></label>
     <textarea id="content" placeholder="@title Cái Bàn Nhầm&#10;@voices 小明=nam, 小美=nữ&#10;&#10;# Cảnh 1 — Quán cà phê&#10;今天，小明第一次去相亲。 | Hôm nay, Tiểu Minh lần đầu đi xem mắt。&#10;..."></textarea>
     <div class="mt">
       <button class="btn-ghost" type="button" onclick="parseScenes()">🎞️ Phân tích cảnh → nhận ô upload nền</button>
@@ -80,7 +80,34 @@
           <optgroup label="🇻🇳 Tiếng Việt — cloud">
           {% for v,lbl in vi_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
+          <optgroup label="🔥 FPT.AI — thuần Việt, dân kể chuyện dùng nhiều nhất (free 100k ký tự/tháng{{ '' if fpt_ready else ', cần key' }})">
+          {% for v,lbl in fpt_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="🏆 Vbee — giọng 'Anh Khôi' các kênh kể chuyện nhân quả dùng{{ '' if vbee_ready else ' (cần token + app_id)' }}">
+          {% for v,lbl in vbee_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="💎 THẬT nhất — ElevenLabs (đa ngữ, đọc Việt hay{{ '' if eleven_ready else ', cần key' }})">
+          {% for v,lbl in eleven_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          </optgroup>
         </select>
+        <div class="hint mt" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          🔑 Giọng xịn:
+          <input type="password" id="fpKey" placeholder="FPT.AI key (fpt.ai — free 100k ký tự/tháng)"
+                 style="flex:1;min-width:170px" value="{{ '••••••••' if fpt_ready else '' }}">
+          <button class="btn-ghost" type="button" onclick="saveKey('fpt','fpKey')">Lưu</button>
+          <input type="password" id="gmKey" placeholder="Gemini key (aistudio.google.com — free)"
+                 style="flex:1;min-width:170px" value="{{ '••••••••' if gemini_ready else '' }}">
+          <button class="btn-ghost" type="button" onclick="saveKey('gemini','gmKey')">Lưu</button>
+          <input type="password" id="elKey" placeholder="ElevenLabs key (elevenlabs.io — free 10k ký tự/tháng)"
+                 style="flex:1;min-width:170px" value="{{ '••••••••' if eleven_ready else '' }}">
+          <button class="btn-ghost" type="button" onclick="saveKey('eleven','elKey')">Lưu</button>
+          <input type="password" id="vbToken" placeholder="Vbee token (vbee.vn → API — trả phí theo ký tự)"
+                 style="flex:1;min-width:170px" value="{{ '••••••••' if vbee_ready else '' }}">
+          <input type="text" id="vbAppId" placeholder="Vbee app_id"
+                 style="flex:0 0 140px" value="{{ '••••••••' if vbee_ready else '' }}">
+          <button class="btn-ghost" type="button" onclick="saveVbee()">Lưu</button>
+          <span id="keySt"></span>
+        </div>
       </div>
       <div style="flex:0 0 150px">
         <label>⏩ Tốc độ</label>
@@ -153,7 +180,7 @@
         </select>
         <span class="hint">
           Prompt đã tối ưu (câu tự nhiên → ảnh đẹp hơn). Muốn <b>nét hơn nữa</b>: đăng ký free ở
-          <code>auth.pollinations.ai</code> → lưu <code>pollinations_config.json</code> {"token":"…"} để mở lại model <b>FLUX</b>
+          <code>enter.pollinations.ai</code> → lưu <code>pollinations_config.json</code> {"token":"…"} để mở lại model <b>FLUX</b>
           (mặc định ẩn danh dùng Sana). Google/Together đã bỏ free-tier ảnh.
         </span>
       </div>
@@ -161,6 +188,7 @@
         <label style="margin:0">🎨 Phong cách</label>
         <select id="bgStyle" style="flex:0 0 220px">
           <option value="2d">2D minh hoạ ấm (khớp phim)</option>
+          <option value="story">Truyện kể — có nhân vật (theo @bg)</option>
           <option value="anime">Anime (Ghibli)</option>
           <option value="photo">Điện ảnh thật (photo)</option>
           <option value="ink">Thuỷ mặc Trung Hoa</option>
@@ -178,7 +206,12 @@
 
   <!-- TIEN DO + KET QUA -->
   <div class="card mt" id="progCard" style="display:none">
-    <div class="st-line" id="progLbl">Đang xử lý…</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="st-line grow" id="progLbl" style="flex:1">Đang xử lý…</div>
+      <button class="btn-ghost" type="button" id="stopBtn" onclick="stopFilm()"
+              style="flex:none;color:#c0392b">⏹ Dừng</button>
+    </div>
+    <div class="warn" id="progNote" style="display:none"></div>
     <div class="bar"><i id="progBar"></i></div>
   </div>
   <div class="card" id="resCard" style="display:none">
@@ -229,6 +262,7 @@ async function parseScenes(){
   SCENES=j.scenes; CLIPS=new Array(SCENES.length).fill(''); SEEDS=new Array(SCENES.length).fill(0);
   SFXKINDS=j.sfx_kinds||{}; SFXUP=new Array(SCENES.length).fill('');
   st.innerHTML='<span class="ok">✓ '+SCENES.length+' cảnh'+(j.voices.length?(' · '+j.voices.length+' nhân vật: '+j.voices.join(', ')):'')+'</span>';
+  if(j.has_bg) document.getElementById('bgStyle').value='story';   // kịch bản có @bg (tả nhân vật) -> style truyện kể
   document.getElementById('noScenes').style.display='none';
   document.getElementById('aibar').style.display='flex';
   renderScenes();
@@ -308,11 +342,30 @@ function reroll(i){ SEEDS[i]=Math.floor(Math.random()*1e6); genOne(i); }
 
 async function genAll(){
   const st=document.getElementById('aiAllSt');
-  let done=0, todo=[];
+  let todo=[];
   SCENES.forEach((s,i)=>{ if(!CLIPS[i]) todo.push(i); });
   if(!todo.length){ st.textContent='Mọi cảnh đã có nền.'; return; }
-  for(const i of todo){ st.textContent='⏳ '+(++done)+'/'+todo.length+' …'; await genOne(i); }
-  st.innerHTML='<span class="ok">✓ xong '+todo.length+' cảnh</span>';
+  // SONG SONG: pool 6 anh cung luc (truoc day tuan tu tung anh -> 100+ canh mat ca tieng)
+  const POOL=6;
+  let done=0;
+  async function drain(queue, tag){
+    async function worker(){
+      while(queue.length){
+        const i=queue.shift();
+        await genOne(i);
+        st.textContent='⏳ '+tag+(++done)+'/'+todo.length+' (song song x'+POOL+') …';
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(POOL,queue.length)},worker));
+  }
+  await drain([...todo],'');
+  // vot lai 1 luot nhung canh loi (429/nghen mang)
+  let fail=todo.filter(i=>!CLIPS[i]);
+  if(fail.length){ done=todo.length-fail.length; await drain([...fail],'thử lại '); }
+  fail=todo.filter(i=>!CLIPS[i]);
+  st.innerHTML=fail.length
+    ? '<span class="err">xong '+(todo.length-fail.length)+'/'+todo.length+' — còn '+fail.length+' cảnh lỗi, bấm nút này lần nữa để tạo tiếp</span>'
+    : '<span class="ok">✓ xong '+todo.length+' cảnh</span>';
 }
 
 async function upClip(i, inp){
@@ -365,9 +418,44 @@ async function makeFilm(){
   const r=await fetch('/film/make',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
   if(j.error){ alert(j.error); btn.disabled=false; return; }
+  window._jid=j.job_id;
+  document.getElementById('stopBtn').disabled=false;
+  document.getElementById('stopBtn').textContent='⏹ Dừng';
   document.getElementById('progCard').style.display='block';
   document.getElementById('resCard').style.display='none';
   poll(j.job_id);
+}
+
+async function saveKey(engine, inputId){
+  const v=document.getElementById(inputId).value.trim();
+  const st=document.getElementById('keySt');
+  if(!v||v.startsWith('•')){ st.innerHTML='<span class="err">Dán key mới vào ô trước đã.</span>'; return; }
+  const r=await fetch('/ttskey',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({engine,key:v})});
+  const j=await r.json();
+  st.innerHTML=j.ok?'<span class="ok">✓ đã lưu key '+engine+'</span>'
+                   :'<span class="err">'+(j.error||'lỗi')+'</span>';
+}
+
+async function saveVbee(){
+  const t=document.getElementById('vbToken').value.trim();
+  const a=document.getElementById('vbAppId').value.trim();
+  const st=document.getElementById('keySt');
+  if(!t||t.startsWith('•')||!a||a.startsWith('•')){
+    st.innerHTML='<span class="err">Dán Vbee token + app_id vào 2 ô trước đã.</span>'; return;
+  }
+  const r=await fetch('/ttskey',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({engine:'vbee',key:t,app_id:a})});
+  const j=await r.json();
+  st.innerHTML=j.ok?'<span class="ok">✓ đã lưu Vbee</span>'
+                   :'<span class="err">'+(j.error||'lỗi')+'</span>';
+}
+
+async function stopFilm(){
+  if(!window._jid) return;
+  const b=document.getElementById('stopBtn');
+  b.disabled=true; b.textContent='⏳ đang dừng…';   // job dừng ở cảnh kế tiếp (cảnh đang render phải xong đã)
+  try{ await fetch('/cancel/'+window._jid,{method:'POST'}); }catch(e){}
 }
 
 function copyDesc(){
@@ -378,6 +466,8 @@ function copyDesc(){
 async function poll(jid){
   const r=await fetch('/progress/'+jid); const j=await r.json();
   document.getElementById('progLbl').textContent=j.label||'…';
+  const pn=document.getElementById('progNote');
+  if(j.note){ pn.textContent=j.note; pn.style.display='block'; } else { pn.style.display='none'; }
   const pct=j.total?Math.round((j.done/j.total)*100):0;
   document.getElementById('progBar').style.width=pct+'%';
   if(j.status==='done'){
@@ -396,6 +486,8 @@ async function poll(jid){
   }
   if(j.status==='error'||j.status==='cancelled'){
     document.getElementById('progLbl').innerHTML='<span class="err">'+(j.label||'Lỗi')+'</span>';
+    document.getElementById('stopBtn').disabled=true;
+    document.getElementById('stopBtn').textContent=(j.status==='cancelled'?'⏹ Đã dừng':'⏹ Dừng');
     document.getElementById('goBtn').disabled=false; return;
   }
   setTimeout(()=>poll(jid), 1200);

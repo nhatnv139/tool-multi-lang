@@ -669,8 +669,9 @@ def _edge_voice(voice):
 # ---------- VieNeu-TTS local (tieng Viet, offline, free) ----------
 # Dispatch theo TIEN TO ten giong ("vieneu:Thanh Bình") -> khong can them tham so
 # vao synth()/synth_timed() va moi call site (film.py, short_native.py...) tu chay.
-VIENEU_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         ".venv-vieneu", "bin", "python")
+_VIENEU_VENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv-vieneu")
+VIENEU_PY = (os.path.join(_VIENEU_VENV, "Scripts", "python.exe") if os.name == "nt"
+             else os.path.join(_VIENEU_VENV, "bin", "python"))
 VIENEU_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vieneu_tts.py")
 
 def _is_vieneu(voice):
@@ -681,8 +682,8 @@ def synth_vieneu(text, voice, path, rate="-8%"):
        ('Thanh Bình'...). Helper ghi wav 48k -> ffmpeg mp3 24k + atempo theo rate."""
     if not os.path.exists(VIENEU_PY):
         raise RuntimeError("Chua cai VieNeu. Chay trong thu muc du an: "
-                           "uv venv -p 3.11 .venv-vieneu && "
-                           "uv pip install -p .venv-vieneu/bin/python vieneu soundfile")
+                           "python -m venv .venv-vieneu roi "
+                           f"\"{VIENEU_PY}\" -m pip install vieneu soundfile")
     w = path + ".vieneu.wav"
     subprocess.run([VIENEU_PY, VIENEU_HELPER, "--voice", voice, "--out", w],
                    input=text.encode("utf-8"), check=True, timeout=600,
@@ -697,15 +698,121 @@ def synth_vieneu(text, voice, path, rate="-8%"):
                     "-b:a", "96k", path], check=True)
     os.remove(w)
 
+def synth_fpt(text, voice, path, key, rate="-8%"):
+    """FPT.AI Voicemaker TTS (free 100k ky tu/thang, giong thuan Viet: banmai/leminh/...).
+       API tra ve LINK mp3 lam async -> phai poll toi khi CDN co file that."""
+    try:
+        pct = float(str(rate).replace("%", "").replace("+", ""))
+    except Exception:
+        pct = 0.0
+    speed = str(int(max(-3, min(3, round(pct / 10)))))     # -8% ~ cham nhe -> speed -1
+    req = urllib.request.Request(
+        "https://api.fpt.ai/hmi/tts/v5", data=text.encode("utf-8"),
+        headers={"api-key": key, "voice": voice, "speed": speed})
+    j = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    if j.get("error"):
+        raise RuntimeError(f"FPT TTS loi: {j}")
+    url = j.get("async") or j.get("data") or ""
+    if not url:
+        raise RuntimeError(f"FPT TTS khong tra link mp3: {j}")
+    for _ in range(30):
+        try:
+            data = urllib.request.urlopen(url, timeout=30).read()
+            if len(data) > 1000:               # CDN tra trang loi/rong khi file chua san sang
+                with open(path, "wb") as f:
+                    f.write(data)
+                return
+        except Exception:
+            pass
+        time.sleep(1.0)
+    raise RuntimeError("FPT TTS: mp3 chua san sang sau 30s: " + url)
+
+
+# ---------- Vbee TTS (vbee.vn — thuan Viet, giong ke chuyen "Anh Khoi"...) ----------
+# Dispatch theo TIEN TO "vbee:<voice_code>" (nhu VieNeu) -> khong can them tham so
+# vao synth()/synth_timed() va call site. Can vbee_config.json {"token","app_id"}.
+VBEE_CFG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vbee_config.json")
+
+def _is_vbee(voice):
+    return isinstance(voice, str) and voice.startswith("vbee:")
+
+def _load_vbee():
+    try:
+        d = json.load(open(VBEE_CFG, encoding="utf-8"))
+        return d.get("token", ""), d.get("app_id", "")
+    except Exception:
+        return "", ""
+
+def synth_vbee(text, voice_code, path, rate="-8%"):
+    """Vbee TTS (vbee.vn, tra phi theo ky tu). POST /api/v1/tts (async)
+       -> poll GET /api/v1/tts/{request_id} toi khi SUCCESS -> tai audio_link ve."""
+    token, app_id = _load_vbee()
+    if not (token and app_id):
+        raise RuntimeError("Chua luu Vbee token/app_id (o 'Giong xin' trang phim).")
+    try:
+        pct = float(str(rate).replace("%", "").replace("+", ""))
+    except Exception:
+        pct = 0.0
+    speed = max(0.8, min(1.2, round(1.0 + pct / 100.0, 2)))    # -10% -> 0.9
+    payload = {"app_id": app_id, "response_type": "direct",
+               "input_text": text, "voice_code": voice_code,
+               "audio_type": "mp3", "bitrate": 128, "speed_rate": str(speed)}
+    req = urllib.request.Request(
+        "https://vbee.vn/api/v1/tts", data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": "Bearer " + token,
+                 "Content-Type": "application/json"})
+    try:
+        j = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        raise RuntimeError(f"Vbee TTS loi {e.code}: {detail or e.reason}")
+    res = j.get("result") or {}
+    rid = res.get("request_id") or res.get("id") or ""
+    link = res.get("audio_link") or ""
+    for _ in range(60):
+        if link:
+            try:
+                data = urllib.request.urlopen(link, timeout=30).read()
+                if len(data) > 1000:           # CDN tra trang rong khi chua san sang
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    return
+            except Exception:
+                pass
+        elif rid:
+            q = urllib.request.Request("https://vbee.vn/api/v1/tts/" + str(rid),
+                                       headers={"Authorization": "Bearer " + token})
+            try:
+                rr = (json.loads(urllib.request.urlopen(q, timeout=30).read())
+                      .get("result") or {})
+                st = (rr.get("status") or "").upper()
+                if st == "SUCCESS":
+                    link = rr.get("audio_link") or ""
+                elif st in ("FAILURE", "ERROR", "FAILED"):
+                    raise RuntimeError(f"Vbee TTS bao loi: {rr}")
+            except urllib.error.HTTPError as e:
+                raise RuntimeError(f"Vbee TTS poll loi {e.code}")
+        else:
+            raise RuntimeError(f"Vbee TTS khong tra request_id/audio_link: {j}")
+        time.sleep(1.0)
+    raise RuntimeError("Vbee TTS: qua 60s chua co audio")
+
+
 def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
-          gemini=None, emo=None):
+          gemini=None, emo=None, fpt=None):
     """Giong doc co cache. chattts -> ChatTTS local; eleven=key -> ElevenLabs;
        gemini=key -> Gemini TTS; azure=(key,region) -> Azure; con lai -> edge-tts.
        emo (detect_emotion): doc bieu cam theo cam xuc cau — doi toc do/cao do/style.
        ChatTTS loi -> fallback edge."""
     eng = "vn" if _is_vieneu(voice) else \
+          "vb" if _is_vbee(voice) else \
           ("ct-" + str(chattts)) if chattts else \
-          ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
+          ("fp" if fpt else
+           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed"))))
     if emo:
         eng = eng + "~" + emo["name"]          # cache rieng theo cam xuc
     rate = _emo_rate(rate, emo)
@@ -723,6 +830,8 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
             _silence_mp3(c)
         elif _is_vieneu(voice):
             synth_vieneu(text, voice.split(":", 1)[1], c, rate)
+        elif _is_vbee(voice):
+            synth_vbee(text, voice.split(":", 1)[1], c, rate)
         elif chattts:
             try:
                 import chattts_engine
@@ -733,6 +842,15 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
                 print(f"[ChatTTS khong dung duoc -> chuyen sang edge-tts] {e}")
                 _synth_edge(text, _edge_voice(voice), c, rate,
                             pitch=emo["pitch"] if emo else None)
+        elif fpt:
+            try:
+                synth_fpt(text, voice, c, fpt, rate)
+            except Exception as e:
+                ev = ("vi-VN-NamMinhNeural"
+                      if voice.lower() in ("leminh", "minhquang", "giahuy")
+                      else "vi-VN-HoaiMyNeural")
+                print(f"[FPT TTS loi (het quota?) -> chuyen sang edge {ev}] {e}")
+                _synth_edge(text, ev, c, rate, pitch=emo["pitch"] if emo else None)
         elif gemini:
             synth_gemini(text, voice, c, gemini, rate, emo=emo)
         elif eleven:
@@ -748,6 +866,7 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
     """Ghi mp3 + tra ve list (start,end) cac cau. Co cache. emo: doc bieu cam theo cau.
        chattts/azure/eleven/gemini: khong co moc cau -> [] (fallback rai deu chu)."""
     eng = "vn" if _is_vieneu(voice) else \
+          "vb" if _is_vbee(voice) else \
           ("ct-" + str(chattts)) if chattts else \
           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
     if emo:
@@ -770,10 +889,12 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
         json.dump([], open(cj, "w", encoding="utf-8"))
         shutil.copyfile(c, path)
         return []
-    if chattts or azure or eleven or gemini or _is_vieneu(voice):
+    if chattts or azure or eleven or gemini or _is_vieneu(voice) or _is_vbee(voice):
         # khong co moc cau -> [] (rai deu chu)
         if _is_vieneu(voice):
             synth_vieneu(text, voice.split(":", 1)[1], c, rate)
+        elif _is_vbee(voice):
+            synth_vbee(text, voice.split(":", 1)[1], c, rate)
         elif chattts:
             try:
                 import chattts_engine

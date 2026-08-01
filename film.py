@@ -142,10 +142,12 @@ def _shot_crops(img_path, n, i, tmp):
     outs = []
     for k in range(n):
         m = (k + i) % 4
+        # oy keo LEN TREN (0.40-0.45): mat nhan vat luon o nua tren anh,
+        # crop lech xuong (0.54-0.56 cu) se cat cut dau khi vao trung/can canh.
         if m == 0:   f, ox, oy = 1.00, 0.50, 0.50      # TOAN canh (wide)
-        elif m == 1: f, ox, oy = 0.74, 0.38, 0.54      # TRUNG - lech trai
-        elif m == 2: f, ox, oy = 0.74, 0.62, 0.54      # TRUNG - lech phai
-        else:        f, ox, oy = 0.58, 0.50, 0.56      # CAN - giua
+        elif m == 1: f, ox, oy = 0.80, 0.40, 0.45      # TRUNG - lech trai, neo vung mat
+        elif m == 2: f, ox, oy = 0.80, 0.60, 0.45      # TRUNG - lech phai, neo vung mat
+        else:        f, ox, oy = 0.70, 0.50, 0.40      # CAN - giua, neo phan tren
         cw, ch = int(base_w * f), int(base_h * f)
         x0 = max(0, min(iw - cw, int(ox * iw) - cw // 2))
         y0 = max(0, min(ih - ch, int(oy * ih) - ch // 2))
@@ -159,7 +161,7 @@ def _shot_crops(img_path, n, i, tmp):
 def _clean_voice(voice):
     """Bo tien to engine ('edge:'/'azure:'/...) truoc khi goi generate.synth (giu ten HD nhieu ':')."""
     v = (voice or "zh-CN-XiaoxiaoNeural").strip()
-    for p in ("azure:", "edge:", "eleven:", "gemini:", "chattts:"):
+    for p in ("azure:", "edge:", "eleven:", "gemini:", "chattts:", "fpt:"):
         if v.startswith(p):
             return v[len(p):]
     return v
@@ -171,8 +173,10 @@ def _is_video(p):
 _AIBG = os.path.join(FILM, "aibg")
 os.makedirs(_AIBG, exist_ok=True)
 
+_POLLEN_OUT = [False]   # True khi gen.pollinations.ai bao 402 (het pollen) -> dung endpoint cu
+
 def _pollinations_token():
-    """Token Pollinations (đăng ký free ở auth.pollinations.ai) -> MỞ LẠI model FLUX (đẹp hơn Sana).
+    """Token Pollinations (đăng ký free ở enter.pollinations.ai) -> MỞ LẠI model FLUX (đẹp hơn Sana).
     Đọc từ pollinations_config.json {token} hoặc env POLLINATIONS_TOKEN. Không có -> '' (ẩn danh = Sana)."""
     p = os.path.join(_HERE, "pollinations_config.json")
     if os.path.exists(p):
@@ -198,18 +202,42 @@ def ai_scene_bg(prompt, path=None, seed=0, w=1280, h=720):
     path = path or os.path.join(_AIBG, key + ".jpg")
     if os.path.exists(path) and os.path.getsize(path) > 0:
         return path
-    url = ("https://image.pollinations.ai/prompt/" + urllib.parse.quote(full)
-           + f"?width={w}&height={h}&nologo=true&seed={seed}&model={model}&enhance=true")
+    # 2026: Pollinations tinh phi "pollen" cho endpoint moi gen.pollinations.ai (FLUX).
+    # Het pollen -> 402 -> roi NGAY ve endpoint cu image.pollinations.ai (Sana, van free)
+    # va nho co _POLLEN_OUT de ca batch khoi ton request 402 lap lai.
+    hdrs = {"User-Agent": "Mozilla/5.0"}
     if tok:
-        url += "&token=" + urllib.parse.quote(tok)
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    data = urllib.request.urlopen(req, timeout=180).read()
-    tmp = path + ".part"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    Image.open(tmp).verify()                       # đảm bảo là ảnh hợp lệ (không phải trang lỗi)
-    os.replace(tmp, path)
-    return path
+        hdrs["Authorization"] = "Bearer " + tok
+    q = f"?width={w}&height={h}&nologo=true&seed={seed}"
+    cands = []
+    if tok and not _POLLEN_OUT[0]:
+        cands.append("https://gen.pollinations.ai/image/"
+                     + urllib.parse.quote(full) + q + "&model=flux&enhance=true")
+    cands.append("https://image.pollinations.ai/prompt/"
+                 + urllib.parse.quote(full) + q + "&model=flux&enhance=true")
+    # server co luc nghen/429 -> thu lai voi backoff (8/16/32s) thay vi chet giua phim
+    last = None
+    for attempt in range(4):
+        for url in list(cands):
+            try:
+                data = urllib.request.urlopen(
+                    urllib.request.Request(url, headers=hdrs), timeout=180).read()
+                tmp = path + ".part"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                Image.open(tmp).verify()           # đảm bảo là ảnh hợp lệ (không phải trang lỗi)
+                os.replace(tmp, path)
+                return path
+            except Exception as e:
+                last = e
+                code = getattr(e, "code", None)
+                if code == 402 and "gen.pollinations" in url:
+                    _POLLEN_OUT[0] = True          # het pollen -> bo endpoint FLUX cho ca batch
+                    cands.remove(url)
+        if attempt < 3 and cands:
+            import time as _t
+            _t.sleep(8 * (2 ** attempt))
+    raise last
 
 def _tone_of(py):
     for ch in py:
@@ -370,23 +398,57 @@ def make_scene(scene, opts, i):
     scene_audio = None
     if narrate and subs:
         seg_wavs, sub_dur = [], []
+        # GOM CAU: cac cau LIEN TIEP cung giong + cung cam xuc -> 1 request TTS duy nhat.
+        # Truoc day moi cau 1 request roi noi cung -> "gay" ngu dieu cho chuyen cau
+        # (ro nhat voi Gemini/Eleven/Vbee: moi request mot chat giong hoi khac).
+        # Gop lai de TTS tu ngat nghi tu nhien; moc phu de trong run chia theo so ky tu.
+        def _sub_text(s):
+            return ((s.get("tts") or s.get("hz") or "")).strip()
+        def _run_key(s):
+            t = _sub_text(s)
+            if not t:
+                return None                     # cau trong -> run rieng, khong gop
+            emo = s.get("emo")
+            en = emo.get("name") if isinstance(emo, dict) else emo
+            return (s.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural"), en)
+        runs, cur = [], object()
         for k, s in enumerate(subs):
-            hz = (s.get("hz") or "").strip()
-            dur_k = 1.4
-            mp = None
-            tts_text = (s.get("tts") or hz).strip()      # PHIM: thoai chi doc cau thoai (bo 'X noi:')
-            if tts_text:
-                mp = os.path.join(FILM, f"_tts_{i}_{k}.mp3")
-                vc = s.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural")
-                az = s.get("azure") or (opts.get("azure") if vc == opts.get("voice") else None)
-                generate.synth(tts_text, _clean_voice(vc), mp, rate=opts.get("rate", "-8%"),
-                               azure=az, emo=s.get("emo"))
-                tmp.append(mp)
-                # NHIP PHIM: thoai bam nhanh (pad ngan), dan chuyen cham; cau cuoi canh co 'beat'
-                dur_k = max(0.9, _dur(mp)) + float(s.get("pad", 0.55))
-            w = os.path.join(FILM, f"_sw_{i}_{k}.wav")
-            _seg_audio(mp, dur_k, w); tmp.append(w)
-            seg_wavs.append(w); sub_dur.append(dur_k)
+            kk = _run_key(s)
+            if (kk is not None and runs and kk == cur and
+                    sum(len(_sub_text(subs[j])) for j in runs[-1]) + len(_sub_text(s)) <= 1200):
+                runs[-1].append(k)
+            else:
+                runs.append([k]); cur = kk
+        for run in runs:
+            ss = [subs[k] for k in run]
+            texts = [_sub_text(s) for s in ss]
+            joined = " ".join(t for t in texts if t)
+            k0 = run[0]
+            if not joined:                       # cau trong (chi dau cau) -> im lang nhu cu
+                w = os.path.join(FILM, f"_sw_{i}_{k0}.wav")
+                _seg_audio(None, 1.4, w); tmp.append(w)
+                seg_wavs.append(w); sub_dur.append(1.4)
+                continue
+            s0 = ss[0]
+            vc = s0.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural")
+            az = s0.get("azure") or (opts.get("azure") if vc == opts.get("voice") else None)
+            gm = s0.get("gemini") or (opts.get("gemini") if vc == opts.get("voice") else None)
+            el = s0.get("eleven") or (opts.get("eleven") if vc == opts.get("voice") else None)
+            fp = s0.get("fpt") or (opts.get("fpt") if vc == opts.get("voice") else None)
+            mp = os.path.join(FILM, f"_tts_{i}_{k0}.mp3")
+            generate.synth(joined, _clean_voice(vc), mp, rate=opts.get("rate", "-8%"),
+                           azure=az, gemini=gm, eleven=el, fpt=fp, emo=s0.get("emo"))
+            tmp.append(mp)
+            adur = max(0.9, _dur(mp))
+            # NHIP PHIM: pad chi con SAU run (trong run TTS tu ngat); cau cuoi canh co 'beat'
+            pad_end = float(ss[-1].get("pad", 0.55))
+            w = os.path.join(FILM, f"_sw_{i}_{k0}.wav")
+            _seg_audio(mp, adur + pad_end, w); tmp.append(w)
+            seg_wavs.append(w)
+            wts = [max(1, len(t)) for t in texts]
+            durs = [adur * x / sum(wts) for x in wts]
+            durs[-1] += pad_end
+            sub_dur.extend(durs)
         scene_dur = sum(sub_dur)
         ta = os.path.join(FILM, f"_ta_{i}.m4a"); _concat_wav(seg_wavs, ta); tmp.append(ta)
         scene_audio = ta
@@ -418,22 +480,35 @@ def make_scene(scene, opts, i):
     # 3) FFMPEG: base + overlay phu de timed + audio
     vp = os.path.join(FILM, f"scene_{i:02d}.mp4")
     inputs, fc = [], []
-    # FAKE COVERAGE: anh tinh + >=2 cau -> moi cau 1 SHOT (toan/trung/can) cat cung nhu phim
+    # FAKE COVERAGE: anh tinh + >=2 cau -> cat SHOT (toan/trung/can) nhu phim co nhieu cu may.
+    # CHUYEN SHOT THEO NOI DUNG, khong phai 1 cau/1 shot (giat lien tuc):
+    #   - sub co "cut": true  -> mo shot moi tai cau do (kich ban tu quyet dinh diem chuyen)
+    #   - khong danh dau "cut" -> tu gom cac cau lien tiep den ~6.5s roi moi chuyen
     use_shots = (is_img and narrate and len(subs) >= 2 and opts.get("film_mode", True))
     if use_shots:
-        shot_imgs = _shot_crops(clip, len(subs), i, tmp)
+        has_cut = any(s.get("cut") for s in subs)
+        groups = [[0]]
+        for k in range(1, len(subs)):
+            if has_cut:
+                new = bool(subs[k].get("cut"))
+            else:
+                new = sum(sub_dur[j] for j in groups[-1]) >= 6.5
+            groups.append([k]) if new else groups[-1].append(k)
+        shot_imgs = _shot_crops(clip, len(groups), i, tmp)
         for p in shot_imgs:
             inputs += ["-loop", "1", "-i", p]
         segs = []
-        for k, dd in enumerate(sub_dur):
+        for g, idxs in enumerate(groups):
+            dd = sum(sub_dur[k] for k in idxs)
             fr = max(2, int(dd * FPS))
-            z = f"1.0+0.04*(on/{fr})" if (k + i) % 2 == 0 else f"1.04-0.04*(on/{fr})"
-            fc.append(f"[{k}:v]scale={W*2}:{H*2},zoompan=z='{z}':d={fr}:"
+            # 2.5% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
+            z = f"1.0+0.025*(on/{fr})" if (g + i) % 2 == 0 else f"1.025-0.025*(on/{fr})"
+            fc.append(f"[{g}:v]scale={W*2}:{H*2},zoompan=z='{z}':d={fr}:"
                       f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS},"
-                      f"trim=end_frame={fr},setpts=PTS-STARTPTS[sh{k}]")
-            segs.append(f"[sh{k}]")
-        fc.append("".join(segs) + f"concat=n={len(subs)}:v=1:a=0,format=yuv420p[bg]")
-        n_bg = len(subs)
+                      f"trim=end_frame={fr},setpts=PTS-STARTPTS[sh{g}]")
+            segs.append(f"[sh{g}]")
+        fc.append("".join(segs) + f"concat=n={len(groups)}:v=1:a=0,format=yuv420p[bg]")
+        n_bg = len(groups)
     else:
         if is_vid:
             inputs += ["-stream_loop", "-1", "-i", clip]

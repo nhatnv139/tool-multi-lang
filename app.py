@@ -188,6 +188,22 @@ VI_VOICES = [
     ("azure:vi-VN-HoaiMyNeural",  "Hoài My — Nữ (Azure, cần key)"),
     ("gemini:Gacrux",             "Gacrux — Giọng già dặn, hợp truyện xưa ⭐ (Gemini)"),
     ("gemini:Algenib",            "Algenib — Nam, khàn trầm (Gemini)"),
+    ("gemini:Sulafat",            "Sulafat — Nữ, ấm áp truyền cảm ⭐ (Gemini)"),
+    ("gemini:Charon",             "Charon — Nam, trầm vững, dẫn chuyện (Gemini)"),
+    ("gemini:Enceladus",          "Enceladus — Nam, thủ thỉ tâm tình (Gemini)"),
+]
+
+# Giong FPT.AI Voicemaker — thuan Viet, gioi lam noi dung VN dung nhieu nhat.
+# FREE 100.000 ky tu/thang khi dang ky (fpt.ai) — value tien to "fpt:<ma-giong>".
+FPT_VOICES = [
+    ("fpt:banmai",    "Ban Mai — Nữ Bắc, kể chuyện, hot nhất ⭐ (FPT free 100k/tháng)"),
+    ("fpt:leminh",    "Lê Minh — Nam Bắc, trầm ấm ⭐ (FPT)"),
+    ("fpt:thuminh",   "Thu Minh — Nữ Bắc, khỏe khoắn (FPT)"),
+    ("fpt:giahuy",    "Gia Huy — Nam Huế, truyền cảm (FPT)"),
+    ("fpt:ngoclam",   "Ngọc Lam — Nữ Huế, dịu dàng (FPT)"),
+    ("fpt:myan",      "Mỹ An — Nữ Huế (FPT)"),
+    ("fpt:linhsan",   "Linh San — Nữ Nam, ngọt ngào (FPT)"),
+    ("fpt:minhquang", "Minh Quang — Nam Nam (FPT)"),
 ]
 
 # Giong VieNeu-TTS v3 Turbo — model TIENG VIET local (offline, free, khong quota).
@@ -209,6 +225,29 @@ VIENEU_VOICES = [
     ("vieneu:Minh Triết", "Minh Triết — Nam Nam, tin tức (VieNeu local)"),
     ("vieneu:Thùy Dung",  "Thùy Dung — Nữ Nam, tin tức (VieNeu local)"),
 ]
+
+# Giong Vbee (vbee.vn) — thuan Viet, "Anh Khoi" la giong ke chuyen nhan qua/co tich
+# ma rat nhieu kenh YouTube VN dang dung. Tra phi theo ky tu (goi nho vai chuc k/thang).
+# Value tien to "vbee:<voice_code>" -> generate.synth() tu dispatch (nhu VieNeu).
+VBEE_VOICES = [
+    ("vbee:hn_male_phuthang_stor80dt_48k-fhg", "Anh Khôi — Nam Bắc trầm, kể chuyện/lịch sử/phật pháp ⭐⭐ (Vbee)"),
+    ("vbee:hn_male_thanhlong_talk_48k-fhg",    "Thanh Long — Nam Bắc, điềm tĩnh, podcast chữa lành (Vbee)"),
+    ("vbee:sg_male_chidat_ebook_48k-phg",      "Chí Đạt — Nam Nam, sách nói, gần gũi (Vbee)"),
+    ("vbee:sg_male_trungkien_vdts_48k-fhg",    "Trung Kiên — Nam Nam, trầm, thuyết minh (Vbee)"),
+    ("vbee:hn_female_ngochuyen_full_48k-fhg",  "Ngọc Huyền — Nữ Bắc, truyền cảm (Vbee)"),
+]
+
+VBEE_CFG = os.path.join(ROOT, "vbee_config.json")
+def load_vbee():
+    try:
+        import json as _j
+        d = _j.load(open(VBEE_CFG, encoding="utf-8"))
+        return d.get("token", ""), d.get("app_id", "")
+    except Exception:
+        return "", ""
+def save_vbee(token, app_id):
+    import json as _j
+    _j.dump({"token": token, "app_id": app_id}, open(VBEE_CFG, "w", encoding="utf-8"))
 
 AZURE_CFG = os.path.join(ROOT, "azure_config.json")
 def load_azure():
@@ -244,6 +283,17 @@ def load_eleven():
 def save_eleven(key):
     import json as _j
     _j.dump({"key": key}, open(ELEVEN_CFG, "w", encoding="utf-8"))
+
+FPT_CFG = os.path.join(ROOT, "fpt_config.json")
+def load_fpt():
+    try:
+        import json as _j
+        return _j.load(open(FPT_CFG, encoding="utf-8")).get("key", "")
+    except Exception:
+        return ""
+def save_fpt(key):
+    import json as _j
+    _j.dump({"key": key}, open(FPT_CFG, "w", encoding="utf-8"))
 
 GEMINI_CFG = os.path.join(ROOT, "gemini_config.json")
 def load_gemini():
@@ -1013,6 +1063,28 @@ def _azure_for(voice):
     return None
 
 
+def _gemini_for(voice):
+    """Neu voice la 'gemini:...' -> tra key Gemini; con lai None. Thieu key -> None
+    (nguoi goi phai tu doi giong khac, KHONG duoc de roi xuong edge-tts voi ten giong Gemini)."""
+    if isinstance(voice, str) and voice.startswith("gemini:"):
+        return load_gemini() or None
+    return None
+
+
+def _eleven_for(voice):
+    """Neu voice la 'eleven:<voice_id>' -> tra key ElevenLabs; con lai None."""
+    if isinstance(voice, str) and voice.startswith("eleven:"):
+        return load_eleven() or None
+    return None
+
+
+def _fpt_for(voice):
+    """Neu voice la 'fpt:<ma-giong>' -> tra key FPT.AI; con lai None."""
+    if isinstance(voice, str) and voice.startswith("fpt:"):
+        return load_fpt() or None
+    return None
+
+
 def _render_one_short(fmt, cols, hook, voice, reads, ui_lang, bg, skin, jid, py_color=None):
     """Render 1 Short tu cac cot da parse (dung chung boi /shorts/make va /shorts/rehook)."""
     import short_native as _sn
@@ -1570,8 +1642,11 @@ def _parse_film(content):
             continue
         if line.startswith("@"):
             key, _, val = line[1:].partition(" ")
-            if key.strip().lower() == "voices":
+            k = key.strip().lower()
+            if k == "voices":
                 voices_spec = lp._parse_voices(val)
+            elif k == "bg" and cur is not None:
+                cur["bg"] = val.strip()          # prompt ảnh nền AI riêng của cảnh (EN, có thể tả nhân vật)
             continue
         if line.startswith("#"):
             cur = {"label": line.lstrip("#").strip(), "subs": []}
@@ -1594,15 +1669,19 @@ def _parse_film(content):
     return voices_spec, scenes
 
 
-def _film_char_voices(spec, overrides=None, prefer_azure=False):
+def _film_char_voices(spec, overrides=None, prefer_azure=False, lang="zh"):
     """spec {ten: 'nam'/'nữ'/ma-giong} + overrides {ten: voice} -> {ten: voice cu the}.
     prefer_azure=True (co key): cast nhan vat bang giong Azure (dien cam xuc express-as duoc).
-    Nguoc lai gan giong edge free, moi nhan vat 1 giong."""
+    Nguoc lai gan giong edge free, moi nhan vat 1 giong. lang='vi': cast giong Viet."""
     import lesson_parser as lp
     AZ_F = ["azure:zh-CN-XiaoxiaoNeural", "azure:zh-CN-XiaoyiNeural", "azure:zh-CN-XiaomengNeural"]
     AZ_M = ["azure:zh-CN-YunxiNeural", "azure:zh-CN-YunjianNeural", "azure:zh-CN-YunyangNeural"]
-    VF = AZ_F if prefer_azure else ["edge:" + v for v in lp.VOICES_F]
-    VM = AZ_M if prefer_azure else ["edge:" + v for v in lp.VOICES_M]
+    if lang == "vi":
+        VF = ["edge:vi-VN-HoaiMyNeural", "vieneu:Ngọc Linh", "vieneu:Thục Đoan"]
+        VM = ["edge:vi-VN-NamMinhNeural", "vieneu:Thanh Bình", "vieneu:Xuân Vĩnh"]
+    else:
+        VF = AZ_F if prefer_azure else ["edge:" + v for v in lp.VOICES_F]
+        VM = AZ_M if prefer_azure else ["edge:" + v for v in lp.VOICES_M]
     out, fi, mi = {}, 0, 0
     for name, v in (spec or {}).items():
         vl = (v or "").strip().lower()
@@ -1625,7 +1704,34 @@ def film_page():
                            azure_voices=AZURE_VOICES, azure_ready=bool(akey),
                            gemini_ready=bool(load_gemini()),
                            together_ready=bool(_load_together_key()),
-                           vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES)
+                           vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES,
+                           eleven_voices=ELEVEN_VOICES, eleven_ready=bool(load_eleven()),
+                           fpt_voices=FPT_VOICES, fpt_ready=bool(load_fpt()),
+                           vbee_voices=VBEE_VOICES,
+                           vbee_ready=all(load_vbee()))
+
+
+@app.route("/ttskey", methods=["POST"])
+def ttskey_save():
+    """Luu nhanh key TTS tu trang phim: {engine: 'gemini'|'eleven', key: '...'}."""
+    d = request.get_json(force=True) or {}
+    eng, key = (d.get("engine") or "").strip(), (d.get("key") or "").strip()
+    if not key:
+        return jsonify(error="Chưa nhập key."), 400
+    if eng == "gemini":
+        save_gemini(key)
+    elif eng == "eleven":
+        save_eleven(key)
+    elif eng == "fpt":
+        save_fpt(key)
+    elif eng == "vbee":
+        app_id = (d.get("app_id") or "").strip()
+        if not app_id:
+            return jsonify(error="Vbee cần cả token và app_id."), 400
+        save_vbee(key, app_id)
+    else:
+        return jsonify(error="Engine lạ: " + eng), 400
+    return jsonify(ok=True)
 
 
 @app.route("/film/parse", methods=["POST"])
@@ -1638,11 +1744,12 @@ def film_parse():
         return jsonify(error="Chưa tách được cảnh nào. Cần dòng '# Cảnh N — ...' và câu '汉字 | nghĩa'."), 400
     import film as _fl
     out = [{"label": s["label"] or f"Cảnh {i+1}", "count": len(s["subs"]),
-            "subs": s["subs"], "prompt": _film_bg_base(s["label"]),
+            "subs": s["subs"], "prompt": s.get("bg") or _film_bg_base(s["label"]),
             "sfx": _sfx_suggest(s["label"])}
            for i, s in enumerate(scenes)]
     kinds = {k: v[0] for k, v in _fl.AMBIENCES.items()}
-    return jsonify(scenes=out, voices=list(spec.keys()), sfx_kinds=kinds)
+    has_bg = any(s.get("bg") for s in scenes)
+    return jsonify(scenes=out, voices=list(spec.keys()), sfx_kinds=kinds, has_bg=has_bg)
 
 
 # goi y SFX khong khi tu boi canh cua canh (tu khoa tieng Viet trong label)
@@ -1696,6 +1803,10 @@ _BG_STYLES = {
               "light, warm film-grain colour grade, atmospheric, professional composition, no people, no text."),
     "ink":   ("A traditional Chinese ink wash painting (shuimo) of {S}. Elegant minimal brushwork, "
               "muted ink tones, poetic empty space, serene mood, masterpiece, no people, no text."),
+    # PHIM KỂ CHUYỆN: prompt cảnh tự tả nhân vật (@bg trong kịch bản) -> KHÔNG ép 'no people',
+    # không ép 'empty establishing shot'; chỉ khoá chất tranh + cấm chữ.
+    "story": ("{S}. 2D flat cartoon storybook illustration, thick clean outlines, expressive characters, "
+              "cinematic composition, masterpiece, no text, no watermark."),
 }
 # dịch nhanh vài từ bối cảnh VN -> EN (đủ để Pollinations bắt đúng khung cảnh)
 _LOC_VN2EN = {
@@ -1795,7 +1906,8 @@ def film_ai_bg():
     backend = (d.get("backend") or "pollinations").strip().lower()
     base = (d.get("prompt") or "").strip() or _film_bg_base(d.get("label", ""))
     tmpl = _BG_STYLES.get(style, _BG_STYLES["2d"])
-    prompt = tmpl.replace("{S}", base + " (empty establishing shot, wide angle)")
+    suffix = "" if style == "story" else " (empty establishing shot, wide angle)"
+    prompt = tmpl.replace("{S}", base + suffix)
     dst, used, note = None, "pollinations", ""
 
     if backend in _AI_ENGINES:
@@ -1865,8 +1977,15 @@ def run_film_job(job_id, data):
         spec, scenes = _parse_film(content)
         if not scenes:
             raise ValueError("Không có cảnh nào để dựng.")
+        # PHIM TIENG VIET: kich ban khong co Han tu nao -> che do ke chuyen thuan Viet.
+        # Chu phai nam o truong 'vi' (font Viet du dau) + 'tts' de doc; 'hz' bo trong
+        # vi render_subtitle ve 'hz' bang font Han (mat dau tieng Viet).
+        _cjk = re.compile(r"[一-鿿]")
+        vn_mode = not any(_cjk.search(s["hz"]) for sc in scenes for s in sc["subs"])
         # tieu de + header phim (@title / @header)
         title, header = "Phim tiếng Trung", "PHIM TIẾNG TRUNG · HSK 2-3"
+        if vn_mode:
+            title, header = "Phim kể chuyện", "CHUYỆN CŨ KỂ LẠI"
         for ln in content.splitlines():
             s = ln.strip()
             if s.lower().startswith("@title") and " " in s:
@@ -1875,19 +1994,34 @@ def run_film_job(job_id, data):
                 header = s.split(" ", 1)[1].strip()
         clips = data.get("clips") or []             # 1 path / canh (theo thu tu)
         base_voice = data.get("voice") or "edge:zh-CN-YunxiNeural"
+        if vn_mode and "zh-CN" in base_voice:       # quen chon giong Trung -> tu doi giong ke chuyen Viet
+            base_voice = "vieneu:Thái Sơn"
+        if (base_voice.startswith("gemini:") and not load_gemini()) or \
+           (base_voice.startswith("eleven:") and not load_eleven()) or \
+           (base_voice.startswith("fpt:") and not load_fpt()):
+            # chon giong can key ma chua co key -> doi giong free (de nguyen se rot xuong edge-tts va vo)
+            _eng = {"g": "Gemini", "e": "ElevenLabs", "f": "FPT.AI"}[base_voice[0]]
+            _old = base_voice.split(":", 1)[1]
+            base_voice = "vieneu:Thái Sơn" if vn_mode else "edge:zh-CN-YunxiNeural"
+            jobs[job_id]["note"] = (f"⚠ Giọng {_old} cần key {_eng} mà chưa lưu key → tạm dùng "
+                                    f"{base_voice.split(':', 1)[1]}. Dán key vào ô 🔑 rồi dựng lại để đổi giọng.")
         base_az = _azure_for(base_voice)
         narrate = bool(data.get("narrate", True))
         keep_audio = bool(data.get("keep_audio", False))
         film_mode = bool(data.get("film_mode", True))
         has_azure = bool(load_azure()[0])
         cvoices = _film_char_voices(spec, data.get("char_voices") or {},
-                                    prefer_azure=has_azure)
+                                    prefer_azure=has_azure and not vn_mode,
+                                    lang="vi" if vn_mode else "zh")
 
         # giọng DẪN: có Azure thì dùng Azure (diễn cảm xúc); người dùng ép edge thì vẫn tôn trọng
         narr_voice = base_voice
-        if has_azure and not base_voice.startswith("azure:"):
+        if has_azure and not vn_mode and not base_voice.startswith("azure:"):
             narr_voice = "azure:zh-CN-XiaoxiaoNeural"       # giọng diễn cảm xúc giàu nhất (lyrical/sad/…)
         narr_az = _azure_for(narr_voice)
+        narr_gm = _gemini_for(narr_voice)
+        narr_el = _eleven_for(narr_voice)
+        narr_fp = _fpt_for(narr_voice)
 
         # DAO DIEN THOAI + CẢM XÚC: thoại -> nhân vật đọc câu thoại; câu có tag {emo} -> diễn đúng
         # cảm xúc (Azure express-as). Câu buồn/nghẹn -> chậm + nghỉ dài hơn.
@@ -1907,6 +2041,9 @@ def run_film_job(job_id, data):
                     s["pad"] = 0.6
                     s.setdefault("voice", narr_voice)        # dẫn = giọng Azure ấm
                     s.setdefault("azure", narr_az)
+                    s.setdefault("gemini", narr_gm)
+                    s.setdefault("eleven", narr_el)
+                    s.setdefault("fpt", narr_fp)
                 # cảm xúc: tag tay > tự nhận theo từ khoá
                 try:
                     s["emo"] = generate.emo_by_name(emo_name) if emo_name \
@@ -1917,8 +2054,19 @@ def run_film_job(job_id, data):
                     s["pad"] = float(s["pad"]) + 0.6         # câu xúc động: nghỉ lâu hơn cho ngấm
                 if who and who in cvoices:
                     v = cvoices[who]
+                    if (v.startswith("gemini:") and not load_gemini()) or \
+                       (v.startswith("eleven:") and not load_eleven()) or \
+                       (v.startswith("fpt:") and not load_fpt()):
+                        v = narr_voice                       # thiếu key -> về giọng dẫn
                     s["voice"] = v
                     s["azure"] = _azure_for(v)
+                    s["gemini"] = _gemini_for(v)
+                    s["eleven"] = _eleven_for(v)
+                    s["fpt"] = _fpt_for(v)
+                if vn_mode:                                  # chữ Việt -> 'vi' (font đủ dấu), đọc bằng 'tts'
+                    s["tts"] = (s.get("tts") or hz)
+                    s["vi"] = s.get("vi") or hz
+                    s["hz"] = ""
             if sc["subs"]:                                  # BEAT cuối cảnh
                 sc["subs"][-1]["pad"] = float(sc["subs"][-1].get("pad", 0.6)) + 0.8
 
@@ -1941,8 +2089,9 @@ def run_film_job(job_id, data):
                 music_file = _fl.make_music_bed(bed)
             except Exception:
                 traceback.print_exc()
-        opts = {"voice": base_voice, "azure": base_az,
-                "sub_pinyin": bool(data.get("sub_pinyin", True)),
+        opts = {"voice": base_voice, "azure": base_az, "gemini": _gemini_for(base_voice),
+                "eleven": _eleven_for(base_voice), "fpt": _fpt_for(base_voice),
+                "sub_pinyin": bool(data.get("sub_pinyin", True)) and not vn_mode,
                 "rate": data.get("rate") or "-8%",
                 "music_file": music_file,
                 "music_vol": float(data.get("music_vol") or 0.16),
