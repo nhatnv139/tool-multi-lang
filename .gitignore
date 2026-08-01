@@ -7,7 +7,14 @@ uploads/
 __pycache__/
 *.pyc
 .venv/
+.venv-vieneu/
 venv/
+
+# Data content (script phim, lesson JSON) — la CONTENT sinh ra, khong phai code
+data/
+
+# Log Flask
+*.log
 
 # Tai lieu tham khao nang (bo dong duoi neu muon giu lai)
 ref/
@@ -21,6 +28,8 @@ eleven_config.json
 azure_config.json
 gemini_config.json
 openai_config.json
+fpt_config.json
+pollinations_config.json
 
 # Bi mat mang xa hoi (token Page FB, app secret...) — TUYET DOI khong commit
 social_secrets/
