@@ -46,3 +46,8 @@ content_series/
 # He thong
 .DS_Store
 bg_config.json
+
+# File test render/giong thu nghiem tai root — output tam, khong day len repo
+/test_*.mp4
+/test_*.wav
+/phim_demo_cot_truyen.mp4

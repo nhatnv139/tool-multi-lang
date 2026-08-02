@@ -214,6 +214,8 @@ FPT_VOICES = [
 # Chay bang .venv-vieneu (Python 3.11) qua vieneu_tts.py; giu nguyen tien to
 # "vieneu:" trong ten giong de generate.synth() tu dispatch.
 VIENEU_VOICES = [
+    ("vieneu:Văn Minh 2",   "Văn Minh 2 — GIONG CUA BAN, mau doc truyen (VieNeu local) 🎙⭐"),
+    ("vieneu:Văn Minh Taa", "Văn Minh Taa — GIONG CUA BAN, mau cu (VieNeu local) 🎙"),
     ("vieneu:Thanh Bình", "Thanh Bình — Nam Bắc, kể chuyện ⭐ (VieNeu local)"),
     ("vieneu:Thái Sơn",   "Thái Sơn — Nam Nam, kể chuyện ⭐ (VieNeu local)"),
     ("vieneu:Ngọc Linh",  "Ngọc Linh — Nữ Bắc, kể chuyện (VieNeu local)"),
@@ -2110,10 +2112,19 @@ def run_film_job(job_id, data):
         fscenes = []
         for i, sc in enumerate(scenes):
             clip = clips[i] if i < len(clips) else ""
+            # YC3: client co the gui 1 LIST anh cho 1 canh -> multi-shot (doi anh theo group)
+            multi = None
+            if isinstance(clip, (list, tuple)):
+                multi = [str(c).strip() for c in clip if c]
+                clip = multi[0] if multi else ""
             spec = sfx_specs[i] if i < len(sfx_specs) else "auto"
             sfx = _resolve_sfx(spec, sc["label"]) if scene_sfx else ""
-            fscenes.append({"clip": clip, "subs": sc["subs"], "sfx": sfx,
-                            "narrate": narrate, "keep_audio": keep_audio})
+            fs = {"clip": clip, "subs": sc["subs"], "sfx": sfx,
+                  "narrate": narrate, "keep_audio": keep_audio}
+            if multi and len(multi) >= 2:
+                fs["clips"] = multi
+            fscenes.append(fs)
+        clips = [fs["clip"] for fs in fscenes]          # chuan hoa lai (thumbnail dung path don)
 
         # NHẠC NỀN: file upload > bed cảm xúc built-in (warm/hope/sad) > không
         music_file = (data.get("music_file") or "").strip()
@@ -2137,6 +2148,17 @@ def run_film_job(job_id, data):
                 "grade": bool(data.get("grade", True)),
                 "letterbox": bool(data.get("letterbox", False)),
                 "duck": bool(data.get("duck", True)),
+                # YC1: camera day vao nhan vat + dip-to-black chuan mau
+                "focus_subject": bool(data.get("focus_subject", True)),
+                "zoom_amt": (float(data["zoom_amt"]) if data.get("zoom_amt") else None),
+                "dip_dur": float(data.get("dip_dur") or 0.5),
+                "always_fade": bool(data.get("always_fade", True)),
+                # YC2: lop hat bay overlay (none|firefly|dust|auto)
+                "particles": (data.get("particles") or "auto"),
+                # YC3: nhieu anh / canh (multi-shot) — film.py doc scene["clips"];
+                # 2 opt nay cho build_film_story / client biet cau hinh sinh anh phu
+                "shots_per_scene": (data.get("shots_per_scene") or "auto"),
+                "auto_shots": bool(data.get("auto_shots", True)),
                 "title_card": bool(data.get("title_card", True)),
                 "end_card": bool(data.get("end_card", True)),
                 "film_title": title, "film_header": header}

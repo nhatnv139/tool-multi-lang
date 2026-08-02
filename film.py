@@ -2,7 +2,7 @@
 """film.py — Dựng PHIM: ghép nhiều CẢNH (mỗi cảnh = 1 clip video/ảnh) thành 1 tập.
 Mỗi cảnh: giữ TIẾNG gốc của clip (tuỳ chọn) + phụ đề (Hán / pinyin / nghĩa) + (tuỳ chọn) lời dẫn TTS.
 Nối các cảnh -> tập phim, thêm nhạc nền. KHÔNG có layout học (phim thuần + phụ đề dưới)."""
-import os, re, subprocess, hashlib
+import os, re, shutil, subprocess, hashlib
 from PIL import Image, ImageDraw
 import style_pastel as sp
 from pypinyin import pinyin as _py, Style as _PyStyle
@@ -34,6 +34,10 @@ def _env_flag(name, default=False):
 # FILM_SUB_FADE=1 -> phu de fade in/out (dep hon, cham hon: +2 filter/cau).
 # Mac dinh TAT: chu hien/an tuc thi, filter graph gon -> encode nhanh hon.
 SUB_FADE = _env_flag("FILM_SUB_FADE", False)
+
+# FILM_FADE_FOCUS=1 -> dip-to-black dung mask radial quanh nhan vat (nhan vat tat sau cung).
+# Mac dinh TAT: dip phang da chuan style, mask ton ~2-3ms/frame fade (c1, c3).
+FADE_FOCUS = _env_flag("FILM_FADE_FOCUS", False)
 
 X264 = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
 # Segment CANH/CARD la file TRUNG GIAN (bi re-encode lai o _join_video khi ghep + grade)
@@ -160,37 +164,92 @@ def split_dialogue(hz, names):
 
 
 # ---------- FAKE COVERAGE — cat 1 anh nen thanh nhieu SHOT may quay ----------
-def _shot_geom(iw, ih, k, i):
+def _shot_geom(iw, ih, k, i, sub=None):
     """Toa do crop shot k cua canh i — DETERMINISTIC, dung chung cho render segment
-    va cho viec tinh truoc frame dau cua canh ke tiep (transition zoom-blend)."""
+    va cho viec tinh truoc frame dau cua canh ke tiep (transition zoom-blend).
+    sub=(sx,sy) toa do anh goc (a12): neo shot quanh NHAN VAT THAT thay heuristic cung."""
     base_w = min(iw, ih * W // H)          # cua so 16:9 lon nhat trong anh
     base_h = base_w * H // W
     m = (k + i) % 4
+    if sub:
+        ox0 = min(max(sub[0] / float(iw), 0.30), 0.70)
+        oy0 = min(max(sub[1] / float(ih), 0.32), 0.50)
+    else:
+        ox0 = oy0 = None
     # oy keo LEN TREN (0.40-0.45): mat nhan vat luon o nua tren anh,
     # crop lech xuong (0.54-0.56 cu) se cat cut dau khi vao trung/can canh.
-    if m == 0:   f, ox, oy = 1.00, 0.50, 0.50      # TOAN canh (wide)
-    elif m == 1: f, ox, oy = 0.80, 0.40, 0.45      # TRUNG - lech trai, neo vung mat
-    elif m == 2: f, ox, oy = 0.80, 0.60, 0.45      # TRUNG - lech phai, neo vung mat
-    else:        f, ox, oy = 0.70, 0.50, 0.40      # CAN - giua, neo phan tren
+    if m == 0:   f, ox, oy = 1.00, 0.50, 0.50                          # TOAN canh (wide)
+    elif m == 1: f, ox, oy = 0.80, (ox0 - 0.08 if ox0 else 0.40), (oy0 or 0.45)  # TRUNG - lech trai
+    elif m == 2: f, ox, oy = 0.80, (ox0 + 0.08 if ox0 else 0.60), (oy0 or 0.45)  # TRUNG - lech phai
+    else:        f, ox, oy = 0.70, (ox0 or 0.50), (max(0.32, oy0 - 0.03) if oy0 else 0.40)  # CAN
     cw, ch = int(base_w * f), int(base_h * f)
     x0 = max(0, min(iw - cw, int(ox * iw) - cw // 2))
     y0 = max(0, min(ih - ch, int(oy * ih) - ch // 2))
     return x0, y0, cw, ch
 
 
-def _shot_crops(img_path, n, i, tmp):
+def _shot_crops(img_path, n, i, tmp, sub=None):
     """1 anh -> n shot (toan canh / trung / can, dao goc trai-phai) nhu phim co nhieu cu may."""
     im = Image.open(img_path).convert("RGB")
     iw, ih = im.size
     outs = []
     for k in range(n):
-        x0, y0, cw, ch = _shot_geom(iw, ih, k, i)
+        x0, y0, cw, ch = _shot_geom(iw, ih, k, i, sub=sub)
         # save 2x (supersample cho zoompan): crop toa do nguyen pixel -> zoom buoc <1px gay giat nac
         crop = im.crop((x0, y0, x0 + cw, y0 + ch)).resize((W * 2, H * 2), Image.LANCZOS)
         p = os.path.join(FILM, f"_shot_{i}_{k}.jpg")
         crop.save(p, quality=90)
         outs.append(p); tmp.append(p)
     return outs
+
+
+# ---------- MULTI-SHOT (YC3) — moi group dung 1 ANH KHAC trong scene["clips"] ----------
+def _scene_clips(scene):
+    """Loc scene['clips'] -> list path ANH ton tai (>=2 moi bat multi-shot).
+    DETERMINISTIC — make_scene va _next_kb_src goi chung 1 ham."""
+    outs = []
+    for c in ((scene or {}).get("clips") or []):
+        c = (c or "").strip()
+        if c and os.path.exists(c) and not _is_video(c):
+            outs.append(c)
+    return outs
+
+
+def _clip_alloc(n_groups, n_clips):
+    """Phan bo anh cho tung group: anh CHU DAO (index 0) MO va CHOT canh (nhan vat),
+    anh phu xen giua; nhieu group hon anh -> lap vong anh phu, it hon -> bo anh thua."""
+    if n_groups <= 1 or n_clips <= 1:
+        return [0] * max(1, n_groups)
+    if n_groups == 2:
+        return [0, 1]                          # khong du cho chot bang chu dao -> phu chot
+    mid = [1 + (k % (n_clips - 1)) for k in range(n_groups - 2)]
+    return [0] + mid + [0]
+
+
+def _split_groups(sub_dur, gt):
+    """Chia cau LIEN TIEP thanh <=gt nhom can bang thoi luong (nhip loi thoai) —
+    dung khi kich ban khong danh dau 'cut'. Chi doi NGUON ANH, khong doi tong frame."""
+    total = sum(sub_dur) or 1.0
+    gt = max(1, min(int(gt), len(sub_dur)))
+    buckets = [[] for _ in range(gt)]
+    cum = 0.0
+    for k, dd in enumerate(sub_dur):
+        buckets[min(gt - 1, int(cum / (total / gt)))].append(k)
+        cum += dd
+    return [b for b in buckets if b]
+
+
+def _multi_groups(subs, sub_dur, n_clips, scene_dur):
+    """Chia group cho multi-shot: uu tien danh dau 'cut' cua kich ban; khong co ->
+    can bang theo nhip, du group cho moi anh + nhip doi anh ~6.5s (mau 5-10s)."""
+    if any(s.get("cut") for s in subs):
+        groups = [[0]]
+        for k in range(1, len(subs)):
+            groups.append([k]) if subs[k].get("cut") else groups[-1].append(k)
+        return groups
+    import math
+    gt = min(len(subs), max(n_clips + 1, int(math.ceil(scene_dur / 6.5))))
+    return _split_groups(sub_dur, gt)
 
 
 def _clean_voice(voice):
@@ -313,6 +372,273 @@ except Exception:
     _HAVE_CV2 = False
 
 
+# ---------- SUBJECT DETECT — tim nhan vat chinh trong anh (anime) ----------
+_MODEL_DIR = os.path.join(FILM, "models")
+os.makedirs(_MODEL_DIR, exist_ok=True)
+_ANIME_XML_URL = ("https://raw.githubusercontent.com/nagadomi/"
+                  "lbpcascade_animeface/master/lbpcascade_animeface.xml")
+_anime_cascade = [None]        # None=chua thu, False=khong co, obj=OK (cache module)
+_haar_cascades = [None]        # fallback mat nguoi that (co san trong cv2.data)
+
+
+def _dl_model(url, path, magic=None):
+    """Tai file model 1 lan, cache; loi mang -> None (khong chan phim)."""
+    if not os.path.exists(path):
+        try:
+            import urllib.request
+            data = urllib.request.urlopen(url, timeout=30).read()
+            if magic and magic not in data[:2000]:
+                raise RuntimeError("noi dung model khong hop le")
+            with open(path, "wb") as f:
+                f.write(data)
+        except Exception:
+            return None
+    return path
+
+
+def _get_anime_cascade():
+    """Tai (1 lan, cache file) lbpcascade_animeface; loi mang / cv2>=5 (bo CascadeClassifier)
+    -> bo qua tang nay."""
+    if _anime_cascade[0] is not None:
+        return _anime_cascade[0] or None
+    if not hasattr(cv2, "CascadeClassifier"):        # OpenCV 5.x da bo API cascade
+        _anime_cascade[0] = False
+        return None
+    p = _dl_model(_ANIME_XML_URL, os.path.join(_MODEL_DIR, "lbpcascade_animeface.xml"),
+                  magic=b"<cascade")
+    if not p:
+        _anime_cascade[0] = False
+        return None
+    c = cv2.CascadeClassifier(p)
+    _anime_cascade[0] = False if c.empty() else c
+    return _anime_cascade[0] or None
+
+
+def _get_haar_cascades():
+    if _haar_cascades[0] is None:
+        cs = []
+        if hasattr(cv2, "CascadeClassifier"):
+            try:
+                for name in ("haarcascade_frontalface_default.xml",
+                             "haarcascade_profileface.xml"):
+                    c = cv2.CascadeClassifier(os.path.join(cv2.data.haarcascades, name))
+                    if not c.empty():
+                        cs.append(c)
+            except Exception:
+                pass
+        _haar_cascades[0] = cs
+    return _haar_cascades[0]
+
+
+# YuNet (FaceDetectorYN, DNN co san trong cv2 5.x) — thay tang cascade khi API cascade bi bo.
+# Train tren mat nguoi that: bat duoc 1 phan mat anime chinh dien; truot -> saliency lo.
+_YUNET_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/"
+              "face_detection_yunet/face_detection_yunet_2023mar.onnx")
+_yunet = [None]
+
+
+def _get_yunet():
+    if _yunet[0] is not None:
+        return _yunet[0] or None
+    if not hasattr(cv2, "FaceDetectorYN_create"):
+        _yunet[0] = False
+        return None
+    p = _dl_model(_YUNET_URL, os.path.join(_MODEL_DIR, "face_detection_yunet_2023mar.onnx"))
+    if not p:
+        _yunet[0] = False
+        return None
+    try:
+        _yunet[0] = cv2.FaceDetectorYN_create(p, "", (320, 320), 0.6, 0.3, 500)
+    except Exception:
+        _yunet[0] = False
+    return _yunet[0] or None
+
+
+def _spectral_residual(gray, size=64):
+    """Saliency Hou-Zhang 2007 bang numpy FFT (opencv-python KHONG co cv2.saliency).
+    gray uint8 -> map float32 [0,1] cung shape."""
+    small = cv2.resize(gray, (size, size), interpolation=cv2.INTER_AREA).astype(_np.float32)
+    F = _np.fft.fft2(small)
+    logamp = _np.log1p(_np.abs(F))
+    avg = cv2.blur(logamp, (3, 3))                       # trung binh cuc bo 3x3
+    sal = _np.abs(_np.fft.ifft2(_np.exp((logamp - avg) + 1j * _np.angle(F)))) ** 2
+    sal = cv2.GaussianBlur(sal.astype(_np.float32), (9, 9), 2.5)
+    sal -= sal.min()
+    if sal.max() > 1e-9:
+        sal /= sal.max()
+    return cv2.resize(sal, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+
+
+def find_subject_center(img):
+    """Tim (cx, cy, conf) nhan vat chinh — toa do ANH GOC, deterministic.
+    Chuoi: animeface -> Haar frontal/profile -> saliency + prior nua tren -> (0.5W, 0.42H)."""
+    im = cv2.imread(img) if isinstance(img, str) else img
+    if im is None:
+        return 0.0, 0.0, 0.0
+    ih, iw = im.shape[:2]
+    gray = cv2.equalizeHist(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY))
+
+    def _pick(faces, base):                  # chon mat "chinh": to + gan tam + nua tren
+        def _score(f):
+            x, y, w, h = f
+            d = abs((x + w / 2) / iw - 0.5) + max(0.0, (y + h / 2) / ih - 0.60)
+            return (w * h) * (1.0 - 0.8 * min(1.0, d))
+        x, y, w, h = max(faces, key=_score)
+        conf = base + 0.25 * min(1.0, (w * h) / float(iw * ih) / 0.03)
+        if len(faces) > 2:                   # dong nguoi -> co the chon nham
+            conf = min(conf, base + 0.05)
+        return float(x + w / 2), float(y + h * 0.55), float(min(0.95, conf))
+
+    mins = (max(24, iw // 20), max(24, iw // 20))
+    casc = _get_anime_cascade()
+    if casc is not None:
+        faces = casc.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=5, minSize=mins)
+        if len(faces):
+            return _pick(faces, 0.7)
+    for hc in _get_haar_cascades():          # fallback mat nguoi that (cv2 4.x)
+        faces = hc.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6, minSize=mins)
+        if len(faces):
+            return _pick(faces, 0.5)
+    yn = _get_yunet()                        # fallback DNN YuNet (cv2 5.x het cascade)
+    if yn is not None:
+        try:
+            yn.setInputSize((iw, ih))
+            _, dets = yn.detect(im)
+            if dets is not None and len(dets):
+                faces = [(int(f[0]), int(f[1]), int(f[2]), int(f[3]))
+                         for f in dets if f[2] >= mins[0] * 0.6]
+                if faces:
+                    return _pick(faces, 0.6)
+        except Exception:
+            pass
+
+    sal = _spectral_residual(gray)
+    ys = _np.linspace(0, 1, ih, dtype=_np.float32)[:, None]
+    sal = sal * _np.exp(-((ys - 0.38) ** 2) / (2 * 0.28 ** 2))   # prior Gauss nua tren
+    mx, my = int(iw * 0.06), int(ih * 0.06)                       # bo 6% mep (watermark/vien)
+    sal[:my, :] = 0; sal[-my:, :] = 0; sal[:, :mx] = 0; sal[:, -mx:] = 0
+    total = float(sal.sum())
+    if total > 1e-6:
+        xs = _np.arange(iw, dtype=_np.float32); ys1 = _np.arange(ih, dtype=_np.float32)
+        cx = float((sal.sum(axis=0) * xs).sum() / total)
+        cy = float((sal.sum(axis=1) * ys1).sum() / total)
+        x0, x1 = int(max(0, cx - iw / 6)), int(min(iw, cx + iw / 6))
+        y0, y1 = int(max(0, cy - ih / 6)), int(min(ih, cy + ih / 6))
+        focus = float(sal[y0:y1, x0:x1].sum() / total)            # do TAP TRUNG nang luong
+        if focus > 0.22:
+            for gx in (iw / 3, iw / 2, 2 * iw / 3):               # snap nhe rule-of-thirds
+                if abs(cx - gx) < iw * 0.06:
+                    cx = gx; break
+            return cx, cy, min(0.6, 0.25 + focus)
+    return iw * 0.5, ih * 0.42, 0.0                               # fallback = heuristic cu
+
+
+_SUBJ_CACHE = {}    # path -> (cx, cy, conf, iw, ih) — DETERMINISM: _next_kb_src goi lai y het
+
+
+def subject_of(img_path):
+    if img_path not in _SUBJ_CACHE:
+        im = cv2.imread(img_path)
+        if im is None:
+            _SUBJ_CACHE[img_path] = (0.0, 0.0, 0.0, 1, 1)
+        else:
+            cx, cy, conf = find_subject_center(im)
+            _SUBJ_CACHE[img_path] = (cx, cy, conf, im.shape[1], im.shape[0])
+    return _SUBJ_CACHE[img_path]
+
+
+# ---------- QUY DAO CAMERA — chu ky 5 kieu nhu video mau (Chuyen Que Xua) ----------
+_MOTIONS = ("push", "pan_r", "pan_l", "pushpan", "pull")
+
+
+def _motion_plan(idx):
+    """1 NGUON DUY NHAT cho luat chuyen dong theo chi so (b7): canh nguyen dung idx=i,
+    shot dung idx=g+i, _next_kb_src dung y het -> zoomblend khong nhay hinh."""
+    return _MOTIONS[idx % 5]
+
+
+def _clamp_center(cx, cy, z):
+    """Giu cua so crop (W/z x H/z quanh tam) nam tron trong nguon 2Wx2H — khong lo vien (a4).
+    Chi clamp 2 DAU quy dao (z tang thi cua so co lai -> moi frame giua tu hop le)."""
+    hw, hh = W / z, H / z
+    return (min(max(cx, hw), 2 * W - hw), min(max(cy, hh), 2 * H - hh))
+
+
+def _plan_camera(sx, sy, conf, mode, zoom, pan):
+    """Quy dao 1 canh tren nguon 2x -> (z0, z1, c0, c1). (sx,sy) = nhan vat (toa do 2x).
+    conf giam bien do keo ve nhan vat: detect yeu -> gan nhu zoom tam cu, sai khong hai."""
+    AX, AY = 0.5, 0.42                       # nhan vat ket o giua ngang, 42% cao (headroom)
+    cF = (float(W), float(H))                # tam nguon 2x = full frame
+
+    def _target(zt):                         # tam crop de nhan vat roi vao anchor khi zoom zt
+        s1 = zt / 2.0
+        dx = (sx + (0.5 - AX) * W / s1) - cF[0]
+        dy = (sy + (0.5 - AY) * H / s1) - cF[1]
+        lim = 0.10 * (2 * W)                 # PAN_MAX 10% be ngang nguon
+        k = min(1.0, conf) * min(1.0, lim / max(1e-6, (dx * dx + dy * dy) ** 0.5))
+        return (cF[0] + dx * k, cF[1] + dy * k)
+
+    if mode == "pull":                       # can nhan vat -> mo ve full frame
+        z0, z1 = 1.0 + zoom, 1.0
+        return z0, z1, _clamp_center(*_target(z0), z0), _clamp_center(*cF, z1)
+    if mode == "pushpan":                    # day vao + truot ngang (xuat phat lech nguoc phia)
+        z0, z1 = 1.0 + zoom * 0.35, 1.0 + zoom
+        tx, ty = _target(z1)
+        side = 1.0 if tx <= cF[0] else -1.0
+        return (z0, z1, _clamp_center(cF[0] + side * pan * W, cF[1], z0),
+                _clamp_center(tx, ty, z1))
+    if mode in ("pan_r", "pan_l"):           # pan thuan ngang ~pan% be ngang khung
+        zp = 1.0 + pan * 1.1                 # zoom vua du slack de pan het bien do
+        half = pan * W / (zp / 2.0) / 2.0
+        bx, by = _target(zp)
+        d = 1.0 if mode == "pan_r" else -1.0
+        return (zp, zp, _clamp_center(bx - d * half, by, zp),
+                _clamp_center(bx + d * half, by, zp))
+    z0, z1 = 1.0, 1.0 + zoom                 # push (mac dinh): full -> can nhan vat
+    return z0, z1, _clamp_center(*cF, z0), _clamp_center(*_target(z1), z1)
+
+
+def _scene_subject(clip, scene, opts):
+    """(sx, sy, conf, iw, ih) tren ANH GOC; ho tro scene['focus']=[x,y] 0-1 ep tay (a18)
+    + cong tac opts['focus_subject'] (tat -> conf=0, camera ve hanh vi zoom tam cu)."""
+    cx, cy, conf, iw, ih = subject_of(clip)
+    fxy = (scene or {}).get("focus")
+    if isinstance(fxy, (list, tuple)) and len(fxy) == 2:
+        cx, cy, conf = float(fxy[0]) * iw, float(fxy[1]) * ih, 0.95
+    elif not (opts or {}).get("focus_subject", True):
+        conf = 0.0
+    return cx, cy, conf, iw, ih
+
+
+def _cam_for(clip, idx, opts, scene=None, shot_rect=None):
+    """Ke hoach camera (z0, z1, c0, c1, subj2x) cho canh nguyen (shot_rect=None) hoac
+    1 shot crop (x0,y0,cw,ch). DETERMINISTIC — _next_kb_src goi lai y het (a8)."""
+    opts = opts or {}
+    sx, sy, conf, iw, ih = _scene_subject(clip, scene, opts)
+    if shot_rect:                            # quy doi ve he toa do crop shot -> nguon 2x (a10)
+        x0, y0, cw, ch = shot_rect
+        sx2 = (sx - x0) * (W * 2.0) / max(1, cw)
+        sy2 = (sy - y0) * (H * 2.0) / max(1, ch)
+        zoom, pan = 0.03, 0.03               # shot da la crop can — chuyen dong nhe (bai hoc 4%->2.5%)
+    else:                                    # quy doi qua _kb_norm2x (scale + crop giua) — cung cong thuc
+        f = max(W * 2.0 / iw, H * 2.0 / ih)
+        iw2, ih2 = max(W * 2, int(iw * f)), max(H * 2, int(ih * f))
+        sx2 = sx * f - (iw2 - W * 2) // 2
+        sy2 = sy * f - (ih2 - H * 2) // 2
+        za = opts.get("zoom_amt")
+        # cap 12%: anh AI nguon 1280x720, zoom sau hon lo net (so do mau ~10-15%/canh).
+        # Bien do CO DINH (khong scale theo thoi luong that): _next_kb_src khong biet
+        # duration TTS cua canh ke -> scale theo dur se pha determinism cua zoomblend.
+        zoom = min(0.12, float(za)) if za else 0.10
+        pan = 0.08                           # pan thuan ~8% be ngang (so do video mau)
+    sx2 = min(max(sx2, 0.0), 2.0 * W)
+    sy2 = min(max(sy2, 0.0), 2.0 * H)
+    if opts.get("letterbox"):                # (a17) letterbox che 138px tren/duoi -> vung an toan
+        sy2 = min(max(sy2, 2 * H * 0.16), 2 * H * 0.80)
+    z0, z1, c0, c1 = _plan_camera(sx2, sy2, conf, _motion_plan(idx), zoom, pan)
+    return z0, z1, c0, c1, ((sx2, sy2) if conf > 0 else None)
+
+
 def _kb_norm2x(img):
     """Doc anh (path hoac ndarray BGR) -> nguon 2x (3840x2160) crop giua, du net khi phong 5%."""
     im = cv2.imread(img) if isinstance(img, str) else img
@@ -329,53 +655,206 @@ def _kb_norm2x(img):
     return im
 
 
-def _kb_frame(im2x, z):
-    """1 frame Ken Burns: zoom z quanh tam, nguon 2x -> khung WxH, subpixel bilinear."""
+def _kb_frame(im2x, z, cx=None, cy=None):
+    """1 frame Ken Burns: crop-zoom z, TAM tai (cx,cy) tren nguon 2x (mac dinh = tam anh).
+    Subpixel bilinear. Caller tu bao dam (cx,cy) da qua _clamp_center o 2 dau quy dao (a4)."""
     s = z / 2.0
-    M = _np.float32([[s, 0, W / 2 - s * W], [0, s, H / 2 - s * H]])
+    if cx is None:
+        cx, cy = float(W), float(H)
+    M = _np.float32([[s, 0, W / 2 - s * cx], [0, s, H / 2 - s * cy]])
     return cv2.warpAffine(im2x, M, (W, H), flags=cv2.INTER_LINEAR)
 
 
+_FFM_GRID = [None]      # cache mgrid HxW cho mask fade (tao 1 lan)
+
+
+def _focus_fade_mask(fx, fy, k):
+    """Mask fade radial: k=0 sang het, k=1 den het; vung quanh (fx,fy) tat SAU CUNG (c1)."""
+    if _FFM_GRID[0] is None:
+        yy, xx = _np.mgrid[0:H, 0:W]
+        _FFM_GRID[0] = (yy.astype(_np.float32), xx.astype(_np.float32))
+    yy, xx = _FFM_GRID[0]
+    r = _np.sqrt((xx - fx) ** 2 + (yy - fy) ** 2) / (0.75 * W)
+    m = _np.clip((1.0 - k) + (1.0 - r) * k * 0.35, 0.0, 1.0)
+    return (m * (1.0 - k * k))[..., None]
+
+
+# ---------- HAT BAY (YC2) — dom dom / bui nang overlay procedural ----------
+# Ve TRUC TIEP trong vong frame cua _kb_video, SAU fade/trans/head_black -> hat khong
+# chim den theo dip (nhu video mau: hat + phu de + watermark khong fade theo canh).
+# Phu de overlay o buoc ffmpeg SAU (make_scene) -> hat tu nhien nam DUOI phu de.
+_P_SPRITES = {}          # ban kinh -> sprite glow float32 (S,S), precompute 1 lan
+
+
+def _p_sprite(r):
+    """Sprite 1 hat ban kinh loi r px: cham sang + quang gaussian, peak=1.0.
+    Precompute vai co -> moi frame chi cong additive vung nho, KHONG blur ca frame."""
+    r = int(max(1, min(4, r)))
+    if r not in _P_SPRITES:
+        sig = r * 1.6
+        S = (int(sig * 6) | 1)
+        c = S // 2
+        yy, xx = _np.mgrid[0:S, 0:S]
+        d2 = ((xx - c) ** 2 + (yy - c) ** 2).astype(_np.float32)
+        core = _np.exp(-d2 / (2.0 * (r * 0.65) ** 2))      # loi sang gon
+        glow = _np.exp(-d2 / (2.0 * sig ** 2))             # quang mem xung quanh
+        _P_SPRITES[r] = _np.clip(core + 0.5 * glow, 0.0, 1.0).astype(_np.float32)
+    return _P_SPRITES[r]
+
+
+_P_PRESETS = {
+    # ten: (mau BGR, alpha goc, (so hat min, max) @1920x1080)
+    "warm":  ((90, 190, 255), 0.85, (12, 20)),   # vang am — hoang hon / den dau
+    "green": ((120, 220, 180), 0.80, (12, 20)),  # dom dom vang-xanh — dem
+    "dust":  ((235, 240, 245), 0.32, (14, 25)),  # bui nang trang mo — ngay (alpha thap)
+}
+
+
+def _particle_preset(img, mode="auto"):
+    """Chon preset theo tong mau anh nguon (mean HSV): toi+am -> vang am, toi+lanh ->
+    dom dom, sang -> bui nang. mode: none|firefly|dust|auto. Tra (col, alpha, n) / None."""
+    mode = (mode or "auto").strip().lower()
+    if mode == "none":
+        return None
+    if mode == "dust":
+        return _P_PRESETS["dust"]
+    im = cv2.imread(img) if isinstance(img, str) else img
+    if im is None:
+        return _P_PRESETS["warm"] if mode == "firefly" else None
+    small = cv2.resize(im, (64, 36), interpolation=cv2.INTER_AREA)
+    v = float(cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 2].mean())
+    warm = float(small[..., 2].mean()) > float(small[..., 0].mean()) + 8   # R > B
+    if mode == "firefly":
+        return _P_PRESETS["warm"] if warm else _P_PRESETS["green"]
+    if v >= 150:                                 # canh sang (ngay)
+        return _P_PRESETS["dust"]
+    return _P_PRESETS["warm"] if warm else _P_PRESETS["green"]
+
+
+def _particle_field(seed, preset):
+    """Sinh tham so N hat — DETERMINISM BAT BUOC: RandomState(seed=chi so canh),
+    render lap lai ra dung vi tri (khong dung random khong seed)."""
+    col, base_a, (n0, n1) = preset
+    rng = _np.random.RandomState(int(seed) & 0x7FFFFFFF)
+    n = int(rng.randint(n0, n1 + 1))             # 10-25 hat / khung 1920x1080
+    M = 48.0                                     # le quan quanh khung (hat vao/ra em)
+    return {
+        "col": _np.float32(col), "M": M,
+        "x": rng.uniform(-M, W + M, n),          # goc ngang
+        "y": rng.uniform(-M, H + M, n),          # goc doc
+        "vy": rng.uniform(10.0, 30.0, n),        # troi len 10-30 px/s
+        "amp": rng.uniform(10.0, 40.0, n),       # bien do sin ngang 10-40px
+        "per": rng.uniform(3.0, 8.0, n),         # chu ky sin ngang 3-8s
+        "ph": rng.uniform(0.0, 2 * _np.pi, n),   # pha rieng tung hat
+        "bt": rng.uniform(1.5, 4.5, n),          # chu ky nhap nhay (dom dom)
+        "bp": rng.uniform(0.0, 2 * _np.pi, n),   # pha nhap nhay lech nhau
+        "a": base_a * rng.uniform(0.55, 1.0, n), # alpha goc rieng tung hat
+        "r": rng.randint(1, 4, n),               # ban kinh loi 1-3 -> hat ~2-6px
+    }
+
+
+def _particles_draw(fr, pf, t):
+    """Ve hat len frame BGR uint8 (in-place) tai thoi diem t giay: cong additive
+    sprite nho (cv2.add bao hoa) — nhanh, khong dung frame lon."""
+    xs = pf["x"] + pf["amp"] * _np.sin(2 * _np.pi * t / pf["per"] + pf["ph"])
+    M = pf["M"]
+    ys = (pf["y"] - pf["vy"] * t + M) % (H + 2 * M) - M          # troi len, wrap day khung
+    al = pf["a"] * (0.62 + 0.38 * _np.sin(2 * _np.pi * t / pf["bt"] + pf["bp"]))
+    col = pf["col"]
+    for k in range(len(xs)):
+        a = float(al[k])
+        if a <= 0.03:
+            continue
+        spr = _p_sprite(int(pf["r"][k]))
+        S = spr.shape[0]
+        x0 = int(round(xs[k])) - S // 2
+        y0 = int(round(ys[k])) - S // 2
+        fx0, fy0 = max(0, x0), max(0, y0)
+        fx1, fy1 = min(W, x0 + S), min(H, y0 + S)
+        if fx1 <= fx0 or fy1 <= fy0:
+            continue                              # hat ngoai khung
+        sp = spr[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0]
+        add = (sp[:, :, None] * (a * col)).astype(_np.uint8)
+        fr[fy0:fy1, fx0:fx1] = cv2.add(fr[fy0:fy1, fx0:fx1], add)
+
+
 def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
-              trans_out=None, cut_at=None, head_black=0):
+              trans_out=None, cut_at=None, head_black=0, cam=None, particles=None):
     """Ken Burns SUBPIXEL (cv2.warpAffine bilinear tung frame) -> mp4 segment.
     zoompan cua ffmpeg chi crop PIXEL NGUYEN nen zoom cham kieu gi cung giat nac
     (frame nhich 0px, frame nhich 1px). warpAffine lay mau duoi-pixel -> muot tuyet doi.
 
+    cam=(z0, z1, c0, c1, subj2x): quy dao camera huong nhan vat (tu _cam_for);
+      None -> duong cu: zoom_in/zoom quanh tam anh (make_card van dung).
+      Zoom + pan noi suy CUNG easing smoothstep -> van toc man hinh = 0 o 2 dau (a5-a7).
+
     CHUYEN CANH BAKE TAI CHO (khong them frame nao -> timing toan cuc BAT BIEN):
-      trans_out=(kind, T_f, next_src2x, next_z0): GHI DE T_f frame cuoi (truoc cut_at):
-        'black'     -> chim dan ve den (dip-to-black nua truoc)
+      trans_out=(kind, T_f, next_src2x, next_z0, next_c0): GHI DE T_f frame cuoi (truoc cut_at):
+        'black'     -> chim dan ve den (dip-to-black nua truoc, gamma-correct)
         'zoomblend' -> canh cu DAY zoom tiep + mo dan, canh moi ha canh ve dung frame dau
-                       cua no (next_z0) -> diem noi concat lien mach nhu 1 cu may
+                       cua no (next_z0, next_c0) -> diem noi concat lien mach nhu 1 cu may
       cut_at: frame hien thi CUOI cua canh (-t cat tai day; segment co the render du them)
-      head_black: N frame dau sang dan tu den (nua sau cua dip-to-black / fade-in mo phim)"""
+      head_black: N frame dau sang dan tu den (nua sau cua dip-to-black / fade-in mo phim)
+
+    particles=(pf, t0): lop hat bay YC2 — pf tu _particle_field (deterministic theo seed
+      canh), t0 = offset giay (shot g>0 tiep noi quy dao shot truoc, hat KHONG nhay vi tri
+      qua moi noi shot). Ve SAU fade/trans -> hat sang xuyen dip nhu video mau."""
     im = _kb_norm2x(img_path)
     T = max(2, int(frames))
     end = min(T, int(cut_at)) if cut_at else T
+    if cam:
+        z0, z1, c0, c1, subj = cam
+    else:                                        # duong cu: zoom quanh tam anh
+        z0, z1 = (1.0, 1.0 + zoom) if zoom_in else (1.0 + zoom, 1.0)
+        c0 = c1 = (float(W), float(H)); subj = None
+    head_black = min(int(head_black or 0), end)
+    pfield, pt0 = particles if particles else (None, 0.0)
+    tkind = tTf = tnsrc = tnz0 = tnc0 = None
+    if trans_out:
+        tkind, tTf, tnsrc, tnz0, tnc0 = trans_out
+        tTf = min(max(1, int(tTf)), end)         # (c9) dip khong dai hon phan hien thi
     cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
            "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-an", *X264_SEG, "-pix_fmt", "yuv420p", out_path]
     pr = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
+        den = max(2, end) - 1                    # (b1) ease ve DICH tai cut_at, khong phai T
         for n in range(T):
-            t = n / (T - 1)
-            e = t * t * (3 - 2 * t)                  # smoothstep ease in-out
-            z = (1.0 + zoom * e) if zoom_in else (1.0 + zoom * (1 - e))
-            fr = _kb_frame(im, z)
-            if head_black and n < head_black:        # sang dan tu den (smoothstep)
+            t = min(1.0, n / den)
+            e = t * t * (3 - 2 * t)              # smoothstep ease in-out
+            z = z0 + (z1 - z0) * e
+            cx = c0[0] + (c1[0] - c0[0]) * e     # CUNG easing cho zoom + pan (a6)
+            cy = c0[1] + (c1[1] - c0[1]) * e
+            fr = _kb_frame(im, z, cx, cy)
+            if head_black and n < head_black:    # sang dan tu den (gamma-correct, c2/c3)
                 k = n / head_black
-                fr = (fr * (k * k * (3 - 2 * k))).astype(_np.uint8)
-            if trans_out and end - trans_out[1] <= n < end:
-                kind, T_f, nsrc, nz0 = trans_out
-                p = (n - (end - T_f)) / max(1, T_f)
+                ke = (k * k * (3 - 2 * k)) ** 1.6
+                if FADE_FOCUS and subj is not None:
+                    s = z / 2.0
+                    fr = (fr * _focus_fade_mask(s * subj[0] + (W / 2 - s * cx),
+                                                s * subj[1] + (H / 2 - s * cy),
+                                                1.0 - ke)).astype(_np.uint8)
+                else:
+                    fr = (fr * ke).astype(_np.uint8)
+            if tkind and end - tTf <= n < end:
+                p = (n - (end - tTf)) / max(1, tTf)
                 pe = p * p * (3 - 2 * p)
-                if kind == "black":
-                    fr = (fr * (1.0 - pe)).astype(_np.uint8)
-                elif kind == "zoomblend" and nsrc is not None:
-                    fa = _kb_frame(im, z * (1.0 + 0.06 * pe))          # A day zoom vuot ease
-                    fb = _kb_frame(nsrc, nz0 * (1.0 + 0.06 * (1.0 - pe)))  # B ha canh ve frame 0
+                if tkind == "black":             # chim dan (gamma-correct; mask neu bat)
+                    if FADE_FOCUS and subj is not None:
+                        s = z / 2.0
+                        fr = (fr * _focus_fade_mask(s * subj[0] + (W / 2 - s * cx),
+                                                    s * subj[1] + (H / 2 - s * cy),
+                                                    pe)).astype(_np.uint8)
+                    else:
+                        fr = (fr * ((1.0 - pe) ** 1.6)).astype(_np.uint8)
+                elif tkind == "zoomblend" and tnsrc is not None:
+                    fa = _kb_frame(im, z * (1.0 + 0.06 * pe), cx, cy)   # A day zoom CUNG TAM (a7)
+                    fb = _kb_frame(tnsrc, tnz0 * (1.0 + 0.06 * (1.0 - pe)),
+                                   *(tnc0 or (float(W), float(H))))     # B ha canh ve frame 0
                     fr = cv2.addWeighted(fa, 1.0 - pe, fb, pe, 0)
+            if pfield is not None:               # YC2: hat ve SAU fade -> khong chim theo dip
+                _particles_draw(fr, pfield, pt0 + n / FPS)
             pr.stdin.write(fr.tobytes())
     finally:
         pr.stdin.close()
@@ -385,31 +864,41 @@ def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
 
 
 def _next_kb_src(scene, j, opts):
-    """(src2x, z0) cua FRAME HIEN THI DAU TIEN canh j — tinh truoc KHONG can render canh do
-    (Ken Burns deterministic). None neu canh sau la video/khong co anh -> roi ve dip-to-black."""
+    """(src2x, z0, c0) cua FRAME HIEN THI DAU TIEN canh j — tinh truoc KHONG can render
+    (deterministic: cung subject_of + _motion_plan + _cam_for voi make_scene, a8).
+    None neu canh sau la video/khong co anh -> roi ve dip-to-black."""
     if not (_HAVE_CV2 and scene):
         return None
     clip = (scene.get("clip") or "").strip()
+    clips_multi = _scene_clips(scene)
+    if not clip and clips_multi:
+        clip = clips_multi[0]                        # YC3: chi co "clips" -> chu dao lam clip
     if not clip or not os.path.exists(clip) or _is_video(clip):
         return None
     subs = [s for s in (scene.get("subs") or []) if (s.get("hz") or s.get("vi"))]
+    use_multi = (len(clips_multi) >= 2 and len(subs) >= 1
+                 and opts.get("film_mode", True))    # YC3 — DONG BO dieu kien voi make_scene
     use_shots = (bool(scene.get("narrate")) and len(subs) >= 2
-                 and opts.get("film_mode", True))
+                 and opts.get("film_mode", True) and not use_multi)
     try:
-        if use_shots:                                # shot dau: m=(0+j)%4, zoom 2.5%
+        if use_multi:                                # group dau canh j: anh clips[0], idx=0+j
+            src = _kb_norm2x(clips_multi[0])
+            cam = _cam_for(clips_multi[0], j, opts, scene=scene)
+        elif use_shots:                              # shot dau: g=0 -> idx=j, geom m=(0+j)%4
+            sx, sy, conf, _, _ = _scene_subject(clip, scene, opts)
             pim = Image.open(clip).convert("RGB")
-            x0, y0, cw, ch = _shot_geom(pim.size[0], pim.size[1], 0, j)
+            rect = _shot_geom(pim.size[0], pim.size[1], 0, j,
+                              sub=((sx, sy) if conf > 0 else None))
+            x0, y0, cw, ch = rect
             crop = pim.crop((x0, y0, x0 + cw, y0 + ch)).resize((W * 2, H * 2), Image.LANCZOS)
             src = _np.asarray(crop)[:, :, ::-1].copy()          # RGB -> BGR
-            zoom = 0.025
+            cam = _cam_for(clip, j, opts, scene=scene, shot_rect=rect)
         else:
             if not opts.get("kenburns", True):
                 return None
             src = _kb_norm2x(clip)
-            zoom = 0.05
-        zoom_in = (j % 2 == 0)                       # khop _kb_video call cua canh j
-        z0 = 1.0 if zoom_in else (1.0 + zoom)        # e(t=0)=0 -> zoom tai frame dau
-        return src, z0
+            cam = _cam_for(clip, j, opts, scene=scene)
+        return src, cam[0], cam[2]                   # e(t=0)=0 -> (z0, c0) tai frame dau
     except Exception:
         return None
 
@@ -448,7 +937,12 @@ def plan_transitions(scenes, opts=None):
       - VAO twist/climax                -> CUT thang (dissolve se "bao truoc" cu lat)
       - HET hook / HET climax           -> dip-to-black (nghi chuong, chi 2-3 lan/phim)
       - canh dau fade-in, canh cuoi fade-out (khop card dau/cuoi von fade den)
-    Kich ban co the ep tay: scene["trans"] = cut|black|blend (ap cho moi noi TRUOC canh do)."""
+    Kich ban co the ep tay: scene["trans"] = cut|black|blend (ap cho moi noi TRUOC canh do).
+    opts (c7): always_fade (mac dinh BAT — style Chuyen Que Xua: 100% dip, cac moi CUT
+    doi thanh dip-to-black); dip_dur (mac dinh 0.5s ~ so do video mau 0.45s)."""
+    opts = opts or {}
+    always = bool(opts.get("always_fade", True))
+    dip = max(0.2, float(opts.get("dip_dur") or 0.5))
     n = len(scenes)
     for i, sc in enumerate(scenes):
         sc["_trans_out"] = None
@@ -464,19 +958,20 @@ def plan_transitions(scenes, opts=None):
         r0, r1 = _beat_role(cur.get("beat")), _beat_role(nxt.get("beat"))
         kind, dur = None, 0.0
         if manual in ("cut", "none"):
-            pass
+            pass                                     # ep tay CUT -> ton trong ca khi always_fade
         elif manual in ("black", "fadeblack", "dip"):
-            kind, dur = "black", 0.8
+            kind, dur = "black", dip
         elif manual in ("blend", "zoomblend", "fade", "dissolve"):
             kind, dur = "zoomblend", 0.7
         elif r1 in ("twist", "climax"):
-            pass                                     # CUT — khong bao truoc cu lat
+            if always:                               # (c7) video mau khong cut cung
+                kind, dur = "black", dip
         elif r0 == "hook" and r1 == "hook":
             kind, dur = "zoomblend", 0.6             # hook = montage "trailer"
         elif r0 == "hook":
-            kind, dur = "black", 0.7                 # het loi tua -> vao truyen
+            kind, dur = "black", max(dip, 0.6)       # het loi tua -> vao truyen
         elif r0 == "climax":
-            kind, dur = "black", 0.9                 # tho sau cao trao
+            kind, dur = "black", max(dip, 0.7)       # tho sau cao trao
         elif r1 == "timejump":
             kind, dur = "zoomblend", 1.2
         elif r1 == "ket":
@@ -486,20 +981,24 @@ def plan_transitions(scenes, opts=None):
             b1 = (nxt.get("beat") or "").strip().lower().replace(" ", "_")
             if b0 != b1:
                 kind, dur = "zoomblend", 0.7         # doi beat (du cung nhom body) = doi phan doan
+            elif always:
+                kind, dur = "black", dip             # (c7) cung beat: dip thay cut
         elif r0 == r1:
-            pass                                     # cung phan doan -> cut
+            if always:
+                kind, dur = "black", dip             # (c7) cung phan doan: dip thay cut
         else:
             kind, dur = "zoomblend", 0.7
         cur["_trans_out"] = (kind, dur) if kind else None
         if kind == "black":                          # nua sau cua dip: canh ke sang dan
             nxt["_head_black"] = max(float(nxt.get("_head_black") or 0), dur / 2)
-    scenes[-1]["_trans_out"] = ("black", 0.8)        # ket phim -> end card (card tu fade-in)
+    scenes[-1]["_trans_out"] = ("black", max(dip, 0.6))  # ket phim -> end card (card tu fade-in)
     return scenes
 
 
 def _kb_filter(i, frames):
     """(FALLBACK khi thieu cv2) Ken Burns bang zoompan — van hoi giat nac vi crop pixel nguyen.
-    Supersample cao (3x) -> zoom mượt, không rung pixel."""
+    Supersample cao (3x) -> zoom mượt, không rung pixel.
+    TODO (a14): x/y theo tam nhan vat (can subject detect khong-cv2) — hien zoom quanh tam."""
     T = max(2, frames)
     e = f"(3*pow(on/{T},2)-2*pow(on/{T},3))"        # smoothstep 0->1 (ease in-out)
     z = f"1.0+0.05*{e}" if i % 2 == 0 else f"1.05-0.05*{e}"   # ±5% rất nhẹ
@@ -613,6 +1112,9 @@ def make_scene(scene, opts, i):
     Tra ve (path_mp4, thoi_luong)."""
     import generate
     clip = (scene.get("clip") or "").strip()
+    clips_multi = _scene_clips(scene)                # YC3: danh sach anh (chu dao + phu)
+    if not clip and clips_multi:
+        clip = clips_multi[0]                        # chi co "clips" -> anh chu dao lam clip
     is_vid = _is_video(clip) and os.path.exists(clip)
     is_img = clip and os.path.exists(clip) and not is_vid
     subs = [s for s in (scene.get("subs") or []) if (s.get("hz") or s.get("vi"))]
@@ -716,15 +1218,64 @@ def make_scene(scene, opts, i):
             _tk = "black"                            # canh sau video/khong anh -> dip-to-black
     _trans = None
     if _HAVE_CV2 and _tk:
-        _trans = (_tk, max(1, int(float(_td) * FPS)),
-                  _nsrc[0] if _nsrc else None, _nsrc[1] if _nsrc else None)
+        # (c5) dip DOI XUNG nhu video mau: ra dur/2 (day canh nay) + vao dur/2 (head_black canh ke)
+        _tf = float(_td) * (0.5 if _tk == "black" else 1.0)
+        _trans = (_tk, max(1, int(_tf * FPS)),                       # (a9) tuple 5 phan tu
+                  _nsrc[0] if _nsrc else None, _nsrc[1] if _nsrc else None,
+                  _nsrc[2] if _nsrc else None)
     _hb_frames = int(float(scene.get("_head_black") or 0) * FPS) if _HAVE_CV2 else 0
+    # HAT BAY (YC2): preset auto theo mau anh; scene["particles"] ghi de opts["particles"].
+    # Chi co o duong cv2 (_kb_video); fallback zoompan BO QUA hat (khong crash).
+    _pf = None
+    if _HAVE_CV2 and is_img:
+        _pmode = str(scene.get("particles") or opts.get("particles") or "auto")
+        try:
+            _pp = _particle_preset(clip, _pmode)
+            if _pp:
+                _pf = _particle_field(i, _pp)    # seed = chi so canh -> deterministic
+        except Exception:
+            _pf = None                           # loi phan tich anh -> bo hat, khong chan phim
     # FAKE COVERAGE: anh tinh + >=2 cau -> cat SHOT (toan/trung/can) nhu phim co nhieu cu may.
     # CHUYEN SHOT THEO NOI DUNG, khong phai 1 cau/1 shot (giat lien tuc):
     #   - sub co "cut": true  -> mo shot moi tai cau do (kich ban tu quyet dinh diem chuyen)
     #   - khong danh dau "cut" -> tu gom cac cau lien tiep den ~6.5s roi moi chuyen
-    use_shots = (is_img and narrate and len(subs) >= 2 and opts.get("film_mode", True))
-    if use_shots:
+    # YC3 MULTI-SHOT: canh co >=2 anh trong scene["clips"] -> moi group 1 ANH KHAC
+    # (chu dao / can canh / quang canh) thay vi cat crop 1 anh. Timing group van chia
+    # theo cau nhu co che san co -> TONG THOI LUONG CANH BAT BIEN. Chi o duong cv2.
+    use_multi = (_HAVE_CV2 and is_img and len(clips_multi) >= 2 and len(subs) >= 1
+                 and opts.get("film_mode", True))
+    use_shots = (is_img and narrate and len(subs) >= 2 and opts.get("film_mode", True)
+                 and not use_multi)
+    if use_multi:
+        groups = _multi_groups(subs, sub_dur, len(clips_multi), scene_dur)
+        order = _clip_alloc(len(groups), len(clips_multi))
+        segs = []
+        _pt = 0.0                                # hat: t0 cong don qua group (nhu YC2)
+        _f0, _cum = 0, 0.0
+        for g, idxs in enumerate(groups):
+            _cum += sum(sub_dur[k] for k in idxs)
+            _f1 = int(round(_cum * FPS))
+            fr = max(2, _f1 - _f0); _f0 = _f1    # lam tron TICH LUY -> tong frame chuan
+            src = clips_multi[order[g]]
+            last = (g == len(groups) - 1)
+            kv = os.path.join(FILM, f"_kbv_{i}_{g}.mp4")
+            # moi anh di duong subject-focused Ken Burns YC1; scene["focus"] ep tay chi
+            # ap cho ANH CHU DAO (anh phu detect rieng). Giua group: CUT thang (khong dip),
+            # dip chi o ranh gioi CANH: trans bake group cuoi, head_black group dau.
+            _cam = _cam_for(src, g + i, opts, scene=(scene if order[g] == 0 else None))
+            _kb_video(src, fr, zoom_in=((g + i) % 2 == 0), out_path=kv, zoom=0.05,
+                      cam=_cam,
+                      trans_out=(_trans if last else None), cut_at=(fr if last else None),
+                      head_black=(_hb_frames if g == 0 else 0),
+                      particles=((_pf, _pt) if _pf is not None else None))
+            _pt += fr / FPS
+            tmp.append(kv)
+            inputs += ["-i", kv]
+            fc.append(f"[{g}:v]setpts=PTS-STARTPTS[sh{g}]")
+            segs.append(f"[sh{g}]")
+        fc.append("".join(segs) + f"concat=n={len(groups)}:v=1:a=0,format=yuv420p[bg]")
+        n_bg = len(groups)
+    elif use_shots:
         has_cut = any(s.get("cut") for s in subs)
         groups = [[0]]
         for k in range(1, len(subs)):
@@ -733,23 +1284,33 @@ def make_scene(scene, opts, i):
             else:
                 new = sum(sub_dur[j] for j in groups[-1]) >= 6.5
             groups.append([k]) if new else groups[-1].append(k)
-        shot_imgs = _shot_crops(clip, len(groups), i, tmp)
+        # subject 1 lan cho ca canh (cache) -> geometry shot + quy dao camera (a12-a13)
+        _sj = _scene_subject(clip, scene, opts) if _HAVE_CV2 else (0, 0, 0.0, 1, 1)
+        _sub = (_sj[0], _sj[1]) if _sj[2] > 0 else None
+        shot_imgs = _shot_crops(clip, len(groups), i, tmp, sub=_sub)
         segs = []
+        _pt = 0.0                                # offset giay cho hat: lien tuc qua cac shot
         for g, idxs in enumerate(groups):
             dd = sum(sub_dur[k] for k in idxs)
             fr = max(2, int(dd * FPS))
             if _HAVE_CV2:
-                # 2.5% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
+                # 2.5-3% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
                 kv = os.path.join(FILM, f"_kbv_{i}_{g}.mp4")
                 last = (g == len(groups) - 1)
+                _rect = _shot_geom(_sj[3], _sj[4], g, i, sub=_sub)
+                _cam = _cam_for(clip, g + i, opts, scene=scene, shot_rect=_rect)   # (a10)
                 _kb_video(shot_imgs[g], fr, zoom_in=((g + i) % 2 == 0),
-                          out_path=kv, zoom=0.025,
+                          out_path=kv, zoom=0.025, cam=_cam,
                           trans_out=(_trans if last else None), cut_at=(fr if last else None),
-                          head_black=(_hb_frames if g == 0 else 0))
+                          head_black=(_hb_frames if g == 0 else 0),
+                          particles=((_pf, _pt) if _pf is not None else None))
+                _pt += fr / FPS
                 tmp.append(kv)
                 inputs += ["-i", kv]
                 fc.append(f"[{g}:v]setpts=PTS-STARTPTS[sh{g}]")
             else:                                    # fallback zoompan (giat nhe)
+                # TODO (a15): zoompan x/y theo tam nhan vat (hien van zoom quanh tam)
+                # YC2: khong cv2 -> BO QUA lop hat (chi co o duong _kb_video)
                 inputs += ["-loop", "1", "-i", shot_imgs[g]]
                 e = f"(3*pow(on/{fr},2)-2*pow(on/{fr},3))"
                 z = f"1.0+0.025*{e}" if (g + i) % 2 == 0 else f"1.025-0.025*{e}"
@@ -768,12 +1329,14 @@ def make_scene(scene, opts, i):
             kv = os.path.join(FILM, f"_kbv_{i}.mp4")
             _kb_video(clip, int(scene_dur * FPS) + FPS, zoom_in=(i % 2 == 0),
                       out_path=kv, zoom=0.05,
+                      cam=_cam_for(clip, i, opts, scene=scene),      # (a11) camera huong nhan vat
                       trans_out=_trans, cut_at=int(scene_dur * FPS),
-                      head_black=_hb_frames)
+                      head_black=_hb_frames,
+                      particles=((_pf, 0.0) if _pf is not None else None))
             tmp.append(kv)
             inputs += ["-i", kv]
         elif is_img:
-            inputs += ["-loop", "1", "-i", clip]
+            inputs += ["-loop", "1", "-i", clip]     # khong cv2 -> bo qua hat (YC2)
         else:
             inputs += ["-f", "lavfi", "-i", f"color=c=0x101018:s={W}x{H}:r={FPS}"]
         if kb and _HAVE_CV2:
@@ -887,7 +1450,9 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
         try: os.remove(kbv)
         except OSError: pass
     else:                                             # fallback zoompan
-        zexpr = "min(zoom+0.0004,1.08)"
+        # (b6) smoothstep thay tuyen tinh -> khop nhip voi duong cv2
+        _ze = f"(3*pow(on/{frames},2)-2*pow(on/{frames},3))"
+        zexpr = f"1.0+{min(0.012 * dur, 0.08):.4f}*{_ze}"
         vf = (f"scale={W*2}:{H*2},zoompan=z='{zexpr}':d={frames}:x='iw/2-(iw/zoom/2)':"
               f"y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS}," + fade)
         subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", png,
@@ -994,7 +1559,9 @@ def _join_video(seg_videos, opts):
             for k in range(1, n):
                 ov = f"[vx{k}]" if k < n - 1 else "[vj]"
                 oa = f"[ax{k}]" if k < n - 1 else "[aj]"
-                fc.append(f"{curv}[{k}:v]xfade=transition=fade:duration={TD}:offset={off:.3f}{ov}")
+                # (c11) fadeblack = dip-to-black (dong bo phong cach voi duong cv2);
+                # TD=0.75 GIU NGUYEN — app.py:2192 tinh chapter theo dung so nay
+                fc.append(f"{curv}[{k}:v]xfade=transition=fadeblack:duration={TD}:offset={off:.3f}{ov}")
                 fc.append(f"{cura}[{k}:a]acrossfade=d={TD}{oa}")
                 curv, cura = ov, oa
                 off += durs[k] - TD
@@ -1079,7 +1646,7 @@ def _concat_and_music(seg_videos, opts, out_path, total):
                             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out_path],
                            check=True, capture_output=True)
     else:
-        os.replace(narr, out_path)
+        shutil.move(narr, out_path)           # os.replace loi khi out_path khac o dia (WinError 17)
     for v in seg_videos:
         try: os.remove(v)
         except OSError: pass
