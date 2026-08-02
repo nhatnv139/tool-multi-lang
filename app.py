@@ -2144,6 +2144,12 @@ def run_film_job(job_id, data):
         total = len(fscenes)
         jobs[job_id].update(total=total + 2, label="Đang dựng cảnh 1...")
 
+        # NANG CAP DIEN ANH: co cv2 -> chuyen canh bake vao duoi canh (plan_transitions),
+        # join = cut -> TD=0, timing SRT/chapters TUYET DOI. Thieu cv2 -> xfade cu.
+        if _fl._HAVE_CV2 and opts["transition"] != "none":
+            _fl.plan_transitions(fscenes, opts)
+            opts["transition"] = "none"
+
         seg_videos, seg_durs, tsec = [], [], 0.0
         scene_seg_idx = []                              # segment index của mỗi CẢNH (để tính chapter)
         # BÌA ĐẦU (title card)
@@ -2179,7 +2185,7 @@ def run_film_job(job_id, data):
             _film_thumb(out_path, os.path.join(OUT, thumb))       # fallback: khung trơn
         try:
             with open(out_path + ".meta.json", "w", encoding="utf-8") as f:
-                json.dump({"title": title}, f, ensure_ascii=False)
+                json.dump({"title": title, "total_dur": round(tsec, 2)}, f, ensure_ascii=False)
         except Exception:
             pass
         # CHAPTERS: mốc bắt đầu mỗi segment (bù trừ transition overlap)

@@ -160,24 +160,31 @@ def split_dialogue(hz, names):
 
 
 # ---------- FAKE COVERAGE — cat 1 anh nen thanh nhieu SHOT may quay ----------
+def _shot_geom(iw, ih, k, i):
+    """Toa do crop shot k cua canh i — DETERMINISTIC, dung chung cho render segment
+    va cho viec tinh truoc frame dau cua canh ke tiep (transition zoom-blend)."""
+    base_w = min(iw, ih * W // H)          # cua so 16:9 lon nhat trong anh
+    base_h = base_w * H // W
+    m = (k + i) % 4
+    # oy keo LEN TREN (0.40-0.45): mat nhan vat luon o nua tren anh,
+    # crop lech xuong (0.54-0.56 cu) se cat cut dau khi vao trung/can canh.
+    if m == 0:   f, ox, oy = 1.00, 0.50, 0.50      # TOAN canh (wide)
+    elif m == 1: f, ox, oy = 0.80, 0.40, 0.45      # TRUNG - lech trai, neo vung mat
+    elif m == 2: f, ox, oy = 0.80, 0.60, 0.45      # TRUNG - lech phai, neo vung mat
+    else:        f, ox, oy = 0.70, 0.50, 0.40      # CAN - giua, neo phan tren
+    cw, ch = int(base_w * f), int(base_h * f)
+    x0 = max(0, min(iw - cw, int(ox * iw) - cw // 2))
+    y0 = max(0, min(ih - ch, int(oy * ih) - ch // 2))
+    return x0, y0, cw, ch
+
+
 def _shot_crops(img_path, n, i, tmp):
     """1 anh -> n shot (toan canh / trung / can, dao goc trai-phai) nhu phim co nhieu cu may."""
     im = Image.open(img_path).convert("RGB")
     iw, ih = im.size
-    base_w = min(iw, ih * W // H)          # cua so 16:9 lon nhat trong anh
-    base_h = base_w * H // W
     outs = []
     for k in range(n):
-        m = (k + i) % 4
-        # oy keo LEN TREN (0.40-0.45): mat nhan vat luon o nua tren anh,
-        # crop lech xuong (0.54-0.56 cu) se cat cut dau khi vao trung/can canh.
-        if m == 0:   f, ox, oy = 1.00, 0.50, 0.50      # TOAN canh (wide)
-        elif m == 1: f, ox, oy = 0.80, 0.40, 0.45      # TRUNG - lech trai, neo vung mat
-        elif m == 2: f, ox, oy = 0.80, 0.60, 0.45      # TRUNG - lech phai, neo vung mat
-        else:        f, ox, oy = 0.70, 0.50, 0.40      # CAN - giua, neo phan tren
-        cw, ch = int(base_w * f), int(base_h * f)
-        x0 = max(0, min(iw - cw, int(ox * iw) - cw // 2))
-        y0 = max(0, min(ih - ch, int(oy * ih) - ch // 2))
+        x0, y0, cw, ch = _shot_geom(iw, ih, k, i)
         # save 2x (supersample cho zoompan): crop toa do nguyen pixel -> zoom buoc <1px gay giat nac
         crop = im.crop((x0, y0, x0 + cw, y0 + ch)).resize((W * 2, H * 2), Image.LANCZOS)
         p = os.path.join(FILM, f"_shot_{i}_{k}.jpg")
@@ -306,22 +313,45 @@ except Exception:
     _HAVE_CV2 = False
 
 
-def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05):
-    """Ken Burns SUBPIXEL (cv2.warpAffine bilinear tung frame) -> mp4 segment.
-    zoompan cua ffmpeg chi crop PIXEL NGUYEN nen zoom cham kieu gi cung giat nac
-    (frame nhich 0px, frame nhich 1px). warpAffine lay mau duoi-pixel -> muot tuyet doi."""
-    im = cv2.imread(img_path)
+def _kb_norm2x(img):
+    """Doc anh (path hoac ndarray BGR) -> nguon 2x (3840x2160) crop giua, du net khi phong 5%."""
+    im = cv2.imread(img) if isinstance(img, str) else img
     if im is None:
-        raise RuntimeError(f"khong doc duoc anh: {img_path}")
+        raise RuntimeError(f"khong doc duoc anh: {img}")
     ih, iw = im.shape[:2]
-    if (iw, ih) != (W * 2, H * 2):                   # chuan hoa nguon ve 2x (du net khi phong 5%)
+    if (iw, ih) != (W * 2, H * 2):
         f = max(W * 2 / iw, H * 2 / ih)
         im = cv2.resize(im, (max(W * 2, int(iw * f)), max(H * 2, int(ih * f))),
                         interpolation=cv2.INTER_LANCZOS4)
         ih2, iw2 = im.shape[:2]
         x0, y0 = (iw2 - W * 2) // 2, (ih2 - H * 2) // 2
         im = im[y0:y0 + H * 2, x0:x0 + W * 2]
+    return im
+
+
+def _kb_frame(im2x, z):
+    """1 frame Ken Burns: zoom z quanh tam, nguon 2x -> khung WxH, subpixel bilinear."""
+    s = z / 2.0
+    M = _np.float32([[s, 0, W / 2 - s * W], [0, s, H / 2 - s * H]])
+    return cv2.warpAffine(im2x, M, (W, H), flags=cv2.INTER_LINEAR)
+
+
+def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
+              trans_out=None, cut_at=None, head_black=0):
+    """Ken Burns SUBPIXEL (cv2.warpAffine bilinear tung frame) -> mp4 segment.
+    zoompan cua ffmpeg chi crop PIXEL NGUYEN nen zoom cham kieu gi cung giat nac
+    (frame nhich 0px, frame nhich 1px). warpAffine lay mau duoi-pixel -> muot tuyet doi.
+
+    CHUYEN CANH BAKE TAI CHO (khong them frame nao -> timing toan cuc BAT BIEN):
+      trans_out=(kind, T_f, next_src2x, next_z0): GHI DE T_f frame cuoi (truoc cut_at):
+        'black'     -> chim dan ve den (dip-to-black nua truoc)
+        'zoomblend' -> canh cu DAY zoom tiep + mo dan, canh moi ha canh ve dung frame dau
+                       cua no (next_z0) -> diem noi concat lien mach nhu 1 cu may
+      cut_at: frame hien thi CUOI cua canh (-t cat tai day; segment co the render du them)
+      head_black: N frame dau sang dan tu den (nua sau cua dip-to-black / fade-in mo phim)"""
+    im = _kb_norm2x(img_path)
     T = max(2, int(frames))
+    end = min(T, int(cut_at)) if cut_at else T
     cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
            "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-an", *X264_SEG, "-pix_fmt", "yuv420p", out_path]
@@ -332,16 +362,139 @@ def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05):
             t = n / (T - 1)
             e = t * t * (3 - 2 * t)                  # smoothstep ease in-out
             z = (1.0 + zoom * e) if zoom_in else (1.0 + zoom * (1 - e))
-            s = z / 2.0                              # nguon 2x -> he so ra khung 1x
-            M = _np.float32([[s, 0, W / 2 - s * W],  # zoom quanh TAM anh
-                             [0, s, H / 2 - s * H]])
-            pr.stdin.write(cv2.warpAffine(im, M, (W, H),
-                                          flags=cv2.INTER_LINEAR).tobytes())
+            fr = _kb_frame(im, z)
+            if head_black and n < head_black:        # sang dan tu den (smoothstep)
+                k = n / head_black
+                fr = (fr * (k * k * (3 - 2 * k))).astype(_np.uint8)
+            if trans_out and end - trans_out[1] <= n < end:
+                kind, T_f, nsrc, nz0 = trans_out
+                p = (n - (end - T_f)) / max(1, T_f)
+                pe = p * p * (3 - 2 * p)
+                if kind == "black":
+                    fr = (fr * (1.0 - pe)).astype(_np.uint8)
+                elif kind == "zoomblend" and nsrc is not None:
+                    fa = _kb_frame(im, z * (1.0 + 0.06 * pe))          # A day zoom vuot ease
+                    fb = _kb_frame(nsrc, nz0 * (1.0 + 0.06 * (1.0 - pe)))  # B ha canh ve frame 0
+                    fr = cv2.addWeighted(fa, 1.0 - pe, fb, pe, 0)
+            pr.stdin.write(fr.tobytes())
     finally:
         pr.stdin.close()
     if pr.wait() != 0:
         raise RuntimeError("ffmpeg encode _kb_video loi")
     return out_path
+
+
+def _next_kb_src(scene, j, opts):
+    """(src2x, z0) cua FRAME HIEN THI DAU TIEN canh j — tinh truoc KHONG can render canh do
+    (Ken Burns deterministic). None neu canh sau la video/khong co anh -> roi ve dip-to-black."""
+    if not (_HAVE_CV2 and scene):
+        return None
+    clip = (scene.get("clip") or "").strip()
+    if not clip or not os.path.exists(clip) or _is_video(clip):
+        return None
+    subs = [s for s in (scene.get("subs") or []) if (s.get("hz") or s.get("vi"))]
+    use_shots = (bool(scene.get("narrate")) and len(subs) >= 2
+                 and opts.get("film_mode", True))
+    try:
+        if use_shots:                                # shot dau: m=(0+j)%4, zoom 2.5%
+            pim = Image.open(clip).convert("RGB")
+            x0, y0, cw, ch = _shot_geom(pim.size[0], pim.size[1], 0, j)
+            crop = pim.crop((x0, y0, x0 + cw, y0 + ch)).resize((W * 2, H * 2), Image.LANCZOS)
+            src = _np.asarray(crop)[:, :, ::-1].copy()          # RGB -> BGR
+            zoom = 0.025
+        else:
+            if not opts.get("kenburns", True):
+                return None
+            src = _kb_norm2x(clip)
+            zoom = 0.05
+        zoom_in = (j % 2 == 0)                       # khop _kb_video call cua canh j
+        z0 = 1.0 if zoom_in else (1.0 + zoom)        # e(t=0)=0 -> zoom tai frame dau
+        return src, z0
+    except Exception:
+        return None
+
+
+# ---------- NGU PHAP DIEN ANH: chon chuyen canh theo BEAT ----------
+_ROLE_KEYS = [                                       # thu tu = do uu tien khi match substring
+    ("twist",      ("twist", "lat_bai", "latbai", "buoc_ngoat", "buocngoat", "bien_co",
+                    "bienco", "bat_ngo", "batngo")),
+    ("resolution", ("phuc_bao", "phucbao", "thang_hoa", "thanghoa", "doan_tu", "doantu",
+                    "giai_thoat", "giaithoat")),     # truoc climax: "phuc_bao" chua "bao"
+    ("ket",        ("ket", "bai_hoc", "baihoc", "loi_phan", "loiphan")),
+    ("climax",     ("climax", "cao_trao", "caotrao", "sup_do", "supdo", "qua_bao",
+                    "quabao", "dinh_diem", "dinhdiem", "bao")),
+    ("timejump",   ("hoi_tuong", "hoituong", "con_lon", "conlon", "dai_kiep", "daikiep",
+                    "vinh_quy", "vinhquy", "gap_lai", "gaplai", "nam_sau", "namsau",
+                    "doan_vien", "doanvien")),
+    ("hook",       ("hook", "mo_dau", "modau", "teaser")),
+]
+
+def _beat_role(b):
+    b = (b or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if not b:
+        return ""
+    for role, keys in _ROLE_KEYS:
+        if any(k in b for k in keys):
+            return role
+    return "body"
+
+
+def plan_transitions(scenes, opts=None):
+    """Gan chuyen canh cho tung moi noi theo NGU PHAP DIEN ANH (bake vao duoi canh truoc,
+    timing toan cuc BAT BIEN — xem _kb_video):
+      - cung phan doan (cung beat)      -> CUT thang (mac dinh cua phim that)
+      - doi phan doan                   -> zoom-blend 0.7s ("thoi gian troi / doi khong gian")
+      - nhay thoi gian lon / vao ket    -> zoom-blend cham 1.0-1.2s
+      - VAO twist/climax                -> CUT thang (dissolve se "bao truoc" cu lat)
+      - HET hook / HET climax           -> dip-to-black (nghi chuong, chi 2-3 lan/phim)
+      - canh dau fade-in, canh cuoi fade-out (khop card dau/cuoi von fade den)
+    Kich ban co the ep tay: scene["trans"] = cut|black|blend (ap cho moi noi TRUOC canh do)."""
+    n = len(scenes)
+    for i, sc in enumerate(scenes):
+        sc["_trans_out"] = None
+        sc["_head_black"] = 0.0
+        sc["_next"] = scenes[i + 1] if i + 1 < n else None
+        sc["_next_idx"] = i + 1
+    if not n:
+        return scenes
+    scenes[0]["_head_black"] = 0.8                   # mo phim: sang dan tu den
+    for i in range(n - 1):
+        cur, nxt = scenes[i], scenes[i + 1]
+        manual = (nxt.get("trans") or "").strip().lower()
+        r0, r1 = _beat_role(cur.get("beat")), _beat_role(nxt.get("beat"))
+        kind, dur = None, 0.0
+        if manual in ("cut", "none"):
+            pass
+        elif manual in ("black", "fadeblack", "dip"):
+            kind, dur = "black", 0.8
+        elif manual in ("blend", "zoomblend", "fade", "dissolve"):
+            kind, dur = "zoomblend", 0.7
+        elif r1 in ("twist", "climax"):
+            pass                                     # CUT — khong bao truoc cu lat
+        elif r0 == "hook" and r1 == "hook":
+            kind, dur = "zoomblend", 0.6             # hook = montage "trailer"
+        elif r0 == "hook":
+            kind, dur = "black", 0.7                 # het loi tua -> vao truyen
+        elif r0 == "climax":
+            kind, dur = "black", 0.9                 # tho sau cao trao
+        elif r1 == "timejump":
+            kind, dur = "zoomblend", 1.2
+        elif r1 == "ket":
+            kind, dur = "zoomblend", 1.0             # vao bai hoc -> dissolve cham
+        elif r0 == r1 == "body":
+            b0 = (cur.get("beat") or "").strip().lower().replace(" ", "_")
+            b1 = (nxt.get("beat") or "").strip().lower().replace(" ", "_")
+            if b0 != b1:
+                kind, dur = "zoomblend", 0.7         # doi beat (du cung nhom body) = doi phan doan
+        elif r0 == r1:
+            pass                                     # cung phan doan -> cut
+        else:
+            kind, dur = "zoomblend", 0.7
+        cur["_trans_out"] = (kind, dur) if kind else None
+        if kind == "black":                          # nua sau cua dip: canh ke sang dan
+            nxt["_head_black"] = max(float(nxt.get("_head_black") or 0), dur / 2)
+    scenes[-1]["_trans_out"] = ("black", 0.8)        # ket phim -> end card (card tu fade-in)
+    return scenes
 
 
 def _kb_filter(i, frames):
@@ -554,6 +707,18 @@ def make_scene(scene, opts, i):
     # 3) FFMPEG: base + overlay phu de timed + audio
     vp = os.path.join(FILM, f"scene_{i:02d}.mp4")
     inputs, fc = [], []
+    # CHUYEN CANH bake vao duoi bg (plan_transitions da gan _trans_out/_head_black vao scene):
+    _tk, _td = (scene.get("_trans_out") or (None, 0.0))
+    _nsrc = None
+    if _tk == "zoomblend":
+        _nsrc = _next_kb_src(scene.get("_next"), int(scene.get("_next_idx", i + 1)), opts)
+        if _nsrc is None:
+            _tk = "black"                            # canh sau video/khong anh -> dip-to-black
+    _trans = None
+    if _HAVE_CV2 and _tk:
+        _trans = (_tk, max(1, int(float(_td) * FPS)),
+                  _nsrc[0] if _nsrc else None, _nsrc[1] if _nsrc else None)
+    _hb_frames = int(float(scene.get("_head_black") or 0) * FPS) if _HAVE_CV2 else 0
     # FAKE COVERAGE: anh tinh + >=2 cau -> cat SHOT (toan/trung/can) nhu phim co nhieu cu may.
     # CHUYEN SHOT THEO NOI DUNG, khong phai 1 cau/1 shot (giat lien tuc):
     #   - sub co "cut": true  -> mo shot moi tai cau do (kich ban tu quyet dinh diem chuyen)
@@ -576,8 +741,11 @@ def make_scene(scene, opts, i):
             if _HAVE_CV2:
                 # 2.5% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
                 kv = os.path.join(FILM, f"_kbv_{i}_{g}.mp4")
+                last = (g == len(groups) - 1)
                 _kb_video(shot_imgs[g], fr, zoom_in=((g + i) % 2 == 0),
-                          out_path=kv, zoom=0.025)
+                          out_path=kv, zoom=0.025,
+                          trans_out=(_trans if last else None), cut_at=(fr if last else None),
+                          head_black=(_hb_frames if g == 0 else 0))
                 tmp.append(kv)
                 inputs += ["-i", kv]
                 fc.append(f"[{g}:v]setpts=PTS-STARTPTS[sh{g}]")
@@ -599,7 +767,9 @@ def make_scene(scene, opts, i):
             # +1s du phong: bg video huu han (khong -loop) phai dai hon audio
             kv = os.path.join(FILM, f"_kbv_{i}.mp4")
             _kb_video(clip, int(scene_dur * FPS) + FPS, zoom_in=(i % 2 == 0),
-                      out_path=kv, zoom=0.05)
+                      out_path=kv, zoom=0.05,
+                      trans_out=_trans, cut_at=int(scene_dur * FPS),
+                      head_black=_hb_frames)
             tmp.append(kv)
             inputs += ["-i", kv]
         elif is_img:
@@ -772,6 +942,11 @@ def make_title_thumb(video_path, title, header, out_jpg, bg_image=None):
 def make_film(scenes, opts, out_path):
     """Noi cac canh -> tap phim. opts: voice, azure, sub_pinyin, rate, music_file, music_vol,
     kenburns, transition('none'|'fade'), grade, title_card, end_card, film_title, film_header."""
+    # NANG CAP DIEN ANH: co cv2 -> chuyen canh bake theo beat (plan_transitions), join = cut
+    # -> timing SRT/chapters/nhac BAT BIEN. Thieu cv2 -> giu duong xfade cu.
+    if _HAVE_CV2 and (opts.get("transition") or "fade") != "none":
+        plan_transitions(scenes, opts)
+        opts = dict(opts, transition="none")
     seg_videos, durs = [], []
     if opts.get("title_card") and opts.get("film_title"):
         cp, cd = make_card("title", opts["film_title"], opts.get("film_header", ""), dur=3.5, opts=opts)
@@ -835,7 +1010,9 @@ def _join_video(seg_videos, opts):
                            check=True, capture_output=True)
             return narr
         except subprocess.CalledProcessError:
-            pass                                          # lỗi filter -> rơi về nối thẳng
+            # KHONG nuot cam: roi ve noi thang lam timing khac voi du tinh cua app (TD=0.75)
+            print("[FILM] ⚠ xfade loi -> noi thang (khong overlap); "
+                  "SRT/chapters tinh theo overlap se lech!")
     # NỐI THẲNG (cut) hoặc fallback
     lst = os.path.join(FILM, "_concat.txt")
     with open(lst, "w") as f:
@@ -874,7 +1051,8 @@ def _concat_and_music(seg_videos, opts, out_path, total):
             narr = _add_roomtone(narr)
         except subprocess.CalledProcessError:
             pass                                          # loi -> bo qua, khong chan phim
-    total = max(total, _dur(narr))                        # xfade rut ngan -> lay dung do dai
+    total = _dur(narr) or total                           # do dai THAT (fix: max() giu so phong dai
+                                                          # khi xfade rut ngan -> nhac cut phut khong fade)
     music = (opts.get("music_file") or "").strip()
     if music and os.path.exists(music):
         vol = float(opts.get("music_vol", 0.14))

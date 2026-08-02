@@ -91,6 +91,10 @@ def build(json_path, limit=None, out_path=None, music="warm", gap=1.0):
             "clip": img,
             "narrate": True,
             "subs": subs,
+            # beat -> film.plan_transitions chon chuyen canh dien anh (cut/blend/dip theo vai tro);
+            # "trans" trong JSON ep tay kieu chuyen TRUOC canh do (cut|black|blend)
+            "beat": sc.get("beat", ""),
+            "trans": sc.get("trans", ""),
         })
 
     # 1b) nap san cache TTS (chong throttle edge-tts)
