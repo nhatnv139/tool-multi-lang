@@ -647,11 +647,33 @@ def _edge_retry(fn, what="edge-tts"):
     raise RuntimeError(f"{what} that bai sau {_TTS_TRIES} lan (co the bi Microsoft chan tam "
                        f"thoi do goi lien tiep): {last}")
 
+def _edge_pitch_split(voice):
+    """Tach pitch nhung trong ten giong: 'vi-VN-NamMinhNeural@-20Hz' -> (giong, '-20Hz').
+       Cho phep che bien the TRAM hon tu 2 giong Viet it oi cua edge (khong co giong moi)."""
+    if voice and "@" in voice:
+        v, p = voice.split("@", 1)
+        return v, p
+    return voice, None
+
+def _pitch_add(base, extra):
+    """Cong pitch nen (tu ten giong) voi pitch cam xuc: '-20Hz' + '-9Hz' -> '-29Hz'."""
+    if not base:
+        return extra
+    if not extra:
+        return base
+    try:
+        s = int(base.lower().replace("hz", "")) + int(extra.lower().replace("hz", ""))
+        return f"{s:+d}Hz"
+    except ValueError:
+        return base
+
 def _synth_edge(text, voice, path, rate="-8%", pitch=None):
     """Sinh giong bang edge-tts (mien phi, can internet). pitch: vd '+10Hz' (cam xuc).
        Co retry + chong cau rong."""
     if _is_empty_tts(text):
         _silence_mp3(path); return
+    voice, base_pitch = _edge_pitch_split(voice)
+    pitch = _pitch_add(base_pitch, pitch)
     cmd = [sys.executable, "-m", "edge_tts", "--voice", voice,
            "--text", text, f"--rate={_norm_rate(rate)}", "--write-media", path]
     if pitch:
@@ -679,13 +701,21 @@ def _is_vieneu(voice):
 
 def synth_vieneu(text, voice, path, rate="-8%"):
     """VieNeu v3 Turbo qua .venv-vieneu (Python 3.11, ONNX CPU). voice = ten preset
-       ('Thanh Bình'...). Helper ghi wav 48k -> ffmpeg mp3 24k + atempo theo rate."""
+       ('Thanh Bình'...), them ':style' tuy chon ('Thái Sơn:tu_nhien') de doi style;
+       mac dinh helper dung 'doc_truyen' + temperature thap cho ke chuyen lien mach.
+       Helper ghi wav 48k -> ffmpeg mp3 24k + atempo theo rate."""
     if not os.path.exists(VIENEU_PY):
         raise RuntimeError("Chua cai VieNeu. Chay trong thu muc du an: "
                            "python -m venv .venv-vieneu roi "
                            f"\"{VIENEU_PY}\" -m pip install vieneu soundfile")
+    style = None
+    if ":" in voice:
+        voice, style = voice.split(":", 1)
     w = path + ".vieneu.wav"
-    subprocess.run([VIENEU_PY, VIENEU_HELPER, "--voice", voice, "--out", w],
+    cmd = [VIENEU_PY, VIENEU_HELPER, "--voice", voice, "--out", w]
+    if style:
+        cmd += ["--style", style]
+    subprocess.run(cmd,
                    input=text.encode("utf-8"), check=True, timeout=600,
                    capture_output=True)
     try:
@@ -808,7 +838,7 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
        gemini=key -> Gemini TTS; azure=(key,region) -> Azure; con lai -> edge-tts.
        emo (detect_emotion): doc bieu cam theo cam xuc cau — doi toc do/cao do/style.
        ChatTTS loi -> fallback edge."""
-    eng = "vn" if _is_vieneu(voice) else \
+    eng = "vn3" if _is_vieneu(voice) else \
           "vb" if _is_vbee(voice) else \
           ("ct-" + str(chattts)) if chattts else \
           ("fp" if fpt else
@@ -865,7 +895,7 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
                 gemini=None, emo=None):
     """Ghi mp3 + tra ve list (start,end) cac cau. Co cache. emo: doc bieu cam theo cau.
        chattts/azure/eleven/gemini: khong co moc cau -> [] (fallback rai deu chu)."""
-    eng = "vn" if _is_vieneu(voice) else \
+    eng = "vn3" if _is_vieneu(voice) else \
           "vb" if _is_vbee(voice) else \
           ("ct-" + str(chattts)) if chattts else \
           ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed")))
@@ -972,11 +1002,13 @@ def _synth_edge_timed(text, voice, out_mp3, rate="-8%", pitch=None):
     """edge-tts -> ghi out_mp3 + tra ve list (start,end) cac cau/tu. Co retry + chong cau rong."""
     if _is_empty_tts(text):
         _silence_mp3(out_mp3); return []
+    ev, base_pitch = _edge_pitch_split(voice)
+    pitch = _pitch_add(base_pitch, pitch)
     async def go():
         kw = {"rate": _norm_rate(rate)}
         if pitch:
             kw["pitch"] = pitch
-        comm = edge_tts.Communicate(text, voice, **kw)
+        comm = edge_tts.Communicate(text, ev, **kw)
         sents = []
         with open(out_mp3, "wb") as f:
             async for ch in comm.stream():

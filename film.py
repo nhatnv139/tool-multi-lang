@@ -11,7 +11,34 @@ W, H, FPS = 1920, 1080, 30
 _HERE = os.path.dirname(os.path.abspath(__file__))
 FILM = os.path.join(_HERE, "assets", "film")
 os.makedirs(FILM, exist_ok=True)
-X264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "20"]
+def _load_env(path):
+    """Doc .env canh file nay vao os.environ (khong de ghi de bien da set san)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+    except OSError:
+        pass
+_load_env(os.path.join(_HERE, ".env"))
+
+def _env_flag(name, default=False):
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+# FILM_SUB_FADE=1 -> phu de fade in/out (dep hon, cham hon: +2 filter/cau).
+# Mac dinh TAT: chu hien/an tuc thi, filter graph gon -> encode nhanh hon.
+SUB_FADE = _env_flag("FILM_SUB_FADE", False)
+
+X264 = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+# Segment CANH/CARD la file TRUNG GIAN (bi re-encode lai o _join_video khi ghep + grade)
+# -> encode nhanh + crf thap hon de khong mat chat qua 2 lan nen. veryfast ~3x medium.
+X264_SEG = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
 _VID_EXT = (".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi")
 
 _TONE = {1: (255, 118, 118), 2: (255, 194, 92), 3: (126, 214, 126),
@@ -151,7 +178,8 @@ def _shot_crops(img_path, n, i, tmp):
         cw, ch = int(base_w * f), int(base_h * f)
         x0 = max(0, min(iw - cw, int(ox * iw) - cw // 2))
         y0 = max(0, min(ih - ch, int(oy * ih) - ch // 2))
-        crop = im.crop((x0, y0, x0 + cw, y0 + ch)).resize((W, H), Image.LANCZOS)
+        # save 2x (supersample cho zoompan): crop toa do nguyen pixel -> zoom buoc <1px gay giat nac
+        crop = im.crop((x0, y0, x0 + cw, y0 + ch)).resize((W * 2, H * 2), Image.LANCZOS)
         p = os.path.join(FILM, f"_shot_{i}_{k}.jpg")
         crop.save(p, quality=90)
         outs.append(p); tmp.append(p)
@@ -270,13 +298,59 @@ def _dur(p):
         return 0.0
 
 
+try:
+    import cv2
+    import numpy as _np
+    _HAVE_CV2 = True
+except Exception:
+    _HAVE_CV2 = False
+
+
+def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05):
+    """Ken Burns SUBPIXEL (cv2.warpAffine bilinear tung frame) -> mp4 segment.
+    zoompan cua ffmpeg chi crop PIXEL NGUYEN nen zoom cham kieu gi cung giat nac
+    (frame nhich 0px, frame nhich 1px). warpAffine lay mau duoi-pixel -> muot tuyet doi."""
+    im = cv2.imread(img_path)
+    if im is None:
+        raise RuntimeError(f"khong doc duoc anh: {img_path}")
+    ih, iw = im.shape[:2]
+    if (iw, ih) != (W * 2, H * 2):                   # chuan hoa nguon ve 2x (du net khi phong 5%)
+        f = max(W * 2 / iw, H * 2 / ih)
+        im = cv2.resize(im, (max(W * 2, int(iw * f)), max(H * 2, int(ih * f))),
+                        interpolation=cv2.INTER_LANCZOS4)
+        ih2, iw2 = im.shape[:2]
+        x0, y0 = (iw2 - W * 2) // 2, (ih2 - H * 2) // 2
+        im = im[y0:y0 + H * 2, x0:x0 + W * 2]
+    T = max(2, int(frames))
+    cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+           "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
+           "-an", *X264_SEG, "-pix_fmt", "yuv420p", out_path]
+    pr = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for n in range(T):
+            t = n / (T - 1)
+            e = t * t * (3 - 2 * t)                  # smoothstep ease in-out
+            z = (1.0 + zoom * e) if zoom_in else (1.0 + zoom * (1 - e))
+            s = z / 2.0                              # nguon 2x -> he so ra khung 1x
+            M = _np.float32([[s, 0, W / 2 - s * W],  # zoom quanh TAM anh
+                             [0, s, H / 2 - s * H]])
+            pr.stdin.write(cv2.warpAffine(im, M, (W, H),
+                                          flags=cv2.INTER_LINEAR).tobytes())
+    finally:
+        pr.stdin.close()
+    if pr.wait() != 0:
+        raise RuntimeError("ffmpeg encode _kb_video loi")
+    return out_path
+
+
 def _kb_filter(i, frames):
-    """Ken Burns TỐI GIẢN: chỉ đẩy-vào / kéo-ra RẤT NHẸ, canh giữa, KHÔNG lia (đỡ chóng mặt/giật).
+    """(FALLBACK khi thieu cv2) Ken Burns bang zoompan — van hoi giat nac vi crop pixel nguyen.
     Supersample cao (3x) -> zoom mượt, không rung pixel."""
     T = max(2, frames)
     e = f"(3*pow(on/{T},2)-2*pow(on/{T},3))"        # smoothstep 0->1 (ease in-out)
     z = f"1.0+0.05*{e}" if i % 2 == 0 else f"1.05-0.05*{e}"   # ±5% rất nhẹ
-    S, SH = W * 3, H * 3
+    S, SH = W * 2, H * 2                            # 3x -> 2x: van muot voi zoom 5%, nhanh ~2.3x
     return (f"scale={S}:{SH}:force_original_aspect_ratio=increase,crop={S}:{SH},"
             f"zoompan=z='{z}':d={T}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"s={W}x{H}:fps={FPS},format=yuv420p")
@@ -495,28 +569,46 @@ def make_scene(scene, opts, i):
                 new = sum(sub_dur[j] for j in groups[-1]) >= 6.5
             groups.append([k]) if new else groups[-1].append(k)
         shot_imgs = _shot_crops(clip, len(groups), i, tmp)
-        for p in shot_imgs:
-            inputs += ["-loop", "1", "-i", p]
         segs = []
         for g, idxs in enumerate(groups):
             dd = sum(sub_dur[k] for k in idxs)
             fr = max(2, int(dd * FPS))
-            # 2.5% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
-            z = f"1.0+0.025*(on/{fr})" if (g + i) % 2 == 0 else f"1.025-0.025*(on/{fr})"
-            fc.append(f"[{g}:v]scale={W*2}:{H*2},zoompan=z='{z}':d={fr}:"
-                      f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS},"
-                      f"trim=end_frame={fr},setpts=PTS-STARTPTS[sh{g}]")
+            if _HAVE_CV2:
+                # 2.5% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
+                kv = os.path.join(FILM, f"_kbv_{i}_{g}.mp4")
+                _kb_video(shot_imgs[g], fr, zoom_in=((g + i) % 2 == 0),
+                          out_path=kv, zoom=0.025)
+                tmp.append(kv)
+                inputs += ["-i", kv]
+                fc.append(f"[{g}:v]setpts=PTS-STARTPTS[sh{g}]")
+            else:                                    # fallback zoompan (giat nhe)
+                inputs += ["-loop", "1", "-i", shot_imgs[g]]
+                e = f"(3*pow(on/{fr},2)-2*pow(on/{fr},3))"
+                z = f"1.0+0.025*{e}" if (g + i) % 2 == 0 else f"1.025-0.025*{e}"
+                fc.append(f"[{g}:v]scale={W*2}:{H*2},zoompan=z='{z}':d={fr}:"
+                          f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS},"
+                          f"trim=end_frame={fr},setpts=PTS-STARTPTS[sh{g}]")
             segs.append(f"[sh{g}]")
         fc.append("".join(segs) + f"concat=n={len(groups)}:v=1:a=0,format=yuv420p[bg]")
         n_bg = len(groups)
     else:
+        kb = is_img and opts.get("kenburns", True)
         if is_vid:
             inputs += ["-stream_loop", "-1", "-i", clip]
+        elif is_img and kb and _HAVE_CV2:
+            # +1s du phong: bg video huu han (khong -loop) phai dai hon audio
+            kv = os.path.join(FILM, f"_kbv_{i}.mp4")
+            _kb_video(clip, int(scene_dur * FPS) + FPS, zoom_in=(i % 2 == 0),
+                      out_path=kv, zoom=0.05)
+            tmp.append(kv)
+            inputs += ["-i", kv]
         elif is_img:
             inputs += ["-loop", "1", "-i", clip]
         else:
             inputs += ["-f", "lavfi", "-i", f"color=c=0x101018:s={W}x{H}:r={FPS}"]
-        if is_img and opts.get("kenburns", True):
+        if kb and _HAVE_CV2:
+            fc.append("[0:v]format=yuv420p[bg]")
+        elif kb:
             frames = max(2, int(scene_dur * FPS) + 2)
             fc.append(f"[0:v]{_kb_filter(i, frames)}[bg]")
         else:
@@ -528,12 +620,16 @@ def make_scene(scene, opts, i):
         inputs += ["-loop", "1", "-i", p]
         idx = n_bg + k
         s0, e0 = starts[k], starts[k] + sub_dur[k]
-        fd = min(0.35, max(0.15, sub_dur[k] * 0.18))       # phụ đề FADE lên/xuống, không 'pop'
-        sf = f"[sf{k}]"
-        fc.append(f"[{idx}:v]format=rgba,fade=t=in:st={s0:.2f}:d={fd:.2f}:alpha=1,"
-                  f"fade=t=out:st={max(s0, e0-fd):.2f}:d={fd:.2f}:alpha=1{sf}")
+        if SUB_FADE:
+            fd = min(0.35, max(0.15, sub_dur[k] * 0.18))   # phụ đề FADE lên/xuống, không 'pop'
+            sf = f"[sf{k}]"
+            fc.append(f"[{idx}:v]format=rgba,fade=t=in:st={s0:.2f}:d={fd:.2f}:alpha=1,"
+                      f"fade=t=out:st={max(s0, e0-fd):.2f}:d={fd:.2f}:alpha=1{sf}")
+            src = sf
+        else:                                              # tat fade (mac dinh): overlay thang
+            src = f"[{idx}:v]"
         out = f"[v{k}]" if k < len(sub_pngs) - 1 else "[v]"
-        fc.append(f"{cur}{sf}overlay=0:0:enable='between(t,{s0:.2f},{e0:.2f})'{out}")
+        fc.append(f"{cur}{src}overlay=0:0:enable='between(t,{s0:.2f},{e0:.2f})'{out}")
         cur = out
     if not sub_pngs:
         fc.append(f"[bg]null[v]")
@@ -567,7 +663,7 @@ def make_scene(scene, opts, i):
     cmd = ["ffmpeg", "-y", *inputs, "-t", f"{scene_dur:.2f}",
            "-filter_complex", filt + a_filt,
            "-map", "[v]", "-map", amap,
-           *X264, "-r", str(FPS), "-pix_fmt", "yuv420p",
+           *X264_SEG, "-r", str(FPS), "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
            "-shortest", vp]
     subprocess.run(cmd, check=True, capture_output=True)
@@ -608,15 +704,27 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
     png = os.path.join(FILM, f"_card_{kind}.png"); im.save(png)
     out_path = out_path or os.path.join(FILM, f"_cardvid_{kind}.mp4")
     frames = int(dur * FPS)
-    zexpr = "min(zoom+0.0004,1.08)"
-    vf = (f"scale={W*2}:{H*2},zoompan=z='{zexpr}':d={frames}:x='iw/2-(iw/zoom/2)':"
-          f"y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS},"
-          f"fade=t=in:st=0:d=0.6,fade=t=out:st={max(0,dur-0.6):.2f}:d=0.6,format=yuv420p")
-    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", png,
-                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
-                    "-vf", vf, "-map", "0:v", "-map", "1:a",
-                    *X264, "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
-                    "-shortest", out_path], check=True, capture_output=True)
+    fade = (f"fade=t=in:st=0:d=0.6,fade=t=out:st={max(0,dur-0.6):.2f}:d=0.6,format=yuv420p")
+    if _HAVE_CV2:                                     # zoom cham subpixel (muot), roi fade
+        kbv = _kb_video(png, frames, zoom_in=True,
+                        out_path=os.path.join(FILM, f"_cardkb_{kind}.mp4"),
+                        zoom=min(0.012 * dur, 0.08))
+        subprocess.run(["ffmpeg", "-y", "-i", kbv,
+                        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
+                        "-vf", fade, "-map", "0:v", "-map", "1:a",
+                        *X264_SEG, "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                        "-shortest", out_path], check=True, capture_output=True)
+        try: os.remove(kbv)
+        except OSError: pass
+    else:                                             # fallback zoompan
+        zexpr = "min(zoom+0.0004,1.08)"
+        vf = (f"scale={W*2}:{H*2},zoompan=z='{zexpr}':d={frames}:x='iw/2-(iw/zoom/2)':"
+              f"y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS}," + fade)
+        subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", png,
+                        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
+                        "-vf", vf, "-map", "0:v", "-map", "1:a",
+                        *X264_SEG, "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                        "-shortest", out_path], check=True, capture_output=True)
     try: os.remove(png)
     except OSError: pass
     return out_path, dur

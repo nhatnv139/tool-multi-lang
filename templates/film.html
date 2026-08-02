@@ -196,6 +196,13 @@
         <button class="btn-ghost" type="button" onclick="genAll()">✨ Tạo ảnh AI cho mọi cảnh trống</button>
         <span id="aiAllSt" class="hint"></span>
       </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label class="switch" style="margin:0;font-size:13px">📁 Import cả batch (ảnh/video)
+          <input type="file" multiple accept="video/*,image/*" onchange="upBatch(this)" style="font-size:11px">
+        </label>
+        <span class="hint">Sắp theo tên file (01.png, 02.mp4…) rồi tự gán lần lượt cảnh 1 → hết.</span>
+        <span id="batchSt" class="hint"></span>
+      </div>
     </div>
     <div id="scenes" class="mt"></div>
     <p class="warn" id="noScenes">Bấm <b>“Phân tích cảnh”</b> ở trên để hiện ô nền cho từng cảnh.
@@ -216,7 +223,16 @@
   </div>
   <div class="card" id="resCard" style="display:none">
     <h3 id="resTitle" style="margin:0 0 6px"></h3>
-    <video class="res" id="resVid" controls></video>
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+      <video class="res" id="resVid" controls></video>
+      <div style="flex:0 0 230px">
+        <label>🎚️ Tone giọng: <b id="toneVal">0</b></label>
+        <input type="range" id="tone" min="-6" max="6" step="1" value="0" style="width:100%">
+        <div class="hint">← trầm &nbsp;·&nbsp; cao → (semitone). Thả tay là tự áp — hình giữ nguyên,
+          chỉ đổi giọng + nhạc, vài giây là xong.</div>
+        <div id="toneSt" class="hint"></div>
+      </div>
+    </div>
     <div class="mt">
       <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resDl">⬇️ Tải phim</a>
       <a class="btn-ghost" style="text-decoration:none;padding:10px 14px" id="resThumb" target="_blank">🖼️ Thumbnail</a>
@@ -368,6 +384,39 @@ async function genAll(){
     : '<span class="ok">✓ xong '+todo.length+' cảnh</span>';
 }
 
+async function upBatch(inp){
+  const files=[...inp.files]; if(!files.length) return;
+  const st=document.getElementById('batchSt');
+  if(!SCENES.length){ st.innerHTML='<span class="err">Bấm “Phân tích cảnh” trước đã.</span>'; inp.value=''; return; }
+  // natural sort: '2.png' truoc '10.png' (sort thuong xep 10 truoc 2)
+  files.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'}));
+  const n=Math.min(files.length,SCENES.length);
+  let done=0,err=0;
+  function setLbl(i,f){
+    const lbl=document.getElementById('cf'+i), pv=document.getElementById('pv'+i);
+    if(!CLIPS[i]){ lbl.innerHTML='<span class="err">✗ '+esc(f.name)+'</span>'; return; }
+    if(f.type.startsWith('image')){ pv.src=URL.createObjectURL(f); pv.style.display='block'; }
+    else pv.style.display='none';
+    lbl.innerHTML='<span class="ok">✓ '+esc(f.name)+(f.type.startsWith('video')?' 🎞':'')+'</span>';
+  }
+  const queue=Array.from({length:n},(_,i)=>i);
+  async function worker(){
+    while(queue.length){
+      const i=queue.shift();
+      try{ CLIPS[i]=await upFile(files[i],'filmclip'); }
+      catch(e){ err++; }
+      setLbl(i,files[i]);
+      st.textContent='⏳ '+(++done)+'/'+n+' …';
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(4,n)},worker));
+  let msg=(err?('<span class="err">✓ '+(n-err)+'/'+n+' — '+err+' file lỗi</span>')
+             :('<span class="ok">✓ gán '+n+' file vào cảnh 1–'+n+'</span>'));
+  if(files.length>SCENES.length) msg+=' <span class="hint">(thừa '+(files.length-SCENES.length)+' file, bỏ qua)</span>';
+  else if(files.length<SCENES.length) msg+=' <span class="hint">(còn '+(SCENES.length-files.length)+' cảnh sau chưa có nền)</span>';
+  st.innerHTML=msg; inp.value='';
+}
+
 async function upClip(i, inp){
   const f=inp.files[0]; if(!f) return;
   const lbl=document.getElementById('cf'+i); lbl.textContent='⏳ đang tải…';
@@ -476,6 +525,10 @@ async function poll(jid){
     document.getElementById('resTitle').textContent=(j.seo&&j.seo.title)||'Phim đã dựng';
     document.getElementById('resVid').src='/video/'+j.video;
     document.getElementById('resDl').href='/download/'+j.video;
+    window._origVideo=j.video;                        // giữ tên GỐC cho slider tone
+    document.getElementById('tone').value=0;
+    document.getElementById('toneVal').textContent='0';
+    document.getElementById('toneSt').textContent='';
     if(j.thumb) document.getElementById('resThumb').href='/video/'+j.thumb;
     document.getElementById('resSrtHz').href='/srt/'+jid+'/hanzi';
     document.getElementById('resSrtPy').href='/srt/'+jid+'/pinyin';
@@ -492,6 +545,29 @@ async function poll(jid){
   }
   setTimeout(()=>poll(jid), 1200);
 }
+
+// ---- SLIDER TONE: kéo xong (change) mới gọi server; input chỉ cập nhật số ----
+document.getElementById('tone').addEventListener('input',e=>{
+  const v=+e.target.value;
+  document.getElementById('toneVal').textContent=(v>0?'+':'')+v;
+});
+document.getElementById('tone').addEventListener('change',async e=>{
+  const st=+e.target.value, box=document.getElementById('toneSt');
+  if(!window._origVideo) return;
+  e.target.disabled=true; box.textContent='⏳ đang đổi tone…';
+  try{
+    const r=await fetch('/film/retone',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video:window._origVideo, semitones:st})});
+    const j=await r.json();
+    if(j.error){ box.innerHTML='<span class="err">✗ '+esc(j.error)+'</span>'; return; }
+    const v=document.getElementById('resVid'), t=v.currentTime, playing=!v.paused;
+    v.addEventListener('loadedmetadata',()=>{ v.currentTime=t; if(playing)v.play(); },{once:true});
+    v.src='/video/'+j.video;
+    document.getElementById('resDl').href='/download/'+j.video;
+    box.textContent=st?('✓ tone '+(st>0?'+':'')+st+' semitone'):'✓ giọng gốc';
+  }catch(err){ box.innerHTML='<span class="err">✗ '+esc(String(err))+'</span>'; }
+  finally{ e.target.disabled=false; }
+});
 
 function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 </script>

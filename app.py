@@ -183,7 +183,11 @@ GEMINI_VOICES = [
 # o nhom Gemini ben tren cung doc duoc tieng Viet rat tot (them cau dan cam xuc).
 VI_VOICES = [
     ("edge:vi-VN-NamMinhNeural",  "Nam Minh — Nam, trầm, kể chuyện ⭐ (edge free)"),
+    # edge chi co 2 giong Viet -> che bien the TRAM hon bang ha pitch (@-XHz, xem _edge_pitch_split)
+    ("edge:vi-VN-NamMinhNeural@-15Hz", "Nam Minh Trầm — hạ tông, truyện xưa ⭐ (edge free)"),
+    ("edge:vi-VN-NamMinhNeural@-25Hz", "Nam Minh Trầm Sâu — già dặn, chậm rãi (edge free)"),
     ("edge:vi-VN-HoaiMyNeural",   "Hoài My — Nữ, ấm, dễ nghe ⭐ (edge free)"),
+    ("edge:vi-VN-HoaiMyNeural@-12Hz", "Hoài My Trầm — Nữ, tông thấp kể chuyện (edge free)"),
     ("azure:vi-VN-NamMinhNeural", "Nam Minh — Nam (Azure, cần key)"),
     ("azure:vi-VN-HoaiMyNeural",  "Hoài My — Nữ (Azure, cần key)"),
     ("gemini:Gacrux",             "Gacrux — Giọng già dặn, hợp truyện xưa ⭐ (Gemini)"),
@@ -231,6 +235,8 @@ VIENEU_VOICES = [
 # Value tien to "vbee:<voice_code>" -> generate.synth() tu dispatch (nhu VieNeu).
 VBEE_VOICES = [
     ("vbee:hn_male_phuthang_stor80dt_48k-fhg", "Anh Khôi — Nam Bắc trầm, kể chuyện/lịch sử/phật pháp ⭐⭐ (Vbee)"),
+    ("vbee:hn_male_manhdung_news_48k-fhg",     "Mạnh Dũng — Nam Bắc thanh niên, tin tức/thuyết minh (Vbee)"),
+    ("vbee:hn_male_manhdung_news_48k-phg",     "Mạnh Dũng QC — Nam Bắc thanh niên, quảng cáo (Vbee)"),
     ("vbee:hn_male_thanhlong_talk_48k-fhg",    "Thanh Long — Nam Bắc, điềm tĩnh, podcast chữa lành (Vbee)"),
     ("vbee:sg_male_chidat_ebook_48k-phg",      "Chí Đạt — Nam Nam, sách nói, gần gũi (Vbee)"),
     ("vbee:sg_male_trungkien_vdts_48k-fhg",    "Trung Kiên — Nam Nam, trầm, thuyết minh (Vbee)"),
@@ -364,6 +370,9 @@ def list_library():
         return items
     for fn in names:
         if not fn.lower().endswith(".mp4"):
+            continue
+        # ban doi tone do slider tao (<goc>.tone-2.mp4) -> khong hien thanh card rieng
+        if re.search(r"\.tone[+-][\d.]+\.mp4$", fn, re.I):
             continue
         try:
             path = os.path.join(OUT, fn)
@@ -857,6 +866,28 @@ def video(fn):
 def download(fn):
     return send_from_directory(OUT, fn, as_attachment=True)
 
+@app.route("/film/retone", methods=["POST"])
+def film_retone():
+    """Đổi tone (pitch) audio của video ĐÃ render — hình copy nguyên, chỉ xử lý audio.
+    Luôn tính từ video GỐC (frontend giữ tên gốc) để kéo qua lại không bị cộng dồn."""
+    d = request.get_json(force=True) or {}
+    fn = os.path.basename(d.get("video") or "")
+    st = float(d.get("semitones") or 0)
+    src = os.path.join(OUT, fn)
+    if not fn or not os.path.isfile(src):
+        return jsonify(error="Không thấy file video."), 404
+    if not st:
+        return jsonify(video=fn)
+    import retone as _rt
+    root, ext = os.path.splitext(src)
+    out = f"{root}.tone{st:+g}{ext}"
+    if not os.path.isfile(out):                      # cache: kéo lại giá trị cũ -> trả ngay
+        try:
+            _rt.retone(src, st, out)
+        except Exception as e:
+            return jsonify(error=f"ffmpeg lỗi: {str(e)[:120]}"), 500
+    return jsonify(video=os.path.basename(out))
+
 @app.route("/thumb/<path:fn>")
 def thumb(fn):
     return send_from_directory(OUT, fn, as_attachment=False)
@@ -954,7 +985,10 @@ def library_delete(job_id):
         return jsonify(ok=False, error="not found"), 404
     video = j["video"]
     base = video[:-4]
-    for name in (video, base + ".thumb.jpg", video + ".meta.json"):
+    # cac ban doi tone do slider tao ra: <base>.tone-2.mp4, <base>.tone+3.mp4...
+    tones = [f for f in os.listdir(OUT)
+             if f.startswith(base + ".tone") and f.endswith(video[-4:])]
+    for name in [video, base + ".thumb.jpg", video + ".meta.json"] + tones:
         try:
             p = os.path.join(OUT, name)
             if os.path.exists(p):

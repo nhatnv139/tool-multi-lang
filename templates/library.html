@@ -44,6 +44,11 @@
   .b-del  { background:#fde8e8; color:#c0392b; }
   .b-view:hover { background:#e3e7eb; } .b-post:hover { background:#dd4f6a; }
   .b-dl:hover { background:#f7d3dc; } .b-del:hover { background:#f9d3d3; }
+  .tonebar { display:flex; align-items:center; gap:8px; margin-top:9px;
+             font-size:12.5px; color:var(--soft); }
+  .tonebar input[type=range] { flex:1; accent-color:var(--pink); margin:0; }
+  .tonebar b { min-width:22px; text-align:center; color:var(--ink); }
+  .tonebar .ts { min-width:34px; }
 </style>
 </head>
 <body>
@@ -76,6 +81,12 @@
           <a class="b-dl" href="/download/{{ v.video }}">⬇️ Tải</a>
           <button class="b-del" onclick="delVideo('{{ v.job_id }}', this)">🗑️ Xoá</button>
         </div>
+        <div class="tonebar" title="Đổi tone giọng (semitone): kéo trái = trầm, phải = cao. Thả tay là tự áp — nút Xem/Tải sẽ trỏ sang bản mới.">
+          <span>🎚️</span>
+          <input type="range" min="-6" max="6" step="1" value="0"
+                 oninput="toneLbl(this)" onchange="toneApply('{{ v.job_id }}','{{ v.video }}',this)">
+          <b class="tv">0</b><span class="ts"></span>
+        </div>
       </div>
     </div>
     {% endfor %}
@@ -88,6 +99,27 @@
 </div>
 
 <script>
+function toneLbl(el){
+  const v = +el.value;
+  el.parentElement.querySelector('.tv').textContent = (v>0?'+':'')+v;
+}
+async function toneApply(jobId, video, el){
+  // 'video' là tên file GỐC (in cứng từ template) -> kéo qua lại không bị cộng dồn
+  const st = el.parentElement.querySelector('.ts');
+  const card = document.getElementById('card-'+jobId);
+  el.disabled = true; st.textContent = '⏳…';
+  try{
+    const r = await fetch('/film/retone', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video:video, semitones:+el.value})});
+    const j = await r.json();
+    if(j.error){ st.textContent = '✗'; st.title = j.error; return; }
+    card.querySelector('.b-view').href = '/video/' + j.video;
+    card.querySelector('.b-dl').href = '/download/' + j.video;
+    st.textContent = +el.value ? '✓ mới' : '✓ gốc';
+  }catch(e){ st.textContent = '✗'; st.title = String(e); }
+  finally{ el.disabled = false; }
+}
 async function delVideo(jobId, btn){
   if(!confirm('Xoá hẳn video này (kèm ảnh bìa & dữ liệu)? Không thể hoàn tác.')) return;
   if(btn){ btn.disabled = true; btn.textContent = '⏳ đang xoá...'; }

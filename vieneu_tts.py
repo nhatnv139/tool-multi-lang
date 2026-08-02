@@ -13,6 +13,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--voice", required=True, help="Ten giong preset, vd 'Thanh Bình'")
     ap.add_argument("--out", required=True, help="File wav dau ra (48 kHz)")
+    # Phim ke chuyen: style 'doc_truyen' + temperature thap -> ngu dieu on dinh giua
+    # cac lan goi (moi canh 1 request; temp 0.8 mac dinh lam giong "nhay" tung canh).
+    ap.add_argument("--style", default="doc_truyen", help="tu_nhien | tin_tuc | doc_truyen")
+    ap.add_argument("--temperature", type=float, default=0.6)
+    ap.add_argument("--top-p", type=float, default=0.9, dest="top_p")
     a = ap.parse_args()
 
     text = sys.stdin.buffer.read().decode("utf-8").strip()
@@ -24,7 +29,8 @@ def main():
     import numpy as np
 
     tts = Vieneu()                      # v3turbo, CPU ONNX
-    wav = tts.infer(text, voice=a.voice)
+    wav = tts.infer(text, voice=a.voice, style=a.style,
+                    temperature=a.temperature, top_p=a.top_p)
     if isinstance(wav, tuple):          # (sr, data) hoac (data, sr) tuy phien ban
         x, y = wav
         sr, data = (x, y) if isinstance(x, int) else (y, x)
