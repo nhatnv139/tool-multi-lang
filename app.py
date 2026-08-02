@@ -214,8 +214,10 @@ FPT_VOICES = [
 # Chay bang .venv-vieneu (Python 3.11) qua vieneu_tts.py; giu nguyen tien to
 # "vieneu:" trong ten giong de generate.synth() tu dispatch.
 VIENEU_VOICES = [
-    ("vieneu:Văn Minh 2",   "Văn Minh 2 — GIONG CUA BAN, mau doc truyen (VieNeu local) 🎙⭐"),
-    ("vieneu:Văn Minh Taa", "Văn Minh Taa — GIONG CUA BAN, mau cu (VieNeu local) 🎙"),
+    ("vieneu:Văn Minh Pro", "Văn Minh Pro — GIONG CUA BAN, ghep 3 mau 47s (VieNeu local) 🎙⭐"),
+    ("vieneu:Văn Minh 3",   "Văn Minh 3 — GIONG CUA BAN, mau Vua Hung 21s (VieNeu local) 🎙"),
+    ("vieneu:Văn Minh 2",   "Văn Minh 2 — GIONG CUA BAN, mau doc truyen 13s (VieNeu local) 🎙"),
+    ("vieneu:Văn Minh Taa", "Văn Minh Taa — GIONG CUA BAN, mau cu 12s (VieNeu local) 🎙"),
     ("vieneu:Thanh Bình", "Thanh Bình — Nam Bắc, kể chuyện ⭐ (VieNeu local)"),
     ("vieneu:Thái Sơn",   "Thái Sơn — Nam Nam, kể chuyện ⭐ (VieNeu local)"),
     ("vieneu:Ngọc Linh",  "Ngọc Linh — Nữ Bắc, kể chuyện (VieNeu local)"),

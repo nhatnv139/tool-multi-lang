@@ -109,13 +109,11 @@
           <span id="keySt"></span>
         </div>
       </div>
-      <div style="flex:0 0 150px">
-        <label>⏩ Tốc độ</label>
-        <select id="rate">
-          <option value="-15%">Chậm</option>
-          <option value="-8%" selected>Vừa</option>
-          <option value="0%">Bình thường</option>
-        </select>
+      <div style="flex:0 0 220px">
+        <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
+        <input type="range" id="rate" min="-50" max="30" step="1" value="-8" style="width:100%"
+               oninput="rateLabel(this.value)">
+        <div style="display:flex;justify-content:space-between" class="hint"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
       </div>
     </div>
     <div class="switches mt">
@@ -444,7 +442,7 @@ async function makeFilm(){
     content: document.getElementById('content').value,
     clips: CLIPS,
     voice: document.getElementById('voice').value,
-    rate: document.getElementById('rate').value,
+    rate: rateValue(),
     sub_pinyin: document.getElementById('subPinyin').checked,
     narrate: document.getElementById('narrate').checked,
     keep_audio: document.getElementById('keepAudio').checked,
@@ -485,6 +483,14 @@ async function saveKey(engine, inputId){
   st.innerHTML=j.ok?'<span class="ok">✓ đã lưu key '+engine+'</span>'
                    :'<span class="err">'+(j.error||'lỗi')+'</span>';
 }
+
+function rateValue(){ const v=parseInt(document.getElementById('rate').value,10);
+  return (v>=0?'+':'')+v+'%'; }
+function rateLabel(v){ v=parseInt(v,10);
+  let t = v<=-30?'Rất chậm' : v<=-15?'Chậm' : v<=-3?'Vừa (khuyên)'
+        : v<=3?'Bình thường' : 'Nhanh';
+  document.getElementById('rate_lbl').textContent = t+' ('+(v>=0?'+':'')+v+'%)'; }
+rateLabel(document.getElementById('rate').value);
 
 async function saveVbee(){
   const t=document.getElementById('vbToken').value.trim();
