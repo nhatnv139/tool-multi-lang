@@ -69,25 +69,25 @@
         <label>🎙️ Giọng dẫn <span class="hint">(lời dẫn + nhân vật chưa khai)</span></label>
         <select id="voice">
           <optgroup label="Edge (miễn phí)">
-          {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in edge_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
           {% if azure_ready %}<optgroup label="Azure HD / Omni / MAI (xịn — cần key)">
-          {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in azure_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>{% endif %}
           <optgroup label="🇻🇳 Tiếng Việt — VieNeu local (offline free)">
-          {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in vieneu_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
           <optgroup label="🇻🇳 Tiếng Việt — cloud">
-          {% for v,lbl in vi_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in vi_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
           <optgroup label="🔥 FPT.AI — thuần Việt, dân kể chuyện dùng nhiều nhất (free 100k ký tự/tháng{{ '' if fpt_ready else ', cần key' }})">
-          {% for v,lbl in fpt_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in fpt_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
           <optgroup label="🏆 Vbee — giọng 'Anh Khôi' các kênh kể chuyện nhân quả dùng{{ '' if vbee_ready else ' (cần token + app_id)' }}">
-          {% for v,lbl in vbee_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in vbee_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
           <optgroup label="💎 THẬT nhất — ElevenLabs (đa ngữ, đọc Việt hay{{ '' if eleven_ready else ', cần key' }})">
-          {% for v,lbl in eleven_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+          {% for v,lbl in eleven_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
         </select>
         <div class="hint mt" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -111,7 +111,7 @@
       </div>
       <div style="flex:0 0 220px">
         <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
-        <input type="range" id="rate" min="-50" max="30" step="1" value="-8" style="width:100%"
+        <input type="range" id="rate" min="-50" max="30" step="1" value="0" style="width:100%"
                oninput="rateLabel(this.value)">
         <div style="display:flex;justify-content:space-between" class="hint"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
       </div>
@@ -143,6 +143,25 @@
       <label class="switch"><input type="checkbox" id="titleCard" checked> Bìa đầu (tên phim)</label>
       <label class="switch"><input type="checkbox" id="endCard" checked> Card kết “HẾT”</label>
     </div>
+    <div class="row mt" style="align-items:flex-end">
+      <div style="flex:1 1 340px">
+        <label>✨ Hiệu ứng không khí <span class="hint">— lớp hạt phủ lên cảnh (ảnh tĩnh)</span></label>
+        <select id="particles">
+          <option value="auto" selected>🪄 Tự chọn theo ảnh — đêm ra đom đóm, ngày ra bụi nắng + mây mỏng</option>
+          <option value="firefly">✨ Đom đóm — bay lượn, nhấp nháy thành nhịp</option>
+          <option value="dust">🌤️ Bụi nắng — lấp lánh mờ, hợp cảnh ban ngày</option>
+          <option value="smoke">💨 Khói — cuộn mỏng, trôi ngang theo gió</option>
+          <option value="mist">☁️ Mây / gió nhẹ — sương mỏng lướt qua khung</option>
+          <option value="leaves">🍂 Lá bay — rơi chao, xoay theo gió</option>
+          <option value="firefly+leaves">✨🍂 Đom đóm + lá bay</option>
+          <option value="firefly+mist">✨☁️ Đom đóm + mây nhẹ</option>
+          <option value="leaves+mist">🍂☁️ Lá bay + mây nhẹ</option>
+          <option value="smoke+leaves">💨🍂 Khói + lá bay</option>
+          <option value="firefly+smoke+leaves">✨💨🍂 Đủ cả ba (dày nhất)</option>
+          <option value="none">🚫 Tắt hiệu ứng</option>
+        </select>
+      </div>
+    </div>
   </div>
 
   <!-- 3. NHAC + NEN CANH -->
@@ -164,7 +183,7 @@
       </div>
       <div style="flex:0 0 160px">
         <label>🔉 Âm lượng nhạc</label>
-        <input type="number" id="musicVol" value="0.12" min="0" max="1" step="0.02">
+        <input type="number" id="musicVol" value="0.3" min="0" max="1" step="0.02">
       </div>
     </div>
     <div id="aibar" class="mt" style="display:none;flex-direction:column;gap:10px">
@@ -251,6 +270,7 @@ let CLIPS = [];         // path nen / canh (theo index)
 let SEEDS = [];         // seed AI / canh (đổi khi bấm 🎲)
 let SFXKINDS = {};      // {kind: nhãn} bộ SFX built-in (từ /film/parse)
 let SFXUP = [];         // path file SFX tự upload / cảnh
+let NARRUP = [];        // path file LỜI KỂ nạp sẵn / cảnh (bỏ qua TTS cảnh đó)
 
 async function upFile(f, kind){
   const fd=new FormData(); fd.append('file', f); fd.append('kind', kind);
@@ -275,6 +295,7 @@ async function parseScenes(){
   if(j.error){ st.innerHTML='<span class="err">'+j.error+'</span>'; return; }
   SCENES=j.scenes; CLIPS=new Array(SCENES.length).fill(''); SEEDS=new Array(SCENES.length).fill(0);
   SFXKINDS=j.sfx_kinds||{}; SFXUP=new Array(SCENES.length).fill('');
+  NARRUP=new Array(SCENES.length).fill('');
   st.innerHTML='<span class="ok">✓ '+SCENES.length+' cảnh'+(j.voices.length?(' · '+j.voices.length+' nhân vật: '+j.voices.join(', ')):'')+'</span>';
   if(j.has_bg) document.getElementById('bgStyle').value='story';   // kịch bản có @bg (tả nhân vật) -> style truyện kể
   document.getElementById('noScenes').style.display='none';
@@ -311,6 +332,12 @@ function renderScenes(){
               '<input type="file" accept="audio/*" onchange="upSfx('+i+',this)" style="font-size:11px"></label>'+
             '<span class="hint" id="sfxst'+i+'"></span>'+
           '</div>'+
+          '<div class="slot mt" style="gap:8px">'+
+            '<span class="hint">🎤 Lời kể sẵn:</span>'+
+            '<label class="switch" style="font-size:12px;margin:0">tải mp3/wav '+
+              '<input type="file" accept="audio/*" onchange="upNarr('+i+',this)" style="font-size:11px"></label>'+
+            '<span class="hint" id="narrst'+i+'">bỏ trống = tự đọc bằng giọng đã chọn</span>'+
+          '</div>'+
         '</div>'+
       '</div>';
     box.appendChild(el);
@@ -323,6 +350,14 @@ function sfxOptions(suggest){
   for(const k in SFXKINDS) h+='<option value="'+k+'">'+SFXKINDS[k]+'</option>';
   h+='<option value="upload">📁 File tự upload</option>';
   return h;
+}
+
+async function upNarr(i, inp){
+  const f=inp.files[0]; if(!f) return;
+  const st=document.getElementById('narrst'+i); st.textContent='⏳…';
+  try{ NARRUP[i]=await upFile(f,'filmnarr');
+       st.innerHTML='<span class="ok">✓ '+esc(f.name)+' — cảnh này dùng file, bỏ qua TTS</span>'; }
+  catch(e){ st.innerHTML='<span class="err">'+e.message+'</span>'; }
 }
 
 async function upSfx(i, inp){
@@ -449,11 +484,13 @@ async function makeFilm(){
     char_voices: parseCharVoices(),
     music_file: window._music||'',
     music_bed: document.getElementById('musicBed').value,
-    music_vol: parseFloat(document.getElementById('musicVol').value)||0.16,
+    music_vol: parseFloat(document.getElementById('musicVol').value)||0.3,
     film_mode: document.getElementById('filmMode').checked,
+    particles: document.getElementById('particles').value,
     scene_sfx: document.getElementById('sceneSfx').checked,
     sfx: SCENES.map((s,i)=>{ const el=document.getElementById('sfx'+i);
          const v=el?el.value:'auto'; return v==='upload'?(SFXUP[i]||''):v; }),
+    narr: SCENES.map((s,i)=>NARRUP[i]||''),
     kenburns: document.getElementById('kenburns').checked,
     transition: document.getElementById('transition').checked?'fade':'none',
     grade: document.getElementById('grade').checked,

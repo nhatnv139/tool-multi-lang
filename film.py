@@ -683,14 +683,15 @@ def _focus_fade_mask(fx, fy, k):
 # Ve TRUC TIEP trong vong frame cua _kb_video, SAU fade/trans/head_black -> hat khong
 # chim den theo dip (nhu video mau: hat + phu de + watermark khong fade theo canh).
 # Phu de overlay o buoc ffmpeg SAU (make_scene) -> hat tu nhien nam DUOI phu de.
-_P_SPRITES = {}          # ban kinh -> sprite glow float32 (S,S), precompute 1 lan
+_P_SPRITES = {}          # (kieu, kich thuoc[, goc]) -> sprite float32, precompute 1 lan
 
 
 def _p_sprite(r):
-    """Sprite 1 hat ban kinh loi r px: cham sang + quang gaussian, peak=1.0.
+    """Sprite 1 hat SANG ban kinh loi r px: cham sang + quang gaussian, peak=1.0.
     Precompute vai co -> moi frame chi cong additive vung nho, KHONG blur ca frame."""
-    r = int(max(1, min(4, r)))
-    if r not in _P_SPRITES:
+    r = int(max(1, min(5, r)))
+    k = ("glow", r)
+    if k not in _P_SPRITES:
         sig = r * 1.6
         S = (int(sig * 6) | 1)
         c = S // 2
@@ -698,84 +699,281 @@ def _p_sprite(r):
         d2 = ((xx - c) ** 2 + (yy - c) ** 2).astype(_np.float32)
         core = _np.exp(-d2 / (2.0 * (r * 0.65) ** 2))      # loi sang gon
         glow = _np.exp(-d2 / (2.0 * sig ** 2))             # quang mem xung quanh
-        _P_SPRITES[r] = _np.clip(core + 0.5 * glow, 0.0, 1.0).astype(_np.float32)
-    return _P_SPRITES[r]
+        _P_SPRITES[k] = _np.clip(core + 0.5 * glow, 0.0, 1.0).astype(_np.float32)
+    return _P_SPRITES[k]
 
 
+def _p_puff(R):
+    """Sprite KHOI / MAY: dam mem ban kinh R px, ria tan dan (khong co vien cung).
+    R lam tron boi 16 -> cache chi vai sprite du R doi lien tuc theo thoi gian."""
+    R = int(max(48, min(176, round(R / 16.0) * 16)))
+    k = ("puff", R)
+    if k not in _P_SPRITES:
+        S = R * 2 | 1
+        c = S // 2
+        yy, xx = _np.mgrid[0:S, 0:S]
+        d = (_np.sqrt(((xx - c) ** 2 + (yy - c) ** 2).astype(_np.float32)) / R)
+        m = _np.clip(1.0 - d, 0.0, 1.0) ** 2.2             # ria tan rat dan
+        m = m * _np.exp(-(d ** 2) / 0.42)                  # loi day hon o giua
+        _P_SPRITES[k] = (m / max(1e-6, float(m.max()))).astype(_np.float32)
+    return _P_SPRITES[k]
+
+
+def _p_leaf(size, ang):
+    """Sprite CHIEC LA: hinh thoi bau giua, nhon 2 dau, xoay ang do.
+    size = nua chieu dai (px), lam tron 2px; goc lam tron 15 do -> 24 huong."""
+    size = int(max(6, min(34, round(size / 2.0) * 2)))
+    ang = int(round(ang / 15.0) * 15) % 360
+    k = ("leaf", size, ang)
+    if k not in _P_SPRITES:
+        S = size * 4 | 1
+        c = S // 2
+        yy, xx = _np.mgrid[0:S, 0:S]
+        x = (xx - c).astype(_np.float32) / float(size)
+        y = (yy - c).astype(_np.float32) / float(size * 0.42)
+        m = _np.clip(1.0 - (x * x + y * y), 0.0, 1.0) ** 0.7      # than la bau
+        m = m * _np.clip(1.0 - _np.abs(x) ** 3, 0.0, 1.0)         # thuon dan ve 2 mui
+        M = cv2.getRotationMatrix2D((c, c), float(ang), 1.0)
+        _P_SPRITES[k] = cv2.warpAffine(m.astype(_np.float32), M, (S, S),
+                                       flags=cv2.INTER_LINEAR, borderValue=0.0)
+    return _P_SPRITES[k]
+
+
+# kind: glow = cong sang (dom dom / bui nang) · puff = khoi-may (tron alpha)
+#       leaf = la bay (tron alpha, co xoay). n = so hat @1920x1080.
 _P_PRESETS = {
-    # ten: (mau BGR, alpha goc, (so hat min, max) @1920x1080)
-    "warm":  ((90, 190, 255), 0.85, (12, 20)),   # vang am — hoang hon / den dau
-    "green": ((120, 220, 180), 0.80, (12, 20)),  # dom dom vang-xanh — dem
-    "dust":  ((235, 240, 245), 0.32, (14, 25)),  # bui nang trang mo — ngay (alpha thap)
+    "warm":   {"kind": "glow", "col": (90, 190, 255),  "a": 0.85, "n": (26, 40), "blink": True},
+    "green":  {"kind": "glow", "col": (130, 225, 175), "a": 0.80, "n": (26, 40), "blink": True},
+    "dust":   {"kind": "glow", "col": (235, 240, 245), "a": 0.30, "n": (34, 52), "blink": False},
+    "smoke":  {"kind": "puff", "col": (176, 178, 184), "a": 0.14, "n": (6, 9)},
+    "mist":   {"kind": "puff", "col": (214, 221, 233), "a": 0.09, "n": (5, 8)},
+    "leaves": {"kind": "leaf", "col": (45, 112, 200),  "a": 0.88, "n": (14, 22), "sz": (14, 30)},
 }
+
+_P_ALIAS = {"domdom": "firefly", "dom-dom": "firefly", "bui": "dust", "buinang": "dust",
+            "khoi": "smoke", "may": "mist", "gio": "mist", "maygio": "mist",
+            "la": "leaves", "labay": "leaves", "leaf": "leaves", "fog": "mist"}
 
 
 def _particle_preset(img, mode="auto"):
-    """Chon preset theo tong mau anh nguon (mean HSV): toi+am -> vang am, toi+lanh ->
-    dom dom, sang -> bui nang. mode: none|firefly|dust|auto. Tra (col, alpha, n) / None."""
+    """Tra DANH SACH lop hat se ve (nhieu lop chong nhau duoc) — [] la tat han.
+    mode: none|firefly|dust|smoke|mist|leaves|auto, ghep nhieu lop bang dau '+'
+    (vd 'firefly+leaves'). auto: doc tong mau anh -> canh toi chon dom dom (vang am
+    hay vang-xanh tuy nhiet mau), canh sang chon bui nang; kem 1 lop may rat mo."""
     mode = (mode or "auto").strip().lower()
-    if mode == "none":
-        return None
-    if mode == "dust":
-        return _P_PRESETS["dust"]
+    if mode in ("none", "off", "tat", ""):
+        return []
+    parts = [p.strip().replace(" ", "") for p in mode.replace(",", "+").split("+")]
+    parts = [_P_ALIAS.get(p, p) for p in parts if p]
+
+    dark, warm = True, True                      # tong mau anh nguon -> chon mau hat
     im = cv2.imread(img) if isinstance(img, str) else img
-    if im is None:
-        return _P_PRESETS["warm"] if mode == "firefly" else None
-    small = cv2.resize(im, (64, 36), interpolation=cv2.INTER_AREA)
-    v = float(cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 2].mean())
-    warm = float(small[..., 2].mean()) > float(small[..., 0].mean()) + 8   # R > B
-    if mode == "firefly":
-        return _P_PRESETS["warm"] if warm else _P_PRESETS["green"]
-    if v >= 150:                                 # canh sang (ngay)
-        return _P_PRESETS["dust"]
-    return _P_PRESETS["warm"] if warm else _P_PRESETS["green"]
+    if im is not None:
+        small = cv2.resize(im, (64, 36), interpolation=cv2.INTER_AREA)
+        dark = float(cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 2].mean()) < 150
+        warm = float(small[..., 2].mean()) > float(small[..., 0].mean()) + 8   # R > B
+
+    out = []
+    for p in parts:
+        if p == "auto":
+            out.append(dict(_P_PRESETS["warm" if warm else "green"] if dark
+                            else _P_PRESETS["dust"]))
+            mist = dict(_P_PRESETS["mist"])      # lop may mong -> tao chieu sau
+            mist["a"] = mist["a"] * (0.8 if dark else 1.0)
+            out.append(mist)
+        elif p == "firefly":
+            out.append(dict(_P_PRESETS["warm" if warm else "green"]))
+        elif p in _P_PRESETS:
+            out.append(dict(_P_PRESETS[p]))
+    if not dark:
+        # Canh SANG: hat cong sang bi nen trang nuot, khoi trang cung chim -> day len
+        # va lam mau khoi/may toi hon nen mot chut de van doc duoc hinh.
+        for L in out:
+            if L["kind"] == "glow":
+                L["a"] = min(1.0, L["a"] * 1.45)
+                L["big"] = True                  # +1 px ban kinh loi
+            elif L["kind"] == "puff":
+                L["a"] = L["a"] * 1.5
+                L["col"] = tuple(int(c * 0.72) for c in L["col"])
+            elif L["kind"] == "leaf":
+                # nen sang -> la phai TOI hon nen moi noi hinh (kieu bong la), va to hon
+                L["col"] = (26, 60, 116)
+                L["a"] = min(0.97, L["a"] * 1.1)
+                L["sz"] = (18.0, 34.0)
+    return out
 
 
-def _particle_field(seed, preset):
-    """Sinh tham so N hat — DETERMINISM BAT BUOC: RandomState(seed=chi so canh),
-    render lap lai ra dung vi tri (khong dung random khong seed)."""
-    col, base_a, (n0, n1) = preset
-    rng = _np.random.RandomState(int(seed) & 0x7FFFFFFF)
-    n = int(rng.randint(n0, n1 + 1))             # 10-25 hat / khung 1920x1080
-    M = 48.0                                     # le quan quanh khung (hat vao/ra em)
-    return {
-        "col": _np.float32(col), "M": M,
-        "x": rng.uniform(-M, W + M, n),          # goc ngang
-        "y": rng.uniform(-M, H + M, n),          # goc doc
-        "vy": rng.uniform(10.0, 30.0, n),        # troi len 10-30 px/s
-        "amp": rng.uniform(10.0, 40.0, n),       # bien do sin ngang 10-40px
-        "per": rng.uniform(3.0, 8.0, n),         # chu ky sin ngang 3-8s
-        "ph": rng.uniform(0.0, 2 * _np.pi, n),   # pha rieng tung hat
-        "bt": rng.uniform(1.5, 4.5, n),          # chu ky nhap nhay (dom dom)
-        "bp": rng.uniform(0.0, 2 * _np.pi, n),   # pha nhap nhay lech nhau
-        "a": base_a * rng.uniform(0.55, 1.0, n), # alpha goc rieng tung hat
-        "r": rng.randint(1, 4, n),               # ban kinh loi 1-3 -> hat ~2-6px
-    }
+def _particle_field(seed, specs):
+    """Sinh tham so tung lop — DETERMINISM BAT BUOC: RandomState(seed canh + chi so lop),
+    render lai ra dung vi tri. Hat chia 3 tang xa/giua/gan de co chieu sau."""
+    if isinstance(specs, dict):
+        specs = [specs]
+    layers = []
+    for li, sp in enumerate(specs):
+        rng = _np.random.RandomState((int(seed) * 131 + li * 17) & 0x7FFFFFFF)
+        kind = sp.get("kind", "glow")
+        n0, n1 = sp["n"]
+        n = int(rng.randint(n0, n1 + 1))
+        col = _np.float32(sp["col"])
+        base_a = float(sp["a"])
+        if kind == "glow":
+            M = 60.0
+            lay = rng.randint(0, 3, n)                       # 0 xa · 1 giua · 2 gan
+            L = {
+                "kind": kind, "M": M, "blink": bool(sp.get("blink", True)),
+                # moi hat lech mau mot chut -> khong bi "dan hat cung mot mau"
+                "col": _np.clip(col[None, :] * rng.uniform(0.86, 1.14, (n, 1)),
+                                0, 255).astype(_np.float32),
+                "x": rng.uniform(-M, W + M, n),
+                "y": rng.uniform(-M, H + M, n),
+                "vy": 6.0 + lay * 7.0 + rng.uniform(0, 10, n),      # tang xa troi cham hon
+                "amp": 8.0 + lay * 10.0 + rng.uniform(0, 14, n),    # lac ngang
+                "per": rng.uniform(3.0, 8.0, n),
+                "ph": rng.uniform(0, 2 * _np.pi, n),
+                "vamp": rng.uniform(2.0, 11.0, n),                  # lac doc nhe -> bay luon
+                "vper": rng.uniform(2.5, 6.0, n),
+                "vph": rng.uniform(0, 2 * _np.pi, n),
+                "bt": rng.uniform(1.2, 3.6, n),                     # chu ky nhap nhay
+                "bp": rng.uniform(0, 2 * _np.pi, n),
+                "duty": rng.uniform(0.22, 0.55, n),                 # % chu ky con sang
+                "a": base_a * (0.45 + 0.28 * lay) * rng.uniform(0.7, 1.0, n),
+                "r": (1 + lay + (1 if sp.get("big") else 0)).astype(_np.int32),
+            }
+        elif kind == "puff":
+            M = 240.0
+            L = {
+                "kind": kind, "M": M,
+                "col": _np.clip(col[None, :] * rng.uniform(0.94, 1.06, (n, 1)),
+                                0, 255).astype(_np.float32),
+                "x": rng.uniform(-M, W + M, n),
+                "y": rng.uniform(H * 0.10, H * 1.05, n),
+                "vx": rng.choice([-1.0, 1.0], n) * rng.uniform(5.0, 16.0, n),  # gio ngang
+                "vy": -rng.uniform(1.5, 7.0, n),                    # boc len rat cham
+                "R0": rng.uniform(60.0, 130.0, n),
+                "gr": rng.uniform(1.5, 6.0, n),                     # no dan px/s
+                "per": rng.uniform(6.0, 14.0, n),                   # nhip dam/nhat
+                "ph": rng.uniform(0, 2 * _np.pi, n),
+                "a": base_a * rng.uniform(0.6, 1.0, n),
+            }
+        else:                                                       # leaf
+            M = 90.0
+            L = {
+                "kind": kind, "M": M,
+                "col": _np.clip(col[None, :] * rng.uniform(0.75, 1.20, (n, 1)),
+                                0, 255).astype(_np.float32),
+                "x": rng.uniform(-M, W + M, n),
+                "y": rng.uniform(-M, H + M, n),
+                "vy": rng.uniform(28.0, 70.0, n),                   # roi xuong
+                "amp": rng.uniform(26.0, 80.0, n),                  # dao qua lai khi roi
+                "per": rng.uniform(2.4, 5.2, n),
+                "ph": rng.uniform(0, 2 * _np.pi, n),
+                "rot": rng.uniform(-110.0, 110.0, n),               # do/s
+                "rot0": rng.uniform(0, 360, n),
+                "sz": rng.uniform(sp.get("sz", (14.0, 30.0))[0],
+                                  sp.get("sz", (14.0, 30.0))[1], n),  # nua chieu dai la
+                "a": base_a * rng.uniform(0.55, 1.0, n),
+            }
+        L["n"] = n
+        layers.append(L)
+    return layers
+
+
+def _p_edge_fade(xs, ys, M):
+    """Mo dan khi hat ra sat le -> khong thay hat 'hien ra' / 'bien mat' o bien khung."""
+    d = _np.minimum(_np.minimum(xs, W - xs), _np.minimum(ys, H - ys))
+    return _np.clip(d / max(1.0, M) + 1.0, 0.0, 1.0)
+
+
+def _p_blit_add(fr, spr, cx, cy, a, col):
+    """Cong sang (additive) vung nho — dung cho dom dom / bui nang."""
+    S = spr.shape[0]
+    x0, y0 = int(round(cx)) - S // 2, int(round(cy)) - S // 2
+    fx0, fy0 = max(0, x0), max(0, y0)
+    fx1, fy1 = min(W, x0 + S), min(H, y0 + S)
+    if fx1 <= fx0 or fy1 <= fy0:
+        return                                    # hat ngoai khung
+    sp = spr[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0]
+    add = (sp[:, :, None] * (a * col)).astype(_np.uint8)
+    fr[fy0:fy1, fx0:fx1] = cv2.add(fr[fy0:fy1, fx0:fx1], add)
+
+
+def _p_blit_alpha(fr, spr, cx, cy, a, col):
+    """Tron alpha — dung cho khoi / may / la: KHONG cong sang nen khong chay trang."""
+    S = spr.shape[0]
+    x0, y0 = int(round(cx)) - S // 2, int(round(cy)) - S // 2
+    fx0, fy0 = max(0, x0), max(0, y0)
+    fx1, fy1 = min(W, x0 + S), min(H, y0 + S)
+    if fx1 <= fx0 or fy1 <= fy0:
+        return
+    m = (spr[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0] * float(a))[:, :, None]
+    roi = fr[fy0:fy1, fx0:fx1].astype(_np.float32)
+    fr[fy0:fy1, fx0:fx1] = _np.clip(roi * (1.0 - m) + col * m, 0, 255).astype(_np.uint8)
+
+
+def _p_draw_glow(fr, L, t):
+    M = L["M"]
+    xs = L["x"] + L["amp"] * _np.sin(2 * _np.pi * t / L["per"] + L["ph"])
+    ys = (L["y"] - L["vy"] * t + M) % (H + 2 * M) - M            # troi len, wrap day khung
+    ys = ys + L["vamp"] * _np.sin(2 * _np.pi * t / L["vper"] + L["vph"])
+    if L["blink"]:
+        # dom dom that: TAT HAN roi bung sang thanh nhip, khong phai sin deu deu
+        u = ((t / L["bt"]) + L["bp"] / (2 * _np.pi)) % 1.0
+        e = _np.exp(-((u - 0.5) / _np.maximum(0.06, L["duty"] * 0.34)) ** 2)
+        al = L["a"] * (0.06 + 0.94 * e)
+    else:
+        al = L["a"] * (0.70 + 0.30 * _np.sin(2 * _np.pi * t / L["bt"] + L["bp"]))
+    al = al * _p_edge_fade(xs, ys, M)
+    for i in range(L["n"]):
+        a = float(al[i])
+        if a <= 0.025:
+            continue
+        r = int(L["r"][i]) + (1 if a > float(L["a"][i]) * 0.82 else 0)   # sang manh -> no to
+        _p_blit_add(fr, _p_sprite(r), xs[i], ys[i], a, L["col"][i])
+
+
+def _p_draw_puff(fr, L, t):
+    M = L["M"]
+    xs = (L["x"] + L["vx"] * t + M) % (W + 2 * M) - M
+    ys = (L["y"] + L["vy"] * t + M) % (H + 2 * M) - M
+    al = L["a"] * (0.72 + 0.28 * _np.sin(2 * _np.pi * t / L["per"] + L["ph"]))
+    al = al * _p_edge_fade(xs, ys, M)
+    Rs = _np.minimum(L["R0"] + L["gr"] * t, L["R0"] * 1.8)       # no dan roi dung, khong giat
+    for i in range(L["n"]):
+        a = float(al[i])
+        if a <= 0.012:
+            continue
+        _p_blit_alpha(fr, _p_puff(Rs[i]), xs[i], ys[i], a, L["col"][i])
+
+
+def _p_draw_leaf(fr, L, t):
+    M = L["M"]
+    ph = 2 * _np.pi * t / L["per"] + L["ph"]
+    xs = L["x"] + L["amp"] * _np.sin(ph)
+    ys = (L["y"] + L["vy"] * t + M) % (H + 2 * M) - M            # roi xuong, wrap dinh khung
+    ang = L["rot0"] + L["rot"] * t
+    # luc thay mat rong, luc quay canh (mong di) -> nhin nhu la that dao trong gio
+    al = L["a"] * (0.35 + 0.65 * _np.abs(_np.cos(ph))) * _p_edge_fade(xs, ys, M)
+    for i in range(L["n"]):
+        a = float(al[i])
+        if a <= 0.03:
+            continue
+        _p_blit_alpha(fr, _p_leaf(L["sz"][i], ang[i]), xs[i], ys[i], a, L["col"][i])
 
 
 def _particles_draw(fr, pf, t):
-    """Ve hat len frame BGR uint8 (in-place) tai thoi diem t giay: cong additive
-    sprite nho (cv2.add bao hoa) — nhanh, khong dung frame lon."""
-    xs = pf["x"] + pf["amp"] * _np.sin(2 * _np.pi * t / pf["per"] + pf["ph"])
-    M = pf["M"]
-    ys = (pf["y"] - pf["vy"] * t + M) % (H + 2 * M) - M          # troi len, wrap day khung
-    al = pf["a"] * (0.62 + 0.38 * _np.sin(2 * _np.pi * t / pf["bt"] + pf["bp"]))
-    col = pf["col"]
-    for k in range(len(xs)):
-        a = float(al[k])
-        if a <= 0.03:
-            continue
-        spr = _p_sprite(int(pf["r"][k]))
-        S = spr.shape[0]
-        x0 = int(round(xs[k])) - S // 2
-        y0 = int(round(ys[k])) - S // 2
-        fx0, fy0 = max(0, x0), max(0, y0)
-        fx1, fy1 = min(W, x0 + S), min(H, y0 + S)
-        if fx1 <= fx0 or fy1 <= fy0:
-            continue                              # hat ngoai khung
-        sp = spr[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0]
-        add = (sp[:, :, None] * (a * col)).astype(_np.uint8)
-        fr[fy0:fy1, fx0:fx1] = cv2.add(fr[fy0:fy1, fx0:fx1], add)
+    """Ve TAT CA cac lop hat len frame BGR uint8 (in-place) tai thoi diem t giay."""
+    if pf is None:
+        return
+    if isinstance(pf, dict):
+        pf = [pf]
+    for L in pf:
+        k = L.get("kind", "glow")
+        if k == "glow":
+            _p_draw_glow(fr, L, t)
+        elif k == "puff":
+            _p_draw_puff(fr, L, t)
+        else:
+            _p_draw_leaf(fr, L, t)
 
 
 def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
@@ -1125,7 +1323,22 @@ def make_scene(scene, opts, i):
 
     # 1) TIMELINE (thoi luong tung phu de) + AUDIO track
     scene_audio = None
-    if narrate and subs:
+    # LOI KE NAP SAN: file mp3/wav nguoi dung tu tao (vd tai tu Vbee Studio bang giong
+    # cong dong) -> dung nguyen, KHONG goi TTS. Moc phu de chia theo so ky tu tung cau.
+    narr_pre = (scene.get("narr_audio") or "").strip()
+    if narr_pre and not os.path.exists(narr_pre):
+        narr_pre = ""
+    if narrate and subs and narr_pre:
+        adur = max(0.9, _dur(narr_pre))
+        w = os.path.join(FILM, f"_sw_{i}_pre.wav")
+        _seg_audio(narr_pre, adur, w); tmp.append(w)
+        wts = [max(1, len((s.get("tts") or s.get("hz") or ""))) for s in subs]
+        tot = sum(wts)
+        sub_dur = [adur * x / tot for x in wts]
+        scene_dur = adur
+        ta = os.path.join(FILM, f"_ta_{i}.m4a"); _concat_wav([w], ta); tmp.append(ta)
+        scene_audio = ta
+    elif narrate and subs:
         seg_wavs, sub_dur = [], []
         # GOM CAU: cac cau LIEN TIEP cung giong + cung cam xuc -> 1 request TTS duy nhat.
         # Truoc day moi cau 1 request roi noi cung -> "gay" ngu dieu cho chuyen cau
@@ -1641,10 +1854,16 @@ def _concat_and_music(seg_videos, opts, out_path, total):
         except subprocess.CalledProcessError:             # ducking loi -> tron thuong
             fc = (f"[1:a]volume={vol},afade=t=in:st=0:d=2,afade=t=out:st={max(0,total-3):.2f}:d=3[m];"
                   f"[0:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
-            subprocess.run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
-                            "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
-                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out_path],
-                           check=True, capture_output=True)
+            try:
+                subprocess.run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
+                                "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
+                                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out_path],
+                               check=True, capture_output=True)
+            except subprocess.CalledProcessError as e:
+                # capture_output nuot het stderr -> UI chi thay cau lenh, khong thay ly do.
+                # Dua 6 dong cuoi cua ffmpeg ra ngoai de con biet duong ma sua.
+                err = (e.stderr or b"").decode("utf-8", "ignore").strip().splitlines()
+                raise RuntimeError("Trộn nhạc nền lỗi:\n" + "\n".join(err[-6:] or ["(ffmpeg không nói gì)"]))
     else:
         shutil.move(narr, out_path)           # os.replace loi khi out_path khac o dia (WinError 17)
     for v in seg_videos:

@@ -56,6 +56,10 @@ except Exception:
     pass
 
 _build_lock = threading.Lock()      # render tuan tu (ffmpeg nang)
+# film.py dung TEN FILE TAM CO DINH (_film_narr.mp4, _film_rt.mp4, scene_NN.mp4...). Hai job
+# dung phim chay song song se ghi de len nhau -> ffmpeg doc file dang bi ghi -> exit 254.
+# => dung phim phai TUAN TU; job den sau xep hang thay vi hong giua chung.
+_film_lock = threading.Lock()
 
 # Giong edge-tts (mien phi, khong can key) — value tien to "edge:"
 EDGE_VOICES = [
@@ -189,6 +193,11 @@ VI_VOICES = [
     ("edge:vi-VN-HoaiMyNeural",   "Hoài My — Nữ, ấm, dễ nghe ⭐ (edge free)"),
     ("edge:vi-VN-HoaiMyNeural@-12Hz", "Hoài My Trầm — Nữ, tông thấp kể chuyện (edge free)"),
     ("azure:vi-VN-NamMinhNeural", "Nam Minh — Nam (Azure, cần key)"),
+    # Ha tong bang SSML pitch (Azure nhan don vi 'st' = nua cung) — Azure chi co DUY NHAT
+    # 1 giong nam Viet, nen bien the tram la cach duy nhat co giong ke chuyen tram.
+    ("azure:vi-VN-NamMinhNeural@-2st", "Nam Minh Trầm — hạ 2 nửa cung, kể chuyện ⭐ (Azure)"),
+    ("azure:vi-VN-NamMinhNeural@-4st", "Nam Minh Trầm Sâu — hạ 4 nửa cung, truyện xưa ⭐⭐ (Azure)"),
+    ("azure:vi-VN-NamMinhNeural@-6st", "Nam Minh Đại Trầm — hạ 6 nửa cung, rất trầm (Azure)"),
     ("azure:vi-VN-HoaiMyNeural",  "Hoài My — Nữ (Azure, cần key)"),
     ("gemini:Gacrux",             "Gacrux — Giọng già dặn, hợp truyện xưa ⭐ (Gemini)"),
     ("gemini:Algenib",            "Algenib — Nam, khàn trầm (Gemini)"),
@@ -213,11 +222,29 @@ FPT_VOICES = [
 # Giong VieNeu-TTS v3 Turbo — model TIENG VIET local (offline, free, khong quota).
 # Chay bang .venv-vieneu (Python 3.11) qua vieneu_tts.py; giu nguyen tien to
 # "vieneu:" trong ten giong de generate.synth() tu dispatch.
-VIENEU_VOICES = [
-    ("vieneu:Văn Minh Pro", "Văn Minh Pro — GIONG CUA BAN, ghep 3 mau 47s (VieNeu local) 🎙⭐"),
-    ("vieneu:Văn Minh 3",   "Văn Minh 3 — GIONG CUA BAN, mau Vua Hung 21s (VieNeu local) 🎙"),
-    ("vieneu:Văn Minh 2",   "Văn Minh 2 — GIONG CUA BAN, mau doc truyen 13s (VieNeu local) 🎙"),
-    ("vieneu:Văn Minh Taa", "Văn Minh Taa — GIONG CUA BAN, mau cu 12s (VieNeu local) 🎙"),
+def _vieneu_clones():
+    """Giong CLONE doc tu voice_clones.json — CHI liet ke giong co san file mau.
+    Truoc day 4 giong clone bi hardcode o day nhung khong ai goi add_voice va cung
+    khong co file mau -> chon vao la dung phim chet giua chung (Voice not found)."""
+    try:
+        with open(os.path.join(ROOT, "voice_clones.json"), encoding="utf-8") as f:
+            cfg = json.load(f).get("voices") or {}
+    except (OSError, ValueError):
+        return []
+    out = []
+    for name, it in cfg.items():
+        it = it if isinstance(it, dict) else {"ref": str(it)}
+        ref = it.get("ref") or ""
+        ref = ref if os.path.isabs(ref) else os.path.join(ROOT, ref)
+        if not os.path.exists(ref):
+            continue                       # chua co file mau -> khong hien, khoi loi
+        star = " ⭐" if it.get("star") else ""
+        out.append((f"vieneu:{name}",
+                    f"{name} — {it.get('desc') or 'giọng clone'} (VieNeu local) 🎙{star}"))
+    return out
+
+
+VIENEU_VOICES = _vieneu_clones() + [
     ("vieneu:Thanh Bình", "Thanh Bình — Nam Bắc, kể chuyện ⭐ (VieNeu local)"),
     ("vieneu:Thái Sơn",   "Thái Sơn — Nam Nam, kể chuyện ⭐ (VieNeu local)"),
     ("vieneu:Ngọc Linh",  "Ngọc Linh — Nữ Bắc, kể chuyện (VieNeu local)"),
@@ -247,6 +274,91 @@ VBEE_VOICES = [
     ("vbee:hn_female_ngochuyen_full_48k-fhg",  "Ngọc Huyền — Nữ Bắc, truyền cảm (Vbee)"),
 ]
 
+VBEE_CACHE = os.path.join(ROOT, "vbee_voices.json")   # danh sach giong keo ve tu API
+
+
+def vbee_voices():
+    """Danh sach giong Vbee cho dropdown. Uu tien file cache keo ve tu API
+    (POST /vbee/refresh) -> co BAO NHIEU giong tai khoan dung duoc thi hien bay nhieu.
+    Chua keo bao gio thi dung 7 giong khai cung ben duoi."""
+    try:
+        with open(VBEE_CACHE, encoding="utf-8") as f:
+            items = json.load(f).get("voices") or []
+    except (OSError, ValueError):
+        return VBEE_VOICES
+    _OWN = {"PERSONAL": "giọng của bạn 🎙", "COMMUNITY": "cộng đồng", "VBEE": "Vbee"}
+    out = []
+    for it in items:
+        code = (it.get("code") or "").strip()
+        if not code:
+            continue
+        meta = [x for x in (it.get("gender"), it.get("lang")) if x]
+        meta.append(_OWN.get(it.get("own"), "Vbee"))
+        cf = it.get("credit") or 1
+        if cf and float(cf) != 1:
+            meta.append(f"×{cf} điểm")       # giong dat hon binh thuong -> hien ro
+        out.append((f"vbee:{code}",
+                    f"{it.get('name') or code} — {' · '.join(meta)}"))
+    return out or VBEE_VOICES
+
+
+VBEE_VOICES_API = "https://vbee.vn/api/public/v1/voices"   # api-docs.vbee.vn (2026-08)
+
+
+def vbee_fetch_voices(token, app_id="", ownerships=("VBEE", "COMMUNITY", "PERSONAL")):
+    """Keo TOAN BO giong tai khoan dung duoc: GET /api/public/v1/voices.
+    Header can ca 'App-Id'. Co phan trang bang cursor (limit toi da 100) va loc theo
+    voiceOwnership: VBEE (giong hang) / COMMUNITY (giong cong dong) / PERSONAL (giong
+    minh nhan ban) -> keo ca 3 nhom roi gop lai, bo trung theo code."""
+    import urllib.request, urllib.parse
+    if not app_id:
+        raise RuntimeError("Thieu Vbee app_id — API voices bat buoc header App-Id.")
+    seen, out, errs = set(), [], []
+    for own in ownerships:
+        cursor, pages = "", 0
+        while pages < 40:                              # tran an toan ~4000 giong
+            q = {"voiceOwnership": own, "limit": "100"}
+            if cursor:
+                q["cursor"] = cursor
+            req = urllib.request.Request(
+                VBEE_VOICES_API + "?" + urllib.parse.urlencode(q),
+                headers={"Authorization": "Bearer " + token, "App-Id": app_id,
+                         "Content-Type": "application/json"})
+            try:
+                j = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            except Exception as e:
+                detail = ""
+                try:
+                    detail = e.read().decode("utf-8", "replace")[:200]
+                except Exception:
+                    pass
+                errs.append(f"{own}: {getattr(e, 'code', '') or e} {detail}".strip())
+                break
+            res = j.get("result") or {}
+            for v in (res.get("voices") or []):
+                code = str(v.get("code") or "").strip()
+                if not code or code in seen:
+                    continue
+                seen.add(code)
+                out.append({"code": code, "name": v.get("name") or code,
+                            "gender": v.get("gender") or "",
+                            "lang": v.get("language_code") or "",
+                            "own": own, "demo": v.get("demo") or "",
+                            "credit": v.get("credit_factor") or 1})
+            pg = res.get("pagination") or {}
+            cursor = pg.get("next_cursor") or ""
+            pages += 1
+            if not (pg.get("has_next_page") and cursor):
+                break
+    if not out:
+        raise RuntimeError("Khong lay duoc giong nao. " + " | ".join(errs))
+    out.sort(key=lambda v: (v["own"] != "PERSONAL", v["own"] != "COMMUNITY", v["name"]))
+    with open(VBEE_CACHE, "w", encoding="utf-8") as f:
+        json.dump({"voices": out, "source": VBEE_VOICES_API}, f,
+                  ensure_ascii=False, indent=1)
+    return out, VBEE_VOICES_API
+
+
 VBEE_CFG = os.path.join(ROOT, "vbee_config.json")
 def load_vbee():
     try:
@@ -270,6 +382,26 @@ def load_azure():
 def save_azure(key, region):
     import json as _j
     _j.dump({"key": key, "region": region}, open(AZURE_CFG, "w", encoding="utf-8"))
+    _azure_ok_cache.clear()                     # doi key -> kiem tra lai
+
+_azure_ok_cache = {}
+def azure_key_ok():
+    """Key Azure con dung khong. CO key trong file KHONG co nghia la con han:
+    key het han van tra 401 giua chung job -> hong ca phim. Kiem 1 lan roi cache."""
+    key, region = load_azure()
+    if not key or not region:
+        return False
+    if (key, region) not in _azure_ok_cache:
+        import urllib.request
+        req = urllib.request.Request(
+            f"https://{region}.api.cognitive.microsoft.com/sts/v1.0/issueToken",
+            data=b"", headers={"Ocp-Apim-Subscription-Key": key})
+        try:
+            urllib.request.urlopen(req, timeout=10).read()
+            _azure_ok_cache[(key, region)] = True
+        except Exception:
+            _azure_ok_cache[(key, region)] = False
+    return _azure_ok_cache[(key, region)]
 
 BG_CFG = os.path.join(ROOT, "bg_config.json")
 def load_bg():
@@ -1701,8 +1833,20 @@ def _parse_film(content):
         if m:
             emo_name = m.group(1).lower()
             hz = hz[m.end():].strip()
+        # CUE PHI NGÔN NGỮ cho VieNeu: '[thở dài] Cha ơi.' hoặc '<|emotion_6|> …'
+        # -> giữ NGUYÊN cho TTS (trường 'tts'), nhưng BÓC khỏi chữ hiện trên màn hình.
+        # Nhờ đó gán được sắc thái theo từng cảnh/từng câu ngay trong kịch bản.
+        tts_txt = ""
+        if re.search(r"<\|emotion_\d+\|>|\[(thở dài|cười|hắng giọng|sigh|chuckle|clear throat)\]",
+                     hz, re.I):
+            tts_txt = hz
+            hz = re.sub(r"<\|emotion_\d+\|>|\[(thở dài|cười|hắng giọng|sigh|chuckle|clear throat)\]",
+                        "", hz, flags=re.I).strip()
         if hz or vi:
-            cur["subs"].append({"hz": hz, "vi": vi, "emo_name": emo_name})
+            sub = {"hz": hz, "vi": vi, "emo_name": emo_name}
+            if tts_txt:
+                sub["tts"] = tts_txt
+            cur["subs"].append(sub)
     scenes = [s for s in scenes if s["subs"]]
     return voices_spec, scenes
 
@@ -1745,8 +1889,30 @@ def film_page():
                            vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES,
                            eleven_voices=ELEVEN_VOICES, eleven_ready=bool(load_eleven()),
                            fpt_voices=FPT_VOICES, fpt_ready=bool(load_fpt()),
-                           vbee_voices=VBEE_VOICES,
+                           vbee_voices=vbee_voices(),
+                           # Giong mac dinh trang film — user chot 2026-08-04:
+                           # Gacrux (Gemini) gia dan, hop truyen xua.
+                           default_voice="gemini:Gacrux",
                            vbee_ready=all(load_vbee()))
+
+
+@app.route("/vbee/refresh", methods=["POST"])
+def vbee_refresh():
+    """Keo TOAN BO danh sach giong Vbee ma tai khoan dung duoc ve vbee_voices.json.
+    Chay 1 lan sau khi luu token/app_id -> dropdown tu co day du giong (khong con
+    bo 7 giong khai cung trong code)."""
+    token, app_id = load_vbee()
+    d = request.get_json(silent=True) or {}
+    token = (d.get("token") or token or "").strip()
+    app_id = (d.get("app_id") or app_id or "").strip()
+    if not token:
+        return jsonify(error="Chưa có Vbee token. Lưu token ở ô 'Giọng xịn' trước."), 400
+    try:
+        voices, src = vbee_fetch_voices(token, app_id)
+    except Exception as e:
+        return jsonify(error=str(e)), 502
+    return jsonify(count=len(voices), source=src,
+                   sample=[v["name"] for v in voices[:8]])
 
 
 @app.route("/ttskey", methods=["POST"])
@@ -2010,6 +2176,9 @@ def _film_thumb(video_path, out_jpg):
 
 def run_film_job(job_id, data):
     import film as _fl
+    if not _film_lock.acquire(blocking=False):           # dang co phim khac dung -> xep hang
+        jobs[job_id].update(label="⏳ Đang đợi phim trước dựng xong…")
+        _film_lock.acquire()
     try:
         content = data.get("content") or ""
         spec, scenes = _parse_film(content)
@@ -2036,13 +2205,15 @@ def run_film_job(job_id, data):
             base_voice = "vieneu:Thái Sơn"
         if (base_voice.startswith("gemini:") and not load_gemini()) or \
            (base_voice.startswith("eleven:") and not load_eleven()) or \
-           (base_voice.startswith("fpt:") and not load_fpt()):
+           (base_voice.startswith("fpt:") and not load_fpt()) or \
+           (base_voice.startswith("azure:") and not azure_key_ok()):
             # chon giong can key ma chua co key -> doi giong free (de nguyen se rot xuong edge-tts va vo)
-            _eng = {"g": "Gemini", "e": "ElevenLabs", "f": "FPT.AI"}[base_voice[0]]
+            _eng = {"g": "Gemini", "e": "ElevenLabs", "f": "FPT.AI", "a": "Azure"}[base_voice[0]]
             _old = base_voice.split(":", 1)[1]
             base_voice = "vieneu:Thái Sơn" if vn_mode else "edge:zh-CN-YunxiNeural"
-            jobs[job_id]["note"] = (f"⚠ Giọng {_old} cần key {_eng} mà chưa lưu key → tạm dùng "
-                                    f"{base_voice.split(':', 1)[1]}. Dán key vào ô 🔑 rồi dựng lại để đổi giọng.")
+            jobs[job_id]["note"] = (f"⚠ Giọng {_old} cần key {_eng} còn hạn mà key hiện tại hỏng/chưa có → "
+                                    f"tạm dùng {base_voice.split(':', 1)[1]}. "
+                                    f"Dán key mới vào ô 🔑 rồi dựng lại để đổi giọng.")
         base_az = _azure_for(base_voice)
         narrate = bool(data.get("narrate", True))
         keep_audio = bool(data.get("keep_audio", False))
@@ -2110,6 +2281,7 @@ def run_film_job(job_id, data):
 
         # dung scene model cho film.make_film (+ SFX khong khi tung canh)
         sfx_specs = data.get("sfx") or []
+        narr_files = data.get("narr") or []     # loi ke nap san theo canh (tuy chon)
         scene_sfx = bool(data.get("scene_sfx", True))
         fscenes = []
         for i, sc in enumerate(scenes):
@@ -2123,6 +2295,10 @@ def run_film_job(job_id, data):
             sfx = _resolve_sfx(spec, sc["label"]) if scene_sfx else ""
             fs = {"clip": clip, "subs": sc["subs"], "sfx": sfx,
                   "narrate": narrate, "keep_audio": keep_audio}
+            # Loi ke nap san cho canh nay (mp3/wav tu Vbee Studio…) -> film.py bo qua TTS
+            na = str(narr_files[i] if i < len(narr_files) else "").strip()
+            if na and os.path.exists(na):
+                fs["narr_audio"] = na
             if multi and len(multi) >= 2:
                 fs["clips"] = multi
             fscenes.append(fs)
@@ -2233,6 +2409,8 @@ def run_film_job(job_id, data):
     except Exception as e:
         traceback.print_exc()
         jobs[job_id].update(status="error", error=str(e), label="Lỗi: " + str(e))
+    finally:
+        _film_lock.release()
 
 
 def _mmss(sec):

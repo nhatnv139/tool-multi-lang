@@ -343,7 +343,11 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
        cao do theo cam xuc cau. HTTP 400 -> fallback SSML thuong."""
     print(f"[DEBUG-TTS] synth_azure text={text!r} len={len(text or '')} "
           f"key_len={len(key or '')} region={region!r}")
-    pitch_attr = f' pitch="{emo["pitch"]}"' if emo else ""
+    # Ha tong ngay trong ten giong: 'vi-VN-NamMinhNeural@-4st' -> giong nam TRAM ke chuyen.
+    # Truoc day chi edge doc duoc cu phap '@', azure thi nhet ca '@-4st' vao name -> 400.
+    voice, base_pitch = _edge_pitch_split(voice)
+    pitch = _pitch_add(base_pitch, emo["pitch"] if emo else None)
+    pitch_attr = f' pitch="{pitch}"' if pitch else ""
     inner = (f'<prosody rate="{_norm_rate(rate)}"{pitch_attr}>{_ssml_escape(text)}</prosody>')
     # style: cam xuc cau (emo) > mood video > narration-relaxed
     if emo:
@@ -661,9 +665,11 @@ def _pitch_add(base, extra):
         return extra
     if not extra:
         return base
+    unit = "st" if "st" in base.lower() else "Hz"      # azure nhan ca 'st' (nua cung)
     try:
-        s = int(base.lower().replace("hz", "")) + int(extra.lower().replace("hz", ""))
-        return f"{s:+d}Hz"
+        s = (int(base.lower().replace("hz", "").replace("st", ""))
+             + int(extra.lower().replace("hz", "").replace("st", "")))
+        return f"{s:+d}{unit}"
     except ValueError:
         return base
 
@@ -699,10 +705,12 @@ VIENEU_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vieneu
 def _is_vieneu(voice):
     return isinstance(voice, str) and voice.startswith("vieneu:")
 
-def synth_vieneu(text, voice, path, rate="-8%"):
+def synth_vieneu(text, voice, path, rate="-8%", emotion=None):
     """VieNeu v3 Turbo qua .venv-vieneu (Python 3.11, ONNX CPU). voice = ten preset
        ('Thanh Bình'...), them ':style' tuy chon ('Thái Sơn:tu_nhien') de doi style;
-       mac dinh helper dung 'doc_truyen' + temperature thap cho ke chuyen lien mach.
+       mac dinh helper dung 'tu_nhien' + emotion 4 (nhan nha nhat) cho ke chuyen.
+       emotion: '0'..'7' de ep sac thai ca doan; None = de helper dung mac dinh.
+       Muon doi sac thai TUNG CAU thi viet thang <|emotion_k|> / [thở dài] trong text.
        Helper ghi wav 48k -> ffmpeg mp3 24k + atempo theo rate."""
     if not os.path.exists(VIENEU_PY):
         raise RuntimeError("Chua cai VieNeu. Chay trong thu muc du an: "
@@ -715,9 +723,15 @@ def synth_vieneu(text, voice, path, rate="-8%"):
     cmd = [VIENEU_PY, VIENEU_HELPER, "--voice", voice, "--out", w]
     if style:
         cmd += ["--style", style]
-    subprocess.run(cmd,
-                   input=text.encode("utf-8"), check=True, timeout=600,
-                   capture_output=True)
+    if emotion not in (None, ""):
+        cmd += ["--emotion", str(emotion)]
+    r = subprocess.run(cmd, input=text.encode("utf-8"), timeout=600, capture_output=True)
+    if r.returncode != 0:
+        # Doi loi thanh cau nguoi dung doc duoc — truoc day chi nem nguyen dong lenh
+        # subprocess ra UI, khong biet la do giong khong ton tai hay do model loi.
+        err = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        msg = next((l for l in reversed(err) if l.strip()), "") if err else ""
+        raise RuntimeError(f"Giọng VieNeu '{voice}' chạy lỗi: {msg or 'không rõ nguyên nhân'}")
     try:
         pct = float(str(rate).replace("%", "").replace("+", ""))
     except Exception:
