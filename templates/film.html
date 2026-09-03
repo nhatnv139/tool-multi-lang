@@ -66,7 +66,10 @@
   <div class="card">
     <div class="row">
       <div>
-        <label>🎙️ Giọng dẫn <span class="hint">(lời dẫn + nhân vật chưa khai)</span></label>
+        <label>🎙️ Giọng dẫn <span class="hint">(chỉ giọng Vbee — lời dẫn + nhân vật chưa khai)</span></label>
+                <input type="hidden" id="voiceSearch" placeholder="🔎 tìm giọng… (vd: khôi · nam · vbee · truyện)"
+               style="width:100%;margin-bottom:6px;padding:6px 10px;border:1px solid #d9d9e3;border-radius:8px">
+        <div id="voicePicker"></div>
         <select id="voice">
           <optgroup label="Edge (miễn phí)">
           {% for v,lbl in edge_voices %}<option value="{{v}}"{% if v == default_voice %} selected{% endif %}>{{lbl}}</option>{% endfor %}
@@ -106,6 +109,8 @@
           <input type="text" id="vbAppId" placeholder="Vbee app_id"
                  style="flex:0 0 140px" value="{{ '••••••••' if vbee_ready else '' }}">
           <button class="btn-ghost" type="button" onclick="saveVbee()">Lưu</button>
+          <button class="btn-ghost" type="button" onclick="refreshVbee()"
+                  title="Kéo toàn bộ giọng tài khoản dùng được, gồm cả giọng cộng đồng">🔄 Kéo giọng Vbee</button>
           <span id="keySt"></span>
         </div>
       </div>
@@ -140,8 +145,8 @@
       <label class="switch"><input type="checkbox" id="grade" checked> Tông màu điện ảnh (tự nhiên, nhẹ)</label>
       <label class="switch"><input type="checkbox" id="letterbox"> Khung điện ảnh 2.39:1</label>
       <label class="switch"><input type="checkbox" id="duck" checked> Nhạc né lời (ducking)</label>
-      <label class="switch"><input type="checkbox" id="titleCard" checked> Bìa đầu (tên phim)</label>
-      <label class="switch"><input type="checkbox" id="endCard" checked> Card kết “HẾT”</label>
+      <label class="switch"><input type="checkbox" id="titleCard"> Bìa đầu (tên phim)</label>
+      <label class="switch"><input type="checkbox" id="endCard"> Card kết “HẾT”</label>
     </div>
     <div class="row mt" style="align-items:flex-end">
       <div style="flex:1 1 340px">
@@ -543,6 +548,23 @@ async function saveVbee(){
                    :'<span class="err">'+(j.error||'lỗi')+'</span>';
 }
 
+async function refreshVbee(){
+  const st=document.getElementById('keySt');
+  st.innerHTML='đang kéo danh sách giọng…';
+  const t=document.getElementById('vbToken').value.trim();
+  const a=document.getElementById('vbAppId').value.trim();
+  const body={};                                  // rong -> dung key da luu trong file
+  if(t && !t.startsWith('•')) body.token=t;
+  if(a && !a.startsWith('•')) body.app_id=a;
+  try{
+    const r=await fetch('/vbee/refresh',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    st.innerHTML = j.error ? '<span class="err">'+j.error+'</span>'
+      : '<span class="ok">✓ '+j.count+' giọng ('+j.source+') — tải lại trang để thấy trong dropdown</span>';
+  }catch(e){ st.innerHTML='<span class="err">'+e+'</span>'; }
+}
+
 async function stopFilm(){
   if(!window._jid) return;
   const b=document.getElementById('stopBtn');
@@ -613,6 +635,179 @@ document.getElementById('tone').addEventListener('change',async e=>{
 });
 
 function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+</script>
+
+<script>
+/* TIM GIONG: danh sach Vbee keo ve co the hang tram giong -> cuon tay khong xue.
+   Loc theo tu khoa tren CA nhan hien thi lan value (go 'khoi', 'nam', 'vbee', 'ngan'...).
+   Cach lam: chup lai toan bo optgroup/option luc tai trang, moi lan go thi DUNG LAI
+   select tu ban chup (an option bang display:none khong an toan tren Safari). */
+function initVoiceSearch(selId, boxId){
+  const sel = document.getElementById(selId);
+  const box = document.getElementById(boxId);
+  if(!sel || !box) return;
+  const snap = [];                       // [{label, opts:[{v,t,sel}]}]
+  for(const g of sel.children){
+    if(g.tagName === 'OPTGROUP'){
+      snap.push({label:g.label, opts:[...g.children].map(o=>({v:o.value,t:o.textContent,s:o.selected}))});
+    } else if(g.tagName === 'OPTION'){
+      snap.push({label:'', opts:[{v:g.value,t:g.textContent,s:g.selected}]});
+    }
+  }
+  const hit = document.createElement('span');
+  hit.className = 'hint'; hit.style.marginLeft = '8px';
+  box.parentNode.insertBefore(hit, box.nextSibling);
+
+  box.addEventListener('input', () => {
+    const q = box.value.trim().toLowerCase();
+    const keep = sel.value;              // giu lua chon hien tai neu con khop
+    sel.innerHTML = '';
+    let n = 0;
+    for(const g of snap){
+      const ms = g.opts.filter(o => !q || (g.label+' '+o.t+' '+o.v).toLowerCase().includes(q));
+      if(!ms.length) continue;
+      const parent = g.label ? document.createElement('optgroup') : sel;
+      if(g.label){ parent.label = g.label; sel.appendChild(parent); }
+      for(const o of ms){
+        const el = document.createElement('option');
+        el.value = o.v; el.textContent = o.t;
+        parent.appendChild(el); n++;
+      }
+    }
+    if([...sel.querySelectorAll('option')].some(o=>o.value===keep)) sel.value = keep;
+    hit.textContent = q ? (n ? n+' giọng khớp' : 'không có giọng nào khớp') : '';
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  initVoiceSearch('voice','voiceSearch');
+  initVoiceSearch('voice_vi','voiceViSearch');
+});
+</script>
+
+<style>
+.vpick{border:1px solid #e3e3ea;border-radius:10px;background:#fff;margin-bottom:6px}
+.vpick-hd{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #eee}
+.vpick-hd input{flex:1;padding:6px 10px;border:1px solid #d9d9e3;border-radius:8px}
+.vpick-list{max-height:290px;overflow-y:auto}
+.vrow{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-bottom:1px solid #f4f4f7}
+.vrow:hover{background:#faf9ff}
+.vrow.on{background:#f0ecff;box-shadow:inset 3px 0 0 #6b4dff}
+.vrow .nm{font-weight:600;font-size:14px}
+.vrow .mt{font-size:12px;color:#777;margin-top:2px;display:flex;gap:5px;flex-wrap:wrap}
+.vchip{background:#f0f0f5;border-radius:20px;padding:1px 8px;font-size:11px;color:#555}
+.vchip.cd{background:#fff3d6;color:#8a5a00}
+.vchip.own{background:#e6f6ec;color:#1a7f43}
+.vplay{border:1px solid #d9d9e3;background:#fff;border-radius:50%;width:30px;height:30px;
+       cursor:pointer;flex:0 0 30px;font-size:13px}
+.vplay:hover{background:#f2efff}
+.vpick-ft{padding:6px 10px;font-size:12px;color:#666;border-top:1px solid #eee}
+</style>
+
+<script>
+/* BO CHON GIONG DANG THE — thay cho dropdown chu chay dai.
+   Nguon: chinh cac <option> cua <select> (giu select de submit khong doi gi),
+   bo sung meta cua Vbee (link nghe thu + he so diem) tu /vbee/voices.json. */
+async function initVoicePicker(selId, mountId, onlyPrefix){
+  const sel = document.getElementById(selId), mount = document.getElementById(mountId);
+  if(!sel || !mount) return;
+  let meta = {};
+  try { meta = await (await fetch('/vbee/voices.json')).json(); } catch(e){}
+
+  let rows = [];
+  for(const g of sel.children){
+    const grp = g.tagName === 'OPTGROUP' ? g.label : '';
+    const opts = g.tagName === 'OPTGROUP' ? [...g.children] : [g];
+    for(const o of opts) rows.push({v:o.value, t:o.textContent.trim(), g:grp});
+  }
+  // Trang PHIM chi dung giong Vbee -> bo het engine khac cho do roi mat.
+  // Phong thu: neu chua co giong Vbee nao thi giu nguyen ca danh sach, khong de trang rong.
+  if(onlyPrefix && rows.some(r => r.v.startsWith(onlyPrefix)))
+    rows = rows.filter(r => r.v.startsWith(onlyPrefix));
+  // giong dang chon khong thuoc nhom -> chuyen sang giong dau tien (uu tien 'Anh Khoi')
+  if(onlyPrefix && !sel.value.startsWith(onlyPrefix) && rows.length){
+    const pick = rows.find(r => /kh[oô]i/i.test(r.t)) || rows[0];
+    sel.value = pick.v; sel.dispatchEvent(new Event('change'));
+  }
+  mount.innerHTML =
+    '<div class="vpick"><div class="vpick-hd">'
+    + '<input type="search" placeholder="🔎 tìm giọng… (khôi · nam · truyện · vbee)">'
+    + '<span class="hint" data-cnt></span></div>'
+    + '<div class="vpick-list"></div>'
+    + '<div class="vpick-ft" data-cur></div></div>';
+  const box = mount.querySelector('input'), list = mount.querySelector('.vpick-list');
+  const cnt = mount.querySelector('[data-cnt]'), cur = mount.querySelector('[data-cur]');
+  let audio = null;
+
+  function draw(q){
+    q = (q||'').trim().toLowerCase();
+    list.innerHTML = '';
+    let n = 0;
+    for(const r of rows){
+      if(q && !(r.t+' '+r.v+' '+r.g).toLowerCase().includes(q)) continue;
+      const m = meta[r.v] || {};
+      const name = m.name || r.t.split('—')[0].trim();
+      const desc = r.t.includes('—') ? r.t.split('—').slice(1).join('—').trim() : '';
+      const chips = [];
+      if(r.g) chips.push('<span class="vchip">'+r.g.replace(/[🏆🆓⚡✨💎🎙️]/g,'').trim()+'</span>');
+      if(m.gender) chips.push('<span class="vchip">'+(m.gender==='male'?'Nam':'Nữ')+'</span>');
+      if(m.own) chips.push('<span class="vchip own">'+({VBEE:'Vbee',COMMUNITY:'cộng đồng',PERSONAL:'của bạn'}[m.own]||m.own)+'</span>');
+      if(m.credit && m.credit != 1) chips.push('<span class="vchip cd">×'+m.credit+' điểm</span>');
+      if(r.v.startsWith('vbee:'))
+        chips.push('<span class="vchip" style="font-family:ui-monospace,monospace">'+r.v.slice(5)+'</span>');
+      const row = document.createElement('div');
+      row.className = 'vrow' + (r.v === sel.value ? ' on' : '');
+      row.innerHTML = (m.demo ? '<button class="vplay" title="Nghe thử" data-demo="'+m.demo+'">▶</button>'
+                              : '<span style="flex:0 0 30px"></span>')
+        + '<div style="flex:1;min-width:0"><div class="nm">'+name+'</div>'
+        + '<div class="mt">'+chips.join('')+(desc?'<span style="color:#999">'+desc+'</span>':'')+'</div></div>';
+      row.onclick = e => {
+        if(e.target.classList.contains('vplay')) return;
+        sel.value = r.v; sel.dispatchEvent(new Event('change'));
+        [...list.children].forEach(c=>c.classList.remove('on')); row.classList.add('on');
+        cur.textContent = 'Đang chọn: ' + name;
+      };
+      const pb = row.querySelector('.vplay');
+      if(pb) pb.onclick = () => {
+        if(audio){ audio.pause(); }
+        audio = new Audio(pb.dataset.demo); audio.play().catch(()=>{
+          cur.textContent = 'Không phát được bản nghe thử của giọng này.'; });
+      };
+      list.appendChild(row); n++;
+    }
+    // Go MA GIONG copy tu thu vien Vbee ma chua co trong danh sach (chua ket noi API,
+    // hoac chua bam "Su dung"/tim trai) -> van dung duoc ngay, khong phai cho keo danh sach.
+    const code = q.replace(/^vbee:/,'');
+    if(n === 0 && /^[a-z]{2,3}_[a-z0-9_\-]{4,}$/i.test(code)){
+      const row = document.createElement('div');
+      row.className = 'vrow';
+      row.innerHTML = '<span style="flex:0 0 30px">⚡</span><div style="flex:1"><div class="nm">'
+        + 'Dùng thẳng mã giọng này</div><div class="mt">'
+        + '<span class="vchip" style="font-family:ui-monospace,monospace">'+code+'</span>'
+        + '<span style="color:#999">mã copy từ Thư viện giọng Vbee</span></div></div>';
+      row.onclick = () => {
+        const val = 'vbee:' + code;
+        if(![...sel.options].some(o=>o.value===val)){
+          const o = document.createElement('option');
+          o.value = val; o.textContent = code + ' (mã dán tay)'; sel.appendChild(o);
+          rows.push({v:val, t:o.textContent, g:'Vbee'});
+        }
+        sel.value = val; sel.dispatchEvent(new Event('change'));
+        cur.textContent = 'Đang chọn: ' + code + ' (dán tay)';
+        [...list.children].forEach(c=>c.classList.remove('on')); row.classList.add('on');
+      };
+      list.appendChild(row);
+      cnt.textContent = 'chưa có trong danh sách — bấm để dùng thẳng mã';
+      return;
+    }
+    cnt.textContent = q ? (n ? n+' giọng khớp' : 'không khớp giọng nào') : rows.length+' giọng';
+  }
+  box.addEventListener('input', () => draw(box.value));
+  draw('');
+  const selRow = rows.find(r=>r.v===sel.value);
+  cur.textContent = selRow ? 'Đang chọn: ' + (meta[selRow.v]?.name || selRow.t.split('—')[0].trim()) : '';
+  sel.style.display = 'none';
+}
+document.addEventListener('DOMContentLoaded', () => initVoicePicker('voice','voicePicker','vbee:'));
 </script>
 </body>
 </html>

@@ -144,14 +144,6 @@ _PAD_SHORT  = 0.32    # cau <=7 chu Han -> nhip don, khong nghi dai
 _PAD_STOP   = 0.55    # het cau (。.)
 _PAD_EMO    = 0.80    # cau hoi / cam than
 _PAD_LONG   = 0.72    # cau dai -> nghi sau hon mot chut cho ngam
-
-# Duong cong nghi lien tuc thay cho _PAD_SHORT/_PAD_STOP/_PAD_LONG (van giu 3 hang
-# so tren de tuong thich va de so sanh). n = so chu Han (tieng khac quy doi).
-#   n=4 -> 0.32   n=12 -> 0.47   n=18 -> 0.58   n=26 -> 0.73
-_PAD_C0  = 0.24
-_PAD_K   = 0.019
-_PAD_MIN = 0.26
-_PAD_MAX = 0.82
 # ---- KY TU NGAT NGHI do NGUOI VIET dat trong content.md (xem SKILL tan-van / giong-van) ----
 # Tat ca deu bi BOC KHOI CHU truoc khi ve phu de va truoc khi goi TTS -> may KHONG doc chung.
 _PAD_HANG   = 1.00    # het cau bang '……' -> treo lung, de nguoi nghe tu dien not
@@ -191,22 +183,12 @@ def breath_pad(hanzi):
     # coi la "cau ngan" -> lai ve mot muc nghi duy nhat, dung cai loi minh dinh chua.
     n_cjk = sum(1 for c in t if _is_cjk_char(c))
     n_unit = n_cjk if n_cjk else len(t.split())
-    if not n_cjk:
-        n_unit = int(round(n_unit * 22 / 16.0))   # quy ve thang do chu Han
-
-    # DO DAI -> NGHI, LIEN TUC chu khong con 3 BAC.
-    # Do 2026-08-23 tren 7 bai moi (46-52): bang 3 bac lam 75-89% moi cau nghi
-    # DUNG MOT CON SO 0.55s, ~19 lan/phut, cach nhau deu 3,2s. Tai nghe ra
-    # may danh nhip, khong phai nguoi doc. Do lech chuan gan nhu khong doi khi
-    # sua - cai phai sua la TY LE LAP LAI cua mot gia tri duy nhat.
-    pad = _PAD_C0 + _PAD_K * n_unit
-    pad = max(_PAD_MIN, min(_PAD_MAX, pad))
-
-    # Rung nhe, TAT DINH theo noi dung cau (cung mot cau luon ra cung mot so ->
-    # render lai khong lech). Chi de pha the trung nhau, khong doi cam giac nhip.
-    import hashlib as _hl
-    jit = (int(_hl.md5(t.encode("utf-8")).hexdigest()[:4], 16) % 13 - 6) / 100.0
-    return round(max(_PAD_MIN - 0.06, pad + jit), 3)
+    lim = 7 if n_cjk else 6              # ~6 tu tieng Viet = mot nhip cut
+    if n_unit <= lim:
+        return _PAD_SHORT
+    if n_unit >= (22 if n_cjk else 16):  # cau DAI -> nghi sau hon, cho ngam
+        return _PAD_LONG
+    return _PAD_STOP
 def boc_dau_nhip(item):
     """Boc ky tu ngat nghi cua nguoi viet ra khoi cau.
 
@@ -236,25 +218,6 @@ def boc_dau_nhip(item):
     else:
         s = _boc(s)
     return s.strip(), nhan, lang_them
-
-
-def boc_dau_nhip_van_ban(text):
-    """Boc ky tu ngat nghi khoi CA VAN BAN, giu nguyen cau truc dong.
-
-    Dung cho cac duong KHONG di qua parse_lesson — PDF ban chu (study_pdf),
-    trang /short, trang /film. Neu khong boc thi '*' va '//' hien nguyen trong
-    PDF va bi TTS doc thanh tieng (do duoc: '*是累。*' dai 3,12s so voi 1,78s).
-    """
-    out = []
-    for raw in (text or "").splitlines():
-        s = raw.strip()
-        if s in ("~", "～", "~~", "~~~"):     # dong lang cho nhac troi -> khong phai chu
-            continue
-        if not s or s.startswith(("@", "#", "<!--")):
-            out.append(raw)
-            continue
-        out.append(boc_dau_nhip(s)[0])
-    return "\n".join(out)
 
 
 def _ghi_dau_nhip(sec, idx, nhan, lang_them):

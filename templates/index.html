@@ -110,11 +110,15 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
     <div class="mt">
       <label>🏷️ Tiêu đề hiển thị (header trên video) <span class="hint">— để trống = tự theo @title</span></label>
       <input type="text" id="header" placeholder="vd: CHINESE PODCAST · HSK 3-4-5">
+      <label class="mt">🈶 Chữ Hán đầu trang <span class="hint">— biến thể "Đầu trang podcast"; để trống = lấy @hanzi trong nội dung</span></label>
+      <input type="text" id="hanzi_title" placeholder="vd: 慧语">
     </div>
 
     <div class="row mt">
       <div>
         <label>🎙️ Giọng đọc tiếng Trung</label>
+                <input type="search" id="voiceSearch" placeholder="🔎 tìm giọng… (vd: khôi · nam · vbee · truyện)"
+               style="width:100%;margin-bottom:6px;padding:6px 10px;border:1px solid #d9d9e3;border-radius:8px">
         <select id="voice">
           <optgroup label="🇻🇳 Tiếng Việt — VieNeu local (offline, free, không quota)">
             {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
@@ -132,7 +136,8 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
             {% for v,lbl in edge_ml_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
           <optgroup label="⚡ Tự nhiên nhất (Azure - cần key free)">
-            {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+            {# giong mac dinh trang chinh — user chot 2026-08-10: Mai MAI-Voice-2 #}
+            {% for v,lbl in azure_voices %}<option value="{{v}}"{% if v == 'azure:zh-CN-Mei:MAI-Voice-2' %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>
           <optgroup label="✨ Google Gemini (AI Studio - rất tự nhiên, key free)">
             {% for v,lbl in gemini_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
@@ -163,7 +168,9 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         </div>
         <div class="mt">
           <label>🇻🇳 Giọng đọc tiếng Việt <span class="hint">— đọc phần lời dịch / nội dung tiếng Việt (giọng trên đọc tiếng Trung)</span></label>
-          <select id="voice_vi">
+                  <input type="search" id="voiceViSearch" placeholder="🔎 tìm giọng… (vd: khôi · nam · vbee · truyện)"
+               style="width:100%;margin-bottom:6px;padding:6px 10px;border:1px solid #d9d9e3;border-radius:8px">
+        <select id="voice_vi">
             <option value="">Tự động (Hoài My edge · giọng đa ngữ thì đọc luôn cả 2 thứ tiếng)</option>
             <optgroup label="🇻🇳 VieNeu local (offline, free, không quota)">
               {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
@@ -189,6 +196,8 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
       <div>
         <label>🎭 Độ biểu cảm: <span id="expressive_lbl" class="hint">60</span>
           <span class="hint">— 0 = trầm tĩnh · 100 = nhiều cảm xúc, đăm chiêu, nhấn nhá</span></label>
+      <label class="switch" style="margin-top:6px"><input type="checkbox" id="lofi_mix"> 🌙 Chế độ LOFI / nghe ngủ <span class="hint">(nén động + dải hẹp + đọc chậm + nhịp thở dài — chủ đề 15)</span></label>
+      <label class="switch" style="margin-top:6px"><input type="checkbox" id="block_tts" checked> 🗣️ Đọc CẢ ĐOẠN rồi cắt theo câu <span class="hint">(giọng liền mạch, tự nhiên hơn đọc lẻ từng câu)</span></label>
         <input type="range" id="expressive" min="0" max="100" step="5" value="60" style="width:100%"
                oninput="document.getElementById('expressive_lbl').textContent=this.value">
         <div class="ends"><span>Trầm tĩnh</span><span>Cảm xúc 🎭</span></div>
@@ -210,9 +219,10 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
         <div class="ends"><span>Tự nhiên</span><span>Tách rõ (+0.5s)</span></div>
       </div>
       <div>
-        <label>📑 Nghỉ giữa 2 đoạn văn: <span id="para_lbl" class="hint">0.5s</span>
+        <label>📑 Nghỉ giữa 2 đoạn văn: <span id="para_lbl" class="hint">0.0s</span>
           <span class="hint">— khi có DÒNG TRỐNG giữa các đoạn trong nội dung</span></label>
-        <input type="range" id="para_gap" min="0" max="40" step="5" value="5" style="width:100%"
+        <!-- mac dinh LIEN MACH (0s) — user chot 2026-08-10 -->
+        <input type="range" id="para_gap" min="0" max="40" step="5" value="0" style="width:100%"
                oninput="document.getElementById('para_lbl').textContent=(this.value/10).toFixed(1)+'s'">
         <div class="ends"><span>Liền mạch</span><span>Nghỉ dài (4s)</span></div>
       </div>
@@ -292,6 +302,9 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <input type="text" id="seal_text" placeholder="乐学">
           <label class="mt">✍️ Chữ viết tay đầu trang <span class="hint">(biến thể "Đầu trang podcast" — mặc định Podcast)</span></label>
           <input type="text" id="show_word" placeholder="Podcast">
+          <label class="mt">🎨 Màu chữ viết tay <span class="hint">(trống = theo biến thể)</span></label>
+          <input type="color" id="show_word_color" value="#2a2a28" style="width:64px;height:34px;padding:2px">
+          <label class="switch" style="margin-left:8px"><input type="checkbox" id="show_word_color_on"> Dùng màu này</label>
         </div>
       </div>
       <div class="row mt">
@@ -329,6 +342,23 @@ B: 挺好的，谢谢你！ | Khá ổn, cảm ơn bạn!
           <option value="snow">❄️ Tuyết rơi (hợp truyện đêm)</option>
           <option value="dust">✨ Bụi vàng lấp lánh bay lên (ấm áp, sang)</option>
           <option value="bokeh">🫧 Đốm sáng bokeh mờ (mềm mại, cozy)</option>
+          <option value="firefly">🪰 Đom đóm bay (nháy sáng — đêm quê, chữa lành)</option>
+          <option value="star">✨ Sao lấp lánh (trời đêm, thiền)</option>
+          <option value="ember">🔥 Tàn lửa bay lên (bếp lửa, truyện xưa)</option>
+          <option value="mist">🌫️ Sương mù trôi ngang (núi, sáng sớm)</option>
+          <option value="ray">🌤️ Tia nắng xiên qua khung (ấm, ban ngày)</option>
+          <option value="rain">🌧️ Mưa nhẹ (buồn, hoài niệm)</option>
+          <option value="feather">🪶 Lông vũ rơi chậm (nhẹ nhõm, buông bỏ)</option>
+          <option value="ash">🕊️ Tro trắng bay (tang lễ, tiễn biệt)</option>
+        </select>
+        <label class="mt">📷 Kiểu ảnh xưa <span class="hint">(áp lên ảnh nền bạn upload)</span></label>
+        <select id="bg_vintage">
+          <option value="" selected>Tắt — giữ ảnh gốc</option>
+          <option value="film">🎞️ Phim 70s (bạc màu, hạt phim, ám ấm)</option>
+          <option value="sepia">🟤 Nâu cổ (sepia)</option>
+          <option value="faded">🫧 Phai màu kiểu Polaroid</option>
+          <option value="vhs">📼 Băng VHS (lệ màu + đường quét)</option>
+          <option value="stain">🍂 Ố vàng + vết xước (ảnh cũ để trong hộp)</option>
         </select>
       </div>
       <div class="row mt" style="grid-template-columns:1fr 1fr 1fr">
@@ -956,6 +986,7 @@ async function generate(){
     ai_mascot: document.getElementById('ai_mascot').checked,
     image_prompt: document.getElementById('image_prompt').value,
     header: document.getElementById('header').value,
+    hanzi_title: document.getElementById('hanzi_title').value.trim(),
     podcast: document.getElementById('podcast').checked,
     emotion_auto: document.getElementById('emotion_auto').checked,
     show_title: document.getElementById('show_title').checked,
@@ -964,9 +995,13 @@ async function generate(){
     podcast_variant: document.getElementById('podcast_variant').value,
     pinyin_mode: document.getElementById('pinyin_mode').value,
     show_word: document.getElementById('show_word').value.trim(),
+    show_word_color: document.getElementById('show_word_color_on').checked ? document.getElementById('show_word_color').value : '',
     text_shadow: document.getElementById('text_shadow').value,
     waveform: document.getElementById('waveform').value,
     fx: document.getElementById('fx').value,
+    block_tts: document.getElementById('block_tts').checked,
+    lofi_mix: document.getElementById('lofi_mix').checked,
+    bg_vintage: document.getElementById('bg_vintage').value,
     zh_px: document.getElementById('zh_px').value,
     bottom_bar: document.getElementById('bottom_bar').checked,
     bar_left: document.getElementById('bar_left').value.trim(),
@@ -1097,6 +1132,19 @@ async function poll(id){
     pct = Math.max(3, pct);
     setFill(pct);
     document.getElementById('plabel').textContent = (s.label||'Đang xử lý...') + '  ('+pct+'%)';
+    // CANH BAO cua job (vd: key Azure hong -> da doi giong). Truoc day chi luu trong
+    // jobs[...]['note'] ma khong bao gio hien ra -> user tuong minh dang nghe giong da chon.
+    if(s.note){
+      let n = document.getElementById('jobnote');
+      if(!n){
+        n = document.createElement('div');
+        n.id = 'jobnote';
+        n.style.cssText = 'margin-top:10px;padding:10px 12px;border-radius:8px;'
+          + 'background:#fff6e5;border:1px solid #f0c36d;color:#7a5200;font-size:14px;line-height:1.5';
+        document.getElementById('plabel').parentNode.appendChild(n);
+      }
+      n.textContent = s.note;
+    }
     if(s.status === 'done'){
       showCancel(false);
       renderDonePanel(id, s.video, true);
@@ -1125,8 +1173,8 @@ async function poll(id){
     'podcast_frame','theme','character','mascot','channel','infobar','music','music_vol',
     'eleven_model','eleven_voice','mascot_motion','ai_mascot','image_prompt',
     'intro_outro','use_intro','use_outro',
-    'podcast_variant','seal_text','show_word','pinyin_top','show_progress','repeat_slow','replay_loop',
-    'pinyin_mode','text_shadow','waveform','fx','zh_px','py_px','vi_px','emotion_auto',
+    'podcast_variant','seal_text','show_word','hanzi_title','show_word_color','show_word_color_on','pinyin_top','show_progress','repeat_slow','replay_loop',
+    'pinyin_mode','text_shadow','waveform','fx','bg_vintage','block_tts','lofi_mix','zh_px','py_px','vi_px','emotion_auto',
     'custom_colors','zh_color','py_color','vi_color','panel_color','bottom_bar','bar_left','bar_badge','bar_bg'];
   function $(id){return document.getElementById(id);}
   function isChk(el){return el&&el.type==='checkbox';}
@@ -1220,6 +1268,53 @@ async function doImportVideo(){
     if(st) st.textContent = '— ❌ lỗi tải lên: ' + e;
   }
 }
+</script>
+
+<script>
+/* TIM GIONG: danh sach Vbee keo ve co the hang tram giong -> cuon tay khong xue.
+   Loc theo tu khoa tren CA nhan hien thi lan value (go 'khoi', 'nam', 'vbee', 'ngan'...).
+   Cach lam: chup lai toan bo optgroup/option luc tai trang, moi lan go thi DUNG LAI
+   select tu ban chup (an option bang display:none khong an toan tren Safari). */
+function initVoiceSearch(selId, boxId){
+  const sel = document.getElementById(selId);
+  const box = document.getElementById(boxId);
+  if(!sel || !box) return;
+  const snap = [];                       // [{label, opts:[{v,t,sel}]}]
+  for(const g of sel.children){
+    if(g.tagName === 'OPTGROUP'){
+      snap.push({label:g.label, opts:[...g.children].map(o=>({v:o.value,t:o.textContent,s:o.selected}))});
+    } else if(g.tagName === 'OPTION'){
+      snap.push({label:'', opts:[{v:g.value,t:g.textContent,s:g.selected}]});
+    }
+  }
+  const hit = document.createElement('span');
+  hit.className = 'hint'; hit.style.marginLeft = '8px';
+  box.parentNode.insertBefore(hit, box.nextSibling);
+
+  box.addEventListener('input', () => {
+    const q = box.value.trim().toLowerCase();
+    const keep = sel.value;              // giu lua chon hien tai neu con khop
+    sel.innerHTML = '';
+    let n = 0;
+    for(const g of snap){
+      const ms = g.opts.filter(o => !q || (g.label+' '+o.t+' '+o.v).toLowerCase().includes(q));
+      if(!ms.length) continue;
+      const parent = g.label ? document.createElement('optgroup') : sel;
+      if(g.label){ parent.label = g.label; sel.appendChild(parent); }
+      for(const o of ms){
+        const el = document.createElement('option');
+        el.value = o.v; el.textContent = o.t;
+        parent.appendChild(el); n++;
+      }
+    }
+    if([...sel.querySelectorAll('option')].some(o=>o.value===keep)) sel.value = keep;
+    hit.textContent = q ? (n ? n+' giọng khớp' : 'không có giọng nào khớp') : '';
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  initVoiceSearch('voice','voiceSearch');
+  initVoiceSearch('voice_vi','voiceViSearch');
+});
 </script>
 </body>
 </html>

@@ -694,6 +694,9 @@ def pdf_route():
     content = (d.get("content") or "").strip()
     if not content:
         return jsonify(error="Chưa có nội dung."), 400
+    # boc ky tu ngat nghi (* // ~) — duong nay KHONG di qua parse_lesson nen
+    # neu khong boc thi chung hien nguyen trong PDF ban chu.
+    content = lesson_parser.boc_dau_nhip_van_ban(content)
     # tiêu đề file từ @title
     title = "bai-doc"
     for ln in content.splitlines():
@@ -758,7 +761,37 @@ def run_job(job_id, data):
                 if not (akey and aregion):
                     raise RuntimeError("Giọng Azure cần Key + Region. "
                                        "Hãy nhập ở mục 'Giọng tự nhiên (Azure)'.")
-                azure_tuple = (akey, aregion)
+                # CO key chua chac key CON DUNG DUOC: key het han/bi thu hoi van qua duoc
+                # cho nay roi chet giua job voi "Azure TTS loi 401" — luc do da doc dở
+                # nua bai. Kiem trước, hong thi chuyen giong free va chay tiep.
+                if not azure_key_ok():
+                    # Ten giong Azure va edge-tts trung nhau phan lon (zh-CN-XiaoxiaoNeural...)
+                    # -> giu nguyen ten, chi doi engine. Ten khong co ben edge thi thay bang
+                    # giong edge GAN NHAT (giu dung GIOI TINH), khong don het ve Xiaoxiao:
+                    # truoc day moi giong HD (Mei:MAI-Voice-2, Yunqi:DragonHD...) deu roi ve
+                    # cung Xiaoxiao -> chon giong nao cung ra MOT tieng, va chon nam thi
+                    # van doc bang giong nu.
+                    _edge_names = {v for v, _ in EDGE_VOICES} | {v for v, _ in EDGE_ML_VOICES}
+                    if f"edge:{vname}" not in _edge_names:
+                        _base = vname.split(":", 1)[0].split("@", 1)[0]    # 'zh-CN-Mei'
+                        _short = _base.rsplit("-", 1)[-1]                  # 'Mei'
+                        _NU = {"Mei", "Lan", "Xiaoxiao", "Xiaoyi", "Xiaochen", "Xiaohan",
+                               "Xiaomeng", "Xiaomo", "Xiaorui", "Xiaoshuang", "Xiaoxuan",
+                               "Xiaoyan", "Xiaoyou", "Xiaozhen", "Yunxia", "HoaiMy"}
+                        if _base.startswith("vi-"):
+                            vname = generate.VOICE_VI
+                        elif _short in _NU:
+                            vname = "zh-CN-XiaoxiaoNeural"                 # nữ
+                        else:
+                            vname = "zh-CN-YunjianNeural"                  # nam, trầm kể chuyện
+                    engine = "edge"
+                    jobs[job_id]["note"] = (
+                        f"⚠ Key Azure bị từ chối (401 — hết hạn hoặc sai subscription) → "
+                        f"đang đọc bằng giọng edge-tts «{vname}» chứ KHÔNG phải giọng Azure bạn chọn. "
+                        f"Mọi giọng Azure sẽ nghe giống nhau cho tới khi có key mới "
+                        f"(Azure Portal → Speech resource → Keys and Endpoint).")
+                else:
+                    azure_tuple = (akey, aregion)
             elif engine == "eleven":
                 eleven_key = (data.get("eleven_key") or "").strip() or load_eleven()
                 if not eleven_key:
@@ -809,6 +842,19 @@ def run_job(job_id, data):
             dmap_raw = data.get("dialogue_map") or {}
             dialogue_map = {str(k).strip(): str(v).strip()
                             for k, v in dmap_raw.items() if str(v).strip()}
+            # Key Azure chet -> engine da roi ve edge, nhung dialogue_map van giu ten giong
+            # Azure-only (Mei:MAI-Voice-2, Yunqi:DragonHD...) -> edge bao "Invalid voice"
+            # giua job. Bo cac gan ay de nhanh tu-gan giong edge ben duoi lap cho.
+            if engine == "edge" and azure_tuple is None and dialogue_map:
+                _edge_ok = ({v.split(":", 1)[1] for v, _ in EDGE_VOICES}
+                            | {v.split(":", 1)[1] for v, _ in EDGE_ML_VOICES})
+                _drop = [k for k, v in dialogue_map.items()
+                         if v.split("@", 1)[0] not in {e.split("@", 1)[0] for e in _edge_ok}]
+                for k in _drop:
+                    dialogue_map.pop(k)
+                if _drop:
+                    jobs[job_id]["note"] = ((jobs[job_id].get("note") or "") +
+                        f" ⚠ {len(_drop)} nhân vật đang gán giọng Azure-only → bỏ gán, tự chia giọng edge.")
             # TU GAN GIONG: neu chua gan tay + engine free (edge/azure) + phat hien >=2 nguoi noi
             # -> tu doan gioi tinh & gan giong nam/nu khac nhau cho tung nguoi.
             auto_speakers = lesson_parser.detect_speakers(data["content"])
@@ -864,11 +910,18 @@ def run_job(job_id, data):
                 "seal_text": (data.get("seal_text") or "").strip(),
                 # chu viet tay dau trang cua bien the "showhead" (mac dinh: Podcast)
                 "show_word": (data.get("show_word") or "").strip(),
+                # mau chu tay "Podcast" o dai dau trang (trong = theo bien the)
+                "show_word_color": (data.get("show_word_color") or "").strip(),
                 "pinyin_mode": (data.get("pinyin_mode") or "").strip(),
                 # bong do sau chu: ''=tu dong (chi khi co anh nen) / 'on' / 'off'
                 "text_shadow": (data.get("text_shadow") or "").strip(),
                 "waveform": (data.get("waveform") or "auto").strip(),
                 "fx": (data.get("fx") or "").strip(),
+                "block_tts": bool(data.get("block_tts", True)),
+                # che do lofi/nghe ngu (chu de 15): keo theo rate/pad/music_vol cua preset
+                "lofi_mix": bool(data.get("lofi_mix", False)),
+                # 'anh xua': film|sepia|faded|vhs|stain (style_podcast._apply_vintage)
+                "bg_vintage": (data.get("bg_vintage") or "").strip(),
                 "zh_px": _px_opt(data.get("zh_px")),
                 "bottom_bar": bool(data.get("bottom_bar", False)),
                 "bar_left": ctx.get("title") or (data.get("bar_left") or "").strip(),
@@ -905,6 +958,10 @@ def run_job(job_id, data):
             hd = (data.get("header") or "").strip()
             if hd:
                 ctx["header"] = hd
+            # Chu Han dau trang (bien the "Dau trang podcast") — ghi de @hanzi trong noi dung
+            hz = (data.get("hanzi_title") or "").strip()
+            if hz:
+                ctx["hanzi_title"] = hz
             # --- @voices: gan giong RIENG cho tung nhan vat da khai bao (tin cay) ---
             # spec = "nam"/"nu" (gioi tinh) HOAC ma giong edge cu the. Nhan vat khong khai
             # + phan ke -> dung giong nguoi dung chon (voice_zh). KHONG bao gio de-ngam.
@@ -1394,6 +1451,8 @@ def shorts_make():
     raw = (d.get("lines") or "").strip()
     if not raw:
         return jsonify(error="Chưa nhập câu nào."), 400
+    raw = lesson_parser.boc_dau_nhip_van_ban(raw)   # boc '*' '//' '~' — nguoi dung
+                                                    # hay dan thang tu content.md sang
     voice = d.get("voice") or "edge:zh-CN-XiaoxiaoNeural"
     hook = (d.get("hook") or "").strip() or None
     fmt = (d.get("format") or "flash").strip()          # 'flash' | 'quiz'
@@ -1804,6 +1863,7 @@ def _parse_film(content):
     '#' = ranh gioi canh; '@voices' = khai giong; '---' = het (phu luc bo qua)."""
     import lesson_parser as lp
     voices_spec, scenes, cur = {}, [], None
+    content = lp.boc_dau_nhip_van_ban(content)   # boc '*' '//' '~' truoc khi tach
     for raw in (content or "").splitlines():
         line = raw.strip()
         if lp._HR_RE.match(line):
@@ -1820,6 +1880,13 @@ def _parse_film(content):
             continue
         if line.startswith("#"):
             cur = {"label": line.lstrip("#").strip(), "subs": []}
+            # NHAN SHOT chuan V2: '7.3 · C · cao_trao' -> shot 3 cua CANH 7, beat cao_trao.
+            # shot_scene de plan_transitions CAT THANG giua cac shot cung canh (phim that
+            # khong dissolve trong mot canh); beat de chon dip/blend o ranh gioi hoi.
+            m = re.match(r"^(\d+)\.(\d+)(?:\s*·\s*(\S+))?(?:\s*·\s*(.+))?$", cur["label"])
+            if m:
+                cur["shot_scene"] = int(m.group(1))
+                cur["beat"] = (m.group(4) or f"canh_{m.group(1)}").strip()
             scenes.append(cur)
             continue
         if cur is None:
@@ -1894,6 +1961,22 @@ def film_page():
                            # Gacrux (Gemini) gia dan, hop truyen xua.
                            default_voice="gemini:Gacrux",
                            vbee_ready=all(load_vbee()))
+
+
+@app.route("/vbee/voices.json")
+def vbee_voices_json():
+    """Meta tung giong Vbee cho bo chon dang the: link nghe thu + he so diem + nhom.
+    Dropdown chu chay dai khong cho biet giong nao ra sao — cai nay bu vao."""
+    try:
+        with open(VBEE_CACHE, encoding="utf-8") as f:
+            items = json.load(f).get("voices") or []
+    except (OSError, ValueError):
+        items = []
+    return jsonify({("vbee:" + it["code"]): {
+        "name": it.get("name") or it["code"], "demo": it.get("demo") or "",
+        "credit": it.get("credit") or 1, "own": it.get("own") or "",
+        "gender": it.get("gender") or "", "lang": it.get("lang") or ""}
+        for it in items if it.get("code")})
 
 
 @app.route("/vbee/refresh", methods=["POST"])

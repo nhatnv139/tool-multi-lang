@@ -48,11 +48,12 @@ def main():
     # Van co the ghi thang <|emotion_k|> hoac [thở dài] giua text de doi theo tung cau.
     ap.add_argument("--emotion", default="4",
                     help="0..7 hoac rong = de thu vien tu quyet (0 = phang)")
-    # temperature 0.6 (cu) lam ngu dieu det, doc nhu robot. Mac dinh model la 0.8;
-    # 0.9 cho ke chuyen co len xuong ma van on dinh giua cac canh.
-    ap.add_argument("--temperature", type=float, default=0.9)
-    ap.add_argument("--top-p", type=float, default=0.96, dest="top_p")
-    ap.add_argument("--top-k", type=int, default=35, dest="top_k")
+    # temperature 0.6 (cu) lam ngu dieu det, doc nhu robot; 0.9 + top_p 0.96 thi
+    # THI THOANG NGONG (sampling chon nham am o duoi phan phoi). 0.85/0.92/30 la diem
+    # can bang: van len xuong (da co emotion_4 lo phan dien cam) ma bot han tieng ngong.
+    ap.add_argument("--temperature", type=float, default=0.85)
+    ap.add_argument("--top-p", type=float, default=0.92, dest="top_p")
+    ap.add_argument("--top-k", type=int, default=30, dest="top_k")
     # NGAT NGHI — 2 gat that su co tac dung (khac 'silence_p' cua infer: no bi bo qua
     # khi thu vien tu tinh silence theo ranh gioi chunk):
     #  --max-chars: nguong cat chunk. Mac dinh thu vien 256 -> ca doan van thanh 1 chunk

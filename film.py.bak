@@ -1351,17 +1351,10 @@ def make_scene(scene, opts, i):
         # Gop lai de TTS tu ngat nghi tu nhien; moc phu de trong run chia theo so ky tu.
         def _sub_text(s):
             return ((s.get("tts") or s.get("hz") or "")).strip()
-        import re as _re2
-        _PAUSE = _re2.compile(r"^/{2,4}$")
-        def _pause_sec(s):
-            """Dong chi gom dau '/' = NGHI CO CHU DICH (khong doc, khong hien phu de).
-            '//' 0.8s · '///' 1.5s · '////' 2.4s — dung cho khoang lang truoc cau chot."""
-            m = _PAUSE.match(_sub_text(s))
-            return {2: 0.8, 3: 1.5, 4: 2.4}[len(m.group(0))] if m else 0.0
         def _run_key(s):
             t = _sub_text(s)
-            if not t or _pause_sec(s):
-                return None                     # cau trong / dau nghi -> run rieng, khong gop
+            if not t:
+                return None                     # cau trong -> run rieng, khong gop
             emo = s.get("emo")
             en = emo.get("name") if isinstance(emo, dict) else emo
             return (s.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural"), en)
@@ -1376,18 +1369,12 @@ def make_scene(scene, opts, i):
         for run in runs:
             ss = [subs[k] for k in run]
             texts = [_sub_text(s) for s in ss]
-            # NGAT NGHI: noi bang "\n" chu KHONG phai " ".
-            # Do thuc te tren Vbee (cung 1 cau): dau cach 2.83s -> xuong dong 3.41s,
-            # tuc moi ranh gioi cau duoc +0.58s im lang. Dau "…" thi NGUOC LAI (2.64s,
-            # doc nhanh hon) nen dung khong an thua. Day la thu duy nhat Vbee chiu nghi.
-            joined = "\n".join(t for t in texts if t)
+            joined = " ".join(t for t in texts if t)
             k0 = run[0]
-            _ps = _pause_sec(ss[0]) if len(ss) == 1 else 0.0
-            if _ps or not joined:                # dau nghi '//' hoac cau trong -> im lang
-                _sil = _ps or 1.4
+            if not joined:                       # cau trong (chi dau cau) -> im lang nhu cu
                 w = os.path.join(FILM, f"_sw_{i}_{k0}.wav")
-                _seg_audio(None, _sil, w); tmp.append(w)
-                seg_wavs.append(w); sub_dur.append(_sil)
+                _seg_audio(None, 1.4, w); tmp.append(w)
+                seg_wavs.append(w); sub_dur.append(1.4)
                 continue
             s0 = ss[0]
             vc = s0.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural")
@@ -1434,11 +1421,7 @@ def make_scene(scene, opts, i):
     for k, s in enumerate(subs):
         p = os.path.join(FILM, f"_sub_{i}_{k}.png")
         _sub_bottom = LB_SUB_BOTTOM if opts.get("letterbox") else None
-        # Dau nghi '//' la LENH, khong phai loi -> phu de trong (man hinh sach).
-        _hz, _vi = s.get("hz", ""), s.get("vi", "")
-        if re.match(r"^/{2,4}$", (_hz or "").strip()):
-            _hz = _vi = ""
-        render_subtitle(_hz, _vi, show_py, p, bottom=_sub_bottom)
+        render_subtitle(s.get("hz", ""), s.get("vi", ""), show_py, p, bottom=_sub_bottom)
         sub_pngs.append(p); tmp.append(p)
 
     # 3) FFMPEG: base + overlay phu de timed + audio

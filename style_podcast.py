@@ -18,7 +18,7 @@
    Giu nguyen signature render(seg, ctx, path, reveal_t, t_now) nhu render_podcast_main.
 """
 import os
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 import style_pastel as SP     # dung lai font/flatten/tone/wrap cua bo pastel
 
@@ -152,7 +152,9 @@ VARIANTS = {
     "showhead": dict(
         free=True, anchor="mid", dark=False,
         ink=(34, 42, 40), pinyin=(84, 94, 90), viet=(74, 108, 100),
-        border=(148, 126, 84), seal=True, halo=(255, 255, 255),
+        # seal=False: user chot 2026-08-11 — bo trien do o bien the "Dau trang podcast"
+        # (no de len goc duoi-trai, dam vao dai nghia tieng Viet). Cac bien the khac giu nguyen.
+        border=(148, 126, 84), seal=False, halo=(255, 255, 255),
         ruby=False, viet_style="band", dashes=True, wave="off",
         header=True, head_ink=(58, 50, 42), head_py=(118, 102, 82),
         script=(36, 36, 40), vietband=(250, 252, 250), y_ratio=0.55,
@@ -190,6 +192,10 @@ CHIP_DARK  = [(96, 150, 245), (238, 116, 166), (243, 176, 84), (108, 200, 140), 
 
 
 def _cfg(ctx):
+    # 'anh xua': dat bien module truoc khi bat ky ham nao nap anh nen
+    global _VINTAGE
+    _v = str(ctx.get("bg_vintage") or "").strip().lower()
+    _VINTAGE = _v if _v in VINTAGE_KINDS else None
     v = str(ctx.get("podcast_variant") or "inkwash")
     cfg = VARIANTS.get(v, VARIANTS["inkwash"])
     # nguoi dung tu chon mau: chu tung dong (zh/py/vi_color) + nen panel (panel_color)
@@ -209,9 +215,92 @@ def _cfg(ctx):
 
 # ---------- NEN ----------
 _bg_cache = {}
+VINTAGE_KINDS = ("film", "sepia", "faded", "vhs", "stain")
+_VINTAGE = None          # render()/_render_free() dat theo ctx['bg_vintage']
+
+
+def _apply_vintage(im, kind):
+    """Bien anh nen thanh 'anh xua'. Tra ve anh RGB moi.
+       film  — phim 70s: den bi nhac len (bac mau), highlight am, hat phim, vignette
+       sepia — anh nau co
+       faded — anh phai mau kieu Polaroid (bong ngal xanh, do tuong phan thap)
+       vhs   — bang VHS: le mau + duong quet ngang + hoi nhoe
+       stain — o vang + vet xuoc + bui (anh cu de trong hop)"""
+    import random as _rnd
+    from PIL import ImageEnhance
+    im = im.convert("RGB")
+    w, h = im.size
+    r, g, b = im.split()
+
+    if kind == "sepia":
+        gray = im.convert("L")
+        im = Image.merge("RGB", (
+            gray.point(lambda v: min(255, int(v * 1.07 + 28))),
+            gray.point(lambda v: min(255, int(v * 0.94 + 16))),
+            gray.point(lambda v: min(255, int(v * 0.72 + 6)))))
+    elif kind == "faded":
+        im = ImageEnhance.Color(im).enhance(0.62)
+        r, g, b = im.split()
+        im = Image.merge("RGB", (
+            r.point(lambda v: int(v * 0.96 + 16)),
+            g.point(lambda v: int(v * 0.97 + 14)),
+            b.point(lambda v: min(255, int(v * 0.99 + 26)))))   # bong ngal xanh
+        im = ImageEnhance.Contrast(im).enhance(0.86)
+    elif kind == "vhs":
+        # le mau: dich kenh do sang trai, kenh lam sang phai
+        r, g, b = im.split()
+        im = Image.merge("RGB", (ImageChops.offset(r, -3, 0), g,
+                                 ImageChops.offset(b, 3, 0)))
+        im = im.filter(ImageFilter.GaussianBlur(0.7))
+        sl = Image.new("L", (1, 4), 0)                          # duong quet ngang
+        sl.putpixel((0, 0), 26); sl.putpixel((0, 1), 12)
+        im = ImageChops.subtract(im, Image.merge("RGB", (sl.resize((w, h), Image.NEAREST),) * 3))
+        im = ImageEnhance.Color(im).enhance(1.15)
+    elif kind == "stain":
+        gray = im.convert("L")
+        im = Image.blend(im, Image.merge("RGB", (
+            gray.point(lambda v: min(255, int(v * 1.05 + 30))),
+            gray.point(lambda v: min(255, int(v * 0.96 + 20))),
+            gray.point(lambda v: int(v * 0.70)))), 0.55)
+        ov = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        od = ImageDraw.Draw(ov)
+        rr = _rnd.Random(9)
+        for _ in range(16):                                     # vet o loang
+            cx, cy = rr.randint(0, w), rr.randint(0, h)
+            rad = rr.randint(int(w * 0.05), int(w * 0.16))
+            od.ellipse([cx - rad, cy - rad, cx + rad, cy + rad],
+                       fill=(150, 110, 50, rr.randint(10, 26)))
+        ov = ov.filter(ImageFilter.GaussianBlur(w // 60))
+        for _ in range(40):                                     # vet xuoc doc
+            x0 = rr.randint(0, w); ln = rr.randint(int(h * 0.05), int(h * 0.4))
+            y0 = rr.randint(0, h - ln)
+            ImageDraw.Draw(ov).line([(x0, y0), (x0 + rr.randint(-4, 4), y0 + ln)],
+                                    fill=(255, 250, 235, rr.randint(14, 34)), width=1)
+        im = Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB")
+    else:                                                       # 'film' (mac dinh)
+        im = ImageEnhance.Color(im).enhance(0.80)
+        r, g, b = im.split()
+        im = Image.merge("RGB", (                               # den bi nhac len -> bac mau
+            r.point(lambda v: int(18 + v * 0.93)),
+            g.point(lambda v: int(14 + v * 0.92)),
+            b.point(lambda v: int(12 + v * 0.88))))
+        im = ImageEnhance.Contrast(im).enhance(0.92)
+
+    # HAT PHIM + VIGNETTE — chung cho moi kieu
+    noise = Image.effect_noise((w, h), 26).convert("L").point(
+        lambda v: 128 + (v - 128) // (3 if kind in ("stain", "vhs") else 4))
+    im = Image.blend(im, Image.merge("RGB", (noise, noise, noise)),
+                     0.10 if kind in ("stain", "vhs") else 0.07)
+    vig = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(vig).ellipse([-w * 0.22, -h * 0.28, w * 1.22, h * 1.28], fill=255)
+    vig = vig.filter(ImageFilter.GaussianBlur(w // 14))
+    im = Image.composite(im, ImageChops.multiply(im, Image.new("RGB", (w, h), (86, 74, 60))), vig)
+    return im
+
+
 def _cover_bg_2x(path):
     """Anh nen nguoi dung -> phu kin SWxSH (2x), cache."""
-    k = path
+    k = (path, _VINTAGE)
     if k in _bg_cache:
         return _bg_cache[k].copy()
     src = Image.open(path).convert("RGB")
@@ -223,6 +312,8 @@ def _cover_bg_2x(path):
         src = src.resize((tw, int(tw / sr)), Image.LANCZOS)
     x, y = (src.width - tw) // 2, (src.height - th) // 2
     out = src.crop((x, y, x + tw, y + th))
+    if _VINTAGE in VINTAGE_KINDS:                # 'anh xua' — ap SAU khi crop, truoc khi cache
+        out = _apply_vintage(out, _VINTAGE)
     _bg_cache[k] = out
     return out.copy()
 
@@ -775,15 +866,22 @@ def _show_header(d, ctx, cfg, tone_map):
                        tone_map, tone=False, dark=cfg["dark"], col_gap=8 * S,
                        py_gap=6 * S, line_gap=12 * S)
         bot = max(bot, top + h + 14 * S)
-    # song am giua
-    _wave_glyph(d, W * S // 2, top + 34 * S, int(W * S * 0.19), pyc + (170,))
+    # song am giua — CHI ve cum song TINH khi KHONG bat song nhay theo tieng.
+    # Bat 'top'/'mid' -> generate.py ve song that bang ffmpeg showwaves luc ma hoa;
+    # ve ca hai se chong len nhau thanh vet ban.
+    if str(ctx.get("waveform") or "auto").strip().lower() in ("auto", "off"):
+        _wave_glyph(d, W * S // 2, top + 34 * S, int(W * S * 0.19), pyc + (170,))
+    else:
+        _wave_glyph(d, W * S // 2, top + 34 * S, int(W * S * 0.19), pyc + (0,),
+                    dashes=True)      # chi giu 2 net dut hai ben lam khung
     # chu tay "Podcast" ben phai
     word = (ctx.get("show_word") or "Podcast").strip()
     if word:
         sf = _font_alt("script", 78 * S, word)
         sw = SP.text_w(d, word, sf)
-        d.text((int(W * S * 0.90) - sw, top + 34 * S), word, font=sf,
-               fill=tuple(cfg.get("script", ink)))
+        # mau chu tay: nguoi dung chon (show_word_color) > mau cua bien the
+        wcol = SP.hex2rgb(ctx.get("show_word_color")) or tuple(cfg.get("script", ink))
+        d.text((int(W * S * 0.90) - sw, top + 34 * S), word, font=sf, fill=tuple(wcol))
     _dashed_line(d, bot, pyc + (150,), dash=16, gap=12, w=2)
     return bot
 
@@ -849,6 +947,35 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
             a = int(240 * min(1.0, (yy - y_from) / (H * S * 0.22)))
             od.line([(0, yy), (W * S, yy)], fill=(252, 252, 253, a))
         im = Image.alpha_composite(im, ov)
+
+    # ─── TU DOI MAU CHU THEO NEN (chi cac layout ve DE LEN TRANH) ───────────────
+    # Cac bien the free (postcard/showhead/halfleft/stage) khai muc CO DINH: muc TOI
+    # + halo TRANG. Dep tren tranh sang, nhung tren anh nen TOI (canh dem, rung sao...)
+    # thi muc den chim vao nen, halo trang bien thanh quang mo -> doc rat met.
+    # => Do do sang THUC TE cua vung se dat chu, toi thi dao sang muc SANG + halo DEN.
+    if bgimg and not cfg.get("no_autoink"):
+        _zn = cfg.get("zone") or (0.10, 0.90)
+        _y0 = int(H * S * (0.30 if cfg["anchor"] == "mid" else 0.55))
+        _y1 = int(H * S * (0.80 if cfg["anchor"] == "mid" else 0.95))
+        _crop = im.convert("RGB").crop((int(W * S * _zn[0]), _y0, int(W * S * _zn[1]), _y1))
+        _px_ = _crop.resize((24, 12)).getdata()
+        _lum = sum(0.299 * r + 0.587 * g + 0.114 * b for r, g, b in _px_) / len(_px_)
+        if _lum < 118:                                  # nen TOI
+            cfg = dict(cfg)
+            cfg["ink"] = (247, 246, 242)                # trang nga, khong trang gat
+            cfg["pinyin"] = (206, 214, 222)
+            cfg["viet"] = (228, 232, 236)
+            cfg["halo"] = (6, 8, 14)                    # quang DEN -> chu noi han
+            cfg["head_ink"] = (245, 244, 240)
+            cfg["head_py"] = (198, 206, 214)
+            # (bo sung) hai chi tiet truoc day bi bo sot -> van giu mau toi tren nen toi:
+            cfg["script"] = (238, 236, 230)             # chu tay "Podcast" goc phai
+            if cfg.get("vietband"):                     # dai nghia Viet duoi day
+                cfg["vietband"] = (16, 18, 24)          # dai TOI de chu sang doc duoc
+            if cfg.get("border"):
+                cfg["border"] = (150, 140, 116)
+            dark = True                                 # bong do doi sang kieu nen toi
+            tone_map = TONE_DARK
 
     text = seg.get("hanzi", "")
     viet = seg.get("viet", "")

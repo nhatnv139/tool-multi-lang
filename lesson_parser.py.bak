@@ -134,138 +134,7 @@ def parse_speaker(line):
         return None, line
     return sp, line[m.end():].strip()
 
-_TERMINAL = "。！？.!?…—"
-# ---- NHIP THO (breath) ----
-# Dong ket bang dau PHAY ma van la mot cap 'hanzi | dich' hoan chinh => tac gia CO Y
-# ngat de lay hoi giua mot cau dai, KHONG phai dong bi xuong dong nham. Khong gop.
-_BREATH_END = "，,、；;"
-_PAD_BREATH = 0.18    # cung mot hoi -> chi hop rat nhe
-_PAD_SHORT  = 0.32    # cau <=7 chu Han -> nhip don, khong nghi dai
-_PAD_STOP   = 0.55    # het cau (。.)
-_PAD_EMO    = 0.80    # cau hoi / cam than
-_PAD_LONG   = 0.72    # cau dai -> nghi sau hon mot chut cho ngam
-
-# Duong cong nghi lien tuc thay cho _PAD_SHORT/_PAD_STOP/_PAD_LONG (van giu 3 hang
-# so tren de tuong thich va de so sanh). n = so chu Han (tieng khac quy doi).
-#   n=4 -> 0.32   n=12 -> 0.47   n=18 -> 0.58   n=26 -> 0.73
-_PAD_C0  = 0.24
-_PAD_K   = 0.019
-_PAD_MIN = 0.26
-_PAD_MAX = 0.82
-# ---- KY TU NGAT NGHI do NGUOI VIET dat trong content.md (xem SKILL tan-van / giong-van) ----
-# Tat ca deu bi BOC KHOI CHU truoc khi ve phu de va truoc khi goi TTS -> may KHONG doc chung.
-_PAD_HANG   = 1.00    # het cau bang '……' -> treo lung, de nguoi nghe tu dien not
-_PAD_DASH   = 0.45    # het cau bang '——'  -> ngat nhan giua mach van
-_LANG_SLASH = 1.20    # '//' cuoi ve  -> lang them 1,2s (khong hien tren phu de)
-_LANG_TILDE = 2.50    # dong chi co '~' -> lang 2,5s cho nhac troi len
-_NHAN_DR    = -8      # dong danh dau '*' -> doc cham hon 8%, nghi sau dai hon
-_NHAN_PAD   = 1.40
-
-def _ends_breath(s):
-    """Da 'dong' cau HOAC la mot nhip lay hoi co chu y.
-       Dong dang 'hanzi | dich' -> XET VE HAN (don vi cau that), khong xet ve dich:
-       ve dich hay ket bang ',' ':' '-' ma cau Han da tron ven -> khong duoc gop."""
-    # rsplit: item da bi GOP se co nhieu dau '|' -> phai lay cum Han CUOI CUNG,
-    # neu khong se gop day chuyen (mot dong ket bang ':' nuot sach phan con lai cua bai).
-    head = s.rsplit(" | ", 1)[0] if " | " in s else s
-    if _ends_terminal(head):
-        return True
-    h = head.rstrip().rstrip("\"'”’」』）) ")
-    return bool(h) and h[-1] in _BREATH_END
-
-def breath_pad(hanzi):
-    """Nghi bao lau sau cau nay — theo dau cau va do dai, thay cho PAD co dinh 0.8s."""
-    t = (hanzi or "").rstrip().rstrip("\"'”’」』）) ")
-    if not t:
-        return None
-    if t[-1] in _BREATH_END:
-        return _PAD_BREATH
-    if t[-1] == "…":                     # '……' hoac '...' -> treo lung
-        return _PAD_HANG
-    if t[-1] == "—":                     # '——' -> ngat nhan
-        return _PAD_DASH
-    if t[-1] in "？！?!":
-        return _PAD_EMO
-    # DAI NGAN: dem chu Han voi tieng Trung, dem TU voi cac thu tieng khac.
-    # Truoc day chi dem chu Han -> bai TIENG VIET co 0 chu Han nen MOI dong deu bi
-    # coi la "cau ngan" -> lai ve mot muc nghi duy nhat, dung cai loi minh dinh chua.
-    n_cjk = sum(1 for c in t if _is_cjk_char(c))
-    n_unit = n_cjk if n_cjk else len(t.split())
-    if not n_cjk:
-        n_unit = int(round(n_unit * 22 / 16.0))   # quy ve thang do chu Han
-
-    # DO DAI -> NGHI, LIEN TUC chu khong con 3 BAC.
-    # Do 2026-08-23 tren 7 bai moi (46-52): bang 3 bac lam 75-89% moi cau nghi
-    # DUNG MOT CON SO 0.55s, ~19 lan/phut, cach nhau deu 3,2s. Tai nghe ra
-    # may danh nhip, khong phai nguoi doc. Do lech chuan gan nhu khong doi khi
-    # sua - cai phai sua la TY LE LAP LAI cua mot gia tri duy nhat.
-    pad = _PAD_C0 + _PAD_K * n_unit
-    pad = max(_PAD_MIN, min(_PAD_MAX, pad))
-
-    # Rung nhe, TAT DINH theo noi dung cau (cung mot cau luon ra cung mot so ->
-    # render lai khong lech). Chi de pha the trung nhau, khong doi cam giac nhip.
-    import hashlib as _hl
-    jit = (int(_hl.md5(t.encode("utf-8")).hexdigest()[:4], 16) % 13 - 6) / 100.0
-    return round(max(_PAD_MIN - 0.06, pad + jit), 3)
-def boc_dau_nhip(item):
-    """Boc ky tu ngat nghi cua nguoi viet ra khoi cau.
-
-    '*' bat ky dau trong dong  -> ca dong doc cham hon (nhan), nghi sau dai hon
-    '//' cuoi ve Han/ve dich   -> lang them 1,2s
-
-    Tra ve (dong da sach, nhan, lang_them). Vi boc NGAY LUC PARSE nen ca phu de
-    lan van ban dua cho TTS deu khong con ky tu nay -> may khong bao gio doc chung.
-    """
-    lang_them = 0.0
-    s = item
-    nhan = "*" in s
-    if nhan:
-        s = s.replace("*", "")
-
-    def _boc(v):
-        nonlocal lang_them
-        v = v.rstrip()
-        while v.endswith("//"):
-            lang_them += _LANG_SLASH
-            v = v[:-2].rstrip()
-        return v
-
-    if "|" in s:
-        hz, vi = s.split("|", 1)
-        s = _boc(hz).rstrip() + " | " + _boc(vi).strip()
-    else:
-        s = _boc(s)
-    return s.strip(), nhan, lang_them
-
-
-def boc_dau_nhip_van_ban(text):
-    """Boc ky tu ngat nghi khoi CA VAN BAN, giu nguyen cau truc dong.
-
-    Dung cho cac duong KHONG di qua parse_lesson — PDF ban chu (study_pdf),
-    trang /short, trang /film. Neu khong boc thi '*' va '//' hien nguyen trong
-    PDF va bi TTS doc thanh tieng (do duoc: '*是累。*' dai 3,12s so voi 1,78s).
-    """
-    out = []
-    for raw in (text or "").splitlines():
-        s = raw.strip()
-        if s in ("~", "～", "~~", "~~~"):     # dong lang cho nhac troi -> khong phai chu
-            continue
-        if not s or s.startswith(("@", "#", "<!--")):
-            out.append(raw)
-            continue
-        out.append(boc_dau_nhip(s)[0])
-    return "\n".join(out)
-
-
-def _ghi_dau_nhip(sec, idx, nhan, lang_them):
-    """Nho lai dau nhip cua dong thu idx trong section (dong bi gop thi don vao item truoc)."""
-    if nhan:
-        sec.setdefault("nhan", set()).add(idx)
-    if lang_them:
-        lt = sec.setdefault("lang_them", {})
-        lt[idx] = lt.get(idx, 0.0) + lang_them
-
-
+_TERMINAL = "。！？.!?…"
 def _is_cjk_char(ch):
     o = ord(ch)
     return ("一" <= ch <= "鿿") or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF
@@ -366,13 +235,6 @@ def parse_lesson(text):
             if cur and cur.get("items"):
                 cur.setdefault("para_ends", set()).add(len(cur["items"]) - 1)
             continue
-        if line in ("~", "～", "~~", "~~~"):
-            # DONG CHI CO '~' = khoang lang de nhac troi len. Khong tao cau, chi keo dai
-            # khoang nghi cua cau ngay truoc no.
-            if cur and cur.get("items"):
-                lt = cur.setdefault("lang_them", {})
-                lt[len(cur["items"]) - 1] = lt.get(len(cur["items"]) - 1, 0.0) + _LANG_TILDE
-            continue
         if line.startswith("@"):
             key, _, val = line[1:].partition(" ")
             key, val = key.strip().lower(), val.strip()
@@ -395,9 +257,6 @@ def parse_lesson(text):
         if cur is None:                # dong le (khong co #) -> cau, KHONG divider
             cur = {"label": "", "type": "sentence", "items": [], "explicit": False}
             sections.append(cur)
-        # BOC KY TU NGAT NGHI ngay tu day (truoc khi gop dong): neu boc muon, dong ket
-        # bang '*' hay '//' bi coi la CHUA dong cau -> nuot luon dong sau.
-        line, _nhan, _lt = boc_dau_nhip(line)
         # GOP DONG NOI TIEP: dong bi xuong dong giua luot/cau (khong co nhan nguoi noi)
         # -> noi vao item truoc. Khong gop trong vocab (moi dong = 1 tu).
         if cur["items"]:
@@ -409,12 +268,10 @@ def parse_lesson(text):
                 #  nguoi noi se NUOT toan bo cac dong sau no, vi sau khi gop prev VAN con
                 #  nhan do -> vong lap gop vo tan. Mot bai 96 dong tung bi rut con 9 muc,
                 #  ca doan don thanh MOT phu de tran man hinh.)
-                if cur["type"] != "vocab" and not _ends_breath(prev):
+                if cur["type"] != "vocab" and not _ends_terminal(prev):
                     cur["items"][-1] = _smart_join(prev, line)
-                    _ghi_dau_nhip(cur, len(cur["items"]) - 1, _nhan, _lt)
                     continue
         cur["items"].append(line)
-        _ghi_dau_nhip(cur, len(cur["items"]) - 1, _nhan, _lt)
 
     # ---- tu nhan dien hoi thoai: section nao co >=2 nguoi noi -> doi sang dialogue ----
     for sec in sections:
@@ -461,22 +318,9 @@ def parse_lesson(text):
                     segs.append({"type": "practice_a", "hanzi": hz, "pinyin": "", "viet": vi})
         else:                                       # vocab / sentence
             pends = sec.get("para_ends", set())
-            langs = sec.get("lang_them", {})
-            nhans = sec.get("nhan", set())
             for idx, it in enumerate(sec["items"]):
-                nhan = idx in nhans                  # '*' — da boc khoi chu tu luc doc dong
                 hz, vi = _split_item(it)
                 s2 = {"type": st, "hanzi": hz, "pinyin": "", "viet": vi}
-                bp = breath_pad(hz)                  # nhip tho theo dau cau
-                if bp is not None:
-                    s2["_pad"] = bp
-                    # generate.py tinh lai pad tu hanzi; giu ban goc de khong phai doan lai
-                    s2["_pad_raw"] = bp * (_NHAN_PAD if nhan else 1.0)
-                if nhan:
-                    s2["_nhan"] = True               # doc cham hon, tach khoi block-tts
-                extra = float(langs.get(idx, 0.0))
-                if extra:
-                    s2["_lang_them"] = round(extra, 2)
                 if idx in pends:
                     s2["_para_end"] = True           # cau ket doan -> nghi dai (para_gap)
                 segs.append(s2)

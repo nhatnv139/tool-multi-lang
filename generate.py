@@ -23,6 +23,38 @@ ANIM_TYPES = {"vocab", "sentence", "practice_a", "dialogue"}   # cac loai chu hi
 W, H = 1920, 1080
 FPS = 25
 PAD = 0.8                      # giay im lang them sau moi doan
+
+# ─── CHE DO LOFI / NGHE NGU (chu de 15) ────────────────────────────────────────
+# Preset nam san trong prompts/PROMPT-LOFI-NGHE-NGU-15.md, truoc day CHUA AP.
+# Ly do can: nghe luc ngu o am luong nho thi cau nhe MAT HUT, cau manh GIAT MINH
+# (LRA=11 la dai dong rat rong, pipeline lai khong co nen dong).
+LOUDNORM_LOFI  = "loudnorm=I=-17:TP=-2.0:LRA=5"      # tram hon, dai dong hep
+COMPRESS_LOFI  = "acompressor=threshold=-20dB:ratio=3:attack=25:release=400"
+RATE_LOFI      = "-14%"                               # thay cho -8%
+PAD_LOFI       = 1.15                                 # nhip tho dai hon 0.80
+MUSIC_VOL_LOFI = 0.62                                 # nhac day hon vi giong lui lai
+
+# NHIP THO: lesson_parser.breath_pad() da co tu lau nhung generate.py CHUA BAO GIO GOI
+# -> moi cau deu nghi dung 0.8s nhu nhau, bat ke cau cut hay cau dai, phay hay cham.
+# Do la nguyen nhan chinh cua cam giac "may doc". Bat bang ctx['breath_pad'].
+def _pad_for(seg, ctx, base):
+    """Khoang nghi sau mot cau — theo dau cau va do dai, thay cho PAD co dinh."""
+    if not ctx.get("breath_pad", True):
+        return base
+    # _pad_raw: nhip do PARSER quyet dinh (da tinh ca ky tu ngat nghi '*' '//' '——' '……'
+    # mà nguoi viet dat trong content.md). Ky tu do da bi boc khoi 'hanzi' nen tinh lai
+    # tu hanzi thi mat -> uu tien ban parser giao.
+    p = seg.get("_pad_raw")
+    if p is None:
+        try:
+            import lesson_parser as _lp
+            p = _lp.breath_pad(seg.get("hanzi", ""))
+        except Exception:
+            p = None
+    if p is None:
+        return base
+    # breath_pad chuan hoa quanh 0.55 (het cau) -> nhan theo pad nguoi dung dang dung
+    return round(p * (base / 0.55), 3)
 # Chat luong hinh x264: CRF 18 (gan lossless voi slide tinh) — YouTube nen it bi nat chu
 X264 = ["-c:v", "libx264", "-crf", "18", "-preset", "medium"]
 # Chuan hoa am luong final theo chuan YouTube (-14 LUFS)
@@ -52,6 +84,29 @@ EMO_CONF = {
     "sorrow":  dict(dr=-15, pitch="-11Hz", az=("sad", "1.7"),        el=(+0.14, +0.14),
                     gm="đau xót, nghẹn ngào, chực trào nước mắt"),
 }
+
+def rate_nhan(rate, dr=-8):
+    """Cau nguoi viet danh dau '*' -> doc cham hon dr%. '-8%' + (-8) -> '-16%'."""
+    try:
+        pct = int(str(rate).replace("%", ""))
+    except ValueError:
+        pct = -8
+    return f"{pct + dr}%"
+
+
+def _rate_for(seg, ctx):
+    """Toc do doc cua mot cau: rate cua bai, cham them neu cau duoc danh dau nhan."""
+    r = seg.get("_rate") or ctx.get("rate", "-8%")
+    return rate_nhan(r) if seg.get("_nhan") else r
+
+
+def _lang_them(seg):
+    """Khoang lang NGUOI VIET dat them ('//' cuoi ve, dong '~')."""
+    try:
+        return float(seg.get("_lang_them") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
 
 def emo_by_name(name):
     """Lay emo dict theo TEN (dat tay trong kich ban phim), None neu khong co."""
@@ -413,6 +468,9 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
 ELEVEN_MODEL = "eleven_multilingual_v2"   # da ngon ngu: 1 giong doc ca Trung + Viet
 _eleven_model_override = None             # build() dat theo lua chon nguoi dung
 _expressive = 60                          # 0..100, build() dat theo ctx (do bieu cam)
+# Song am NHAY THEO TIENG: build() dat theo ctx['waveform'] + mau chu cua bien the.
+# None/{} = tat (ve song tinh nhu cu o tang PIL).
+_WAVE_LIVE = None
 
 def _rate_to_eleven_speed(rate):
     """edge rate (vd -8%) -> ElevenLabs speed (0.7..1.2; 1.0 = binh thuong)."""
@@ -637,19 +695,36 @@ def _silence_mp3(path, dur=0.35):
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
                     "-t", str(dur), "-q:a", "9", path], check=True, capture_output=True)
 
-_TTS_TRIES = 4                      # edge-tts hay bi Microsoft throttle khi goi lien tiep (video nhieu slide)
+_TTS_TRIES = 7                      # edge-tts hay bi Microsoft throttle khi goi lien tiep (video nhieu slide)
 def _edge_retry(fn, what="edge-tts"):
-    """Chay fn() voi retry + backoff. Nem loi ro rang neu that bai sau _TTS_TRIES lan."""
+    """Chay fn() voi retry + backoff. Nem loi ro rang neu that bai sau _TTS_TRIES lan.
+
+    Bai 200+ dong goi edge-tts hang tram lan lien tiep -> ngoai 429 (throttle) con gap
+    loi MANG nhat thoi: 'No route to host', 'Connection reset', WSAECONNRESET...
+    4 lan x 1.2s (tong ~7s) la QUA NGAN cho mot cu rot mang — job vo giua chung du
+    mang tu hoi ngay sau do. Nay: 7 lan, backoff nhan doi + jitter (tong ~2 phut),
+    va nghi HAN 20s khi trung loi mang de doi router/DNS hoi."""
+    import random as _rnd
+    NET = ("no route to host", "connection reset", "cannot connect",
+           "temporary failure", "timed out", "connection aborted", "server disconnected")
     last = None
     for i in range(_TTS_TRIES):
         try:
             return fn()
         except Exception as e:
             last = e
-            if i < _TTS_TRIES - 1:
-                time.sleep(1.2 * (i + 1))      # nghi tang dan de vuot throttle
+            if i >= _TTS_TRIES - 1:
+                break
+            msg = str(e).lower()
+            if any(k in msg for k in NET):
+                wait = 20.0 + _rnd.uniform(0, 5)      # rot mang: doi lau hon han
+                print(f"  [{what}] loi mang ({str(e)[:50]}) — cho {wait:.0f}s roi thu lai "
+                      f"(lan {i+1}/{_TTS_TRIES})", flush=True)
+            else:
+                wait = min(30.0, 1.5 * (2 ** i)) + _rnd.uniform(0, 1)   # throttle: nhan doi
+            time.sleep(wait)
     raise RuntimeError(f"{what} that bai sau {_TTS_TRIES} lan (co the bi Microsoft chan tam "
-                       f"thoi do goi lien tiep): {last}")
+                       f"thoi do goi lien tiep, hoac mang rot): {last}")
 
 def _edge_pitch_split(voice):
     """Tach pitch nhung trong ten giong: 'vi-VN-NamMinhNeural@-20Hz' -> (giong, '-20Hz').
@@ -691,7 +766,13 @@ def _synth_edge(text, voice, path, rate="-8%", pitch=None):
     _edge_retry(_run)
 
 def _edge_voice(voice):
-    """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh."""
+    """Tra ve giong edge hop le; vname kieu 'local' (ChatTTS) -> giong Trung mac dinh.
+    Ten giong Azure-only (co ':' nhu 'zh-CN-Mei:MAI-Voice-2', 'zh-CN-Yunqi:DragonHD...')
+    -> edge khong co, doi sang giong mac dinh DUNG NGON NGU (tranh 'Invalid voice' giua job)."""
+    if voice and ":" in voice:
+        base = voice.split("@", 1)[0]
+        print(f"[DEBUG-TTS] '{voice}' la giong Azure-only ma dang doc bang edge -> doi giong mac dinh")
+        return VOICE_VI if base.startswith("vi-") else VOICE_ZH
     return voice if (voice and "-" in voice and "Neural" in voice) else VOICE_ZH
 
 # ---------- VieNeu-TTS local (tieng Viet, offline, free) ----------
@@ -736,10 +817,12 @@ def synth_vieneu(text, voice, path, rate="-8%", emotion=None):
         pct = float(str(rate).replace("%", "").replace("+", ""))
     except Exception:
         pct = 0.0
-    tempo = max(0.5, min(2.0, 1.0 + pct / 100.0))
+    # GIU 48k + 192k: truoc day ep -ar 24000 -ac 1 -b:a 96k lam mat NUA bang thong
+    # -> giong bi, "nghe nhu AI". atempo cung lam nhoe phu am (ngong) -> chi chay
+    # khi nguoi dung keo thanh toc do khac 0 that su.
+    af = ["-af", f"atempo={max(0.5, min(2.0, 1.0 + pct / 100.0))}"] if abs(pct) >= 1 else []
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", w,
-                    "-af", f"atempo={tempo}", "-ar", "24000", "-ac", "1",
-                    "-b:a", "96k", path], check=True)
+                    *af, "-ar", "48000", "-b:a", "192k", path], check=True)
     os.remove(w)
 
 def synth_fpt(text, voice, path, key, rate="-8%"):
@@ -902,7 +985,7 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
         elif azure:
             synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo)
         else:
-            _synth_edge(text, voice, c, rate, pitch=emo["pitch"] if emo else None)
+            _synth_edge(text, _edge_voice(voice), c, rate, pitch=emo["pitch"] if emo else None)
     shutil.copyfile(c, path)
 
 def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
@@ -962,7 +1045,7 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
         shutil.copyfile(c, path)
         return []
 
-    sents = _synth_edge_timed(text, voice, c, rate, pitch=pitch)
+    sents = _synth_edge_timed(text, _edge_voice(voice), c, rate, pitch=pitch)
     json.dump(sents, open(cj, "w", encoding="utf-8"))
     shutil.copyfile(c, path)
     return sents
@@ -1150,6 +1233,27 @@ FX_KINDS = {
                    n=44, size=(1.5, 3.5), al=(60, 150)),    # bui vang lap lanh bay len
     "bokeh":  dict(c1=(255, 250, 240), c2=(255, 236, 208), shape="bokeh", dir="up",
                    n=14, size=(18, 55), al=(16, 38)),       # dom sang bokeh mo
+    # ---- BO SUNG: hieu ung nghe thuat (2026-08) ----
+    # 'blink': bien do nhap nhay 0..1 (0 = sang deu). 'wander': bien do troi ngang.
+    # 'slow': he so ha toc do roi (dung cho long vu, suong).
+    "firefly": dict(c1=(198, 255, 128), c2=(240, 255, 168), shape="firefly", dir="up",
+                    n=26, size=(2.2, 4.6), al=(120, 235), blink=0.92, wander=64,
+                    slow=0.35),                              # dom dom: nhay + troi lung lo
+    "rain":   dict(c1=(198, 216, 238), c2=(170, 194, 224), shape="streak", dir="down",
+                   n=70, size=(9, 20), al=(40, 105), wander=6, fast=3.4),   # mua nhe cheo
+    "mist":   dict(c1=(226, 232, 238), c2=(206, 216, 228), shape="blob", dir="side",
+                   n=7, size=(120, 260), al=(10, 22), slow=0.5),            # suong troi ngang
+    "ember":  dict(c1=(255, 172, 82), c2=(240, 108, 48), shape="firefly", dir="up",
+                   n=34, size=(1.8, 3.8), al=(90, 210), blink=0.55, wander=40,
+                   fast=1.5),                                # tan lua bay len
+    "star":   dict(c1=(255, 252, 236), c2=(206, 226, 255), shape="spark", dir="none",
+                   n=40, size=(3, 8), al=(70, 210), blink=0.85),            # sao lap lanh
+    "feather": dict(c1=(252, 248, 240), c2=(232, 226, 214), shape="petal", dir="down",
+                    n=14, size=(9, 18), al=(120, 190), slow=0.28, wander=70),  # long vu roi
+    "ash":    dict(c1=(236, 232, 226), c2=(198, 194, 188), shape="circle", dir="up",
+                   n=40, size=(1.6, 3.4), al=(50, 130), slow=0.5, wander=30),  # tro bay (tang le)
+    "ray":    dict(c1=(255, 238, 196), c2=(255, 228, 168), shape="ray", dir="side",
+                   n=4, size=(90, 190), al=(12, 24), slow=0.35),            # tia nang xien
 }
 
 def make_petals_fx(kind="sakura"):
@@ -1164,13 +1268,18 @@ def make_petals_fx(kind="sakura"):
     FW, FH, NFRAME = 960, 540, 200          # 8s @ 25fps, loop khep kin
     conf = FX_KINDS.get(kind, FX_KINDS["sakura"])
     rng = random.Random(42)
-    sgn = -1 if conf["dir"] == "up" else 1
+    sgn = {"up": -1, "down": 1, "side": 0, "none": 0}.get(conf["dir"], 1)
+    slow = float(conf.get("slow", 1.0)) * float(conf.get("fast", 1.0))
+    wander = float(conf.get("wander", 0)) or None
     petals = []
     for i in range(conf["n"]):
         petals.append(dict(
             x=rng.uniform(0, FW), y=rng.uniform(0, FH),
-            vy=sgn * rng.uniform(28, 62) / 25.0,          # px/frame (am = bay len)
-            ax=rng.uniform(18, 46), spd=rng.uniform(0.4, 1.1),
+            vy=sgn * rng.uniform(28, 62) / 25.0 * slow,   # px/frame (am = bay len)
+            vx=(rng.uniform(10, 26) / 25.0 * (1 if i % 2 else -1)
+                if conf["dir"] == "side" else 0.0),       # troi ngang (suong/tia nang)
+            ax=rng.uniform(18, 46) if wander is None else rng.uniform(wander * 0.4, wander),
+            spd=rng.uniform(0.4, 1.1),
             size=rng.uniform(*conf["size"]), ph=rng.uniform(0, 6.28),
             col=conf["c1"] if i % 3 else conf["c2"], al=rng.randint(*conf["al"])))
     tmpd = os.path.join(FX_DIR, f"_frames_{kind}")
@@ -1181,23 +1290,76 @@ def make_petals_fx(kind="sakura"):
         t = f / NFRAME * 2 * math.pi                     # pha khep kin de loop muot
         for p in petals:
             y = (p["y"] + p["vy"] * f) % (FH + 30) - 15
-            x = (p["x"] + p["ax"] * math.sin(t * p["spd"] * 2 + p["ph"])) % (FW + 20) - 10
+            x = (p["x"] + p["vx"] * f
+                 + p["ax"] * math.sin(t * p["spd"] * 2 + p["ph"])) % (FW + 20) - 10
             sz = p["size"]
+            # NHAP NHAY: dom dom / tan lua / sao — moi hat mot pha rieng nen khong dap nhip
+            blink = float(conf.get("blink", 0))
+            if blink:
+                pulse = 0.5 + 0.5 * math.sin(t * (2 + 3 * p["spd"]) + p["ph"] * 3)
+                al_now = int(p["al"] * (1 - blink + blink * pulse))
+            else:
+                al_now = p["al"]
             box = int(max(6, sz * 3))
             pet = Image.new("RGBA", (box, box), (0, 0, 0, 0))
             pd = ImageDraw.Draw(pet)
             cxp = cyp = box / 2
-            if shape == "petal":       # elip xoay canh hoa/la
+            if shape == "petal":       # elip xoay canh hoa/la/long vu
                 wob = 0.55 + 0.45 * math.sin(t * 3 * p["spd"] + p["ph"])
                 rw, rh = sz, max(2.5, sz * wob)
                 pd.ellipse([cxp - rw, cyp - rh, cxp + rw, cyp + rh],
-                           fill=p["col"] + (p["al"],))
+                           fill=p["col"] + (al_now,))
                 pet = pet.rotate(math.degrees(math.sin(t * p["spd"] + p["ph"])) * 0.6,
                                  resample=Image.BILINEAR)
+            elif shape == "firefly":   # dom dom / tan lua: loi sang + quang mem
+                box = int(max(14, sz * 9))
+                pet = Image.new("RGBA", (box, box), (0, 0, 0, 0))
+                pd = ImageDraw.Draw(pet)
+                cxp = cyp = box / 2
+                pd.ellipse([cxp - sz * 3, cyp - sz * 3, cxp + sz * 3, cyp + sz * 3],
+                           fill=p["col"] + (max(0, al_now // 5),))       # quang
+                pet = pet.filter(ImageFilter.GaussianBlur(sz * 1.2))
+                ImageDraw.Draw(pet).ellipse(
+                    [cxp - sz, cyp - sz, cxp + sz, cyp + sz],
+                    fill=(255, 255, 240) + (min(255, al_now),))          # loi sang
+            elif shape == "streak":    # mua: vet nghieng, mo nhe
+                box = int(max(10, sz * 2.2))
+                pet = Image.new("RGBA", (box, int(sz * 2.4)), (0, 0, 0, 0))
+                ImageDraw.Draw(pet).line([(box * 0.72, 0), (box * 0.28, sz * 2.3)],
+                                         fill=p["col"] + (al_now,), width=2)
+                pet = pet.filter(ImageFilter.GaussianBlur(0.6))
+                cxp, cyp = box / 2, sz * 1.2
+            elif shape == "spark":     # sao lap lanh: chu thap 4 canh
+                box = int(max(12, sz * 5))
+                pet = Image.new("RGBA", (box, box), (0, 0, 0, 0))
+                pd = ImageDraw.Draw(pet)
+                cxp = cyp = box / 2
+                pd.line([(cxp - sz * 2, cyp), (cxp + sz * 2, cyp)],
+                        fill=p["col"] + (al_now,), width=1)
+                pd.line([(cxp, cyp - sz * 2), (cxp, cyp + sz * 2)],
+                        fill=p["col"] + (al_now,), width=1)
+                pd.ellipse([cxp - sz * 0.5, cyp - sz * 0.5, cxp + sz * 0.5, cyp + sz * 0.5],
+                           fill=p["col"] + (min(255, al_now + 40),))
+                pet = pet.filter(ImageFilter.GaussianBlur(0.7))
+            elif shape == "blob":      # suong: mang mem rat lon
+                box = int(sz * 2.2)
+                pet = Image.new("RGBA", (box, int(box * 0.42)), (0, 0, 0, 0))
+                ImageDraw.Draw(pet).ellipse([0, 0, box, box * 0.42],
+                                            fill=p["col"] + (al_now,))
+                pet = pet.filter(ImageFilter.GaussianBlur(sz / 3.2))
+                cxp, cyp = box / 2, box * 0.21
+            elif shape == "ray":       # tia nang xien: dai dai mo, nghieng
+                box = int(sz * 2.4)
+                pet = Image.new("RGBA", (box, FH), (0, 0, 0, 0))
+                ImageDraw.Draw(pet).polygon(
+                    [(box * 0.42, 0), (box * 0.58, 0), (box, FH), (box * 0.62, FH)],
+                    fill=p["col"] + (al_now,))
+                pet = pet.filter(ImageFilter.GaussianBlur(sz / 2.6))
+                cxp, cyp = box / 2, FH / 2
+                y = FH / 2                                   # tia dung yen theo truc doc
             else:                      # circle / bokeh: hat tron (bokeh se blur)
-                # lap lanh nhe theo thoi gian (dust/snow)
                 tw = 0.75 + 0.25 * math.sin(t * 4 * p["spd"] + p["ph"] * 2)
-                a = int(p["al"] * (tw if shape == "circle" else 1.0))
+                a = int(al_now * (tw if shape == "circle" else 1.0))
                 pd.ellipse([cxp - sz, cyp - sz, cxp + sz, cyp + sz],
                            fill=p["col"] + (max(8, a),))
                 if shape == "bokeh":
@@ -1289,11 +1451,18 @@ def compose_final(narr, ctx, final):
                      f"afade=t=out:st={vdur-3:.2f}:d=3[mm]")
         parts.append("[0:a][mm]amix=inputs=2:duration=first:"
                      "dropout_transition=0:normalize=0[amix]")
-        # chuan hoa am luong ve -14 LUFS (chuan YouTube) -> moi video to deu nhau
-        parts.append(f"[amix]{LOUDNORM}[a]")
+        # chuan hoa am luong. Che do LOFI: NEN DONG truoc roi moi loudnorm dai hep
+        # -> nghe o am luong nho luc ngu khong bi cau nhe mat hut / cau manh giat minh.
+        if ctx.get("lofi_mix"):
+            parts.append(f"[amix]{COMPRESS_LOFI},{LOUDNORM_LOFI}[a]")
+        else:
+            parts.append(f"[amix]{LOUDNORM}[a]")
         amap = "[a]"
     elif ctx.get("loudnorm", True):
-        parts.append(f"[0:a]{LOUDNORM}[a]")
+        if ctx.get("lofi_mix"):
+            parts.append(f"[0:a]{COMPRESS_LOFI},{LOUDNORM_LOFI}[a]")
+        else:
+            parts.append(f"[0:a]{LOUDNORM}[a]")
         amap = "[a]"
     cmd = ["ffmpeg", "-y", *inputs]
     if parts:
@@ -1390,7 +1559,7 @@ def make_static_segment(seg, ctx, i):
     text, voice = tts_for(seg, ctx)
     if text:
         ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
-        synth(text, voice, ap, rate=seg.get("_rate") or ctx.get("rate", "-8%"),
+        synth(text, voice, ap, rate=_rate_for(seg, ctx),
               azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
               eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"),
               emo=_seg_emo(ctx, seg.get("hanzi", "")))
@@ -1398,11 +1567,21 @@ def make_static_segment(seg, ctx, i):
     else:
         ap, adur = None, 1.6
     pad = seg.get("_pad", ctx.get("pad", PAD))
+    # NHIP THO cung phai ap o duong STATIC. Nen la VIDEO -> build() luon di duong nay
+    # (xem nhanh re o cuoi build: "nen VIDEO -> di duong static"), nen neu chi goi
+    # _pad_for() trong make_anim_segment thi MOI BAI CO BG VIDEO van nghi deu 1 muc
+    # -> van nghe nhu may doc du van ban da co cho lay hoi.
+    pad = _pad_for(seg, ctx, pad)
     # "dam chieu": them khoang lang phan tu sau cau cam xuc (moi engine)
     try:
         pad = pad + _reflective_bonus(text, _expressive)
     except Exception:
         pass
+    # NGHI GIUA DOAN cung phai ap o duong static (nen VIDEO di duong nay) — thieu no thi
+    # bai co bg video khong con nghi dai giua hai doan, nghe lien mot mach.
+    if seg.get("_para_end"):
+        pad = pad + float(ctx.get("para_gap", 0.0) or 0.0)
+    pad = pad + _lang_them(seg)          # '//' hoac dong '~' nguoi viet dat
     seg_total = adur + pad
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     bgv = ctx.get("_bg_video")
@@ -1465,11 +1644,37 @@ def _encode_states(states, ap, total, vp, pad=PAD):
         f.write(f"file '{states[-1][0].replace(os.sep,'/')}'\n")   # lap file cuoi
     # fps={FPS} ÉP ảnh thành khung CFR ĐỦ thời lượng (sửa lỗi ffmpeg chỉ sinh 1 frame khi
     # 1 ảnh duration >= -t -> truoc day slide chi hien 1/25s roi chay truoc tieng).
-    subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-i",ap,
-                    "-t",f"{total:.2f}","-vf",f"scale={W}:{H},format=yuv420p,fps={FPS}",
-                    "-af",f"aresample=44100,apad=pad_dur={pad}",
-                    "-map","0:v","-map","1:a","-fps_mode","cfr",
-                    *X264,"-r",str(FPS),"-pix_fmt","yuv420p",
+    #
+    # SONG AM NHAY THEO TIENG: slide la anh TINH (1 png/cau) nen khong the ve song dong
+    # o tang PIL. Ve o tang ffmpeg bang showwaves -> lay dung bien do cua chinh file
+    # tieng dang ghep, gan như khong ton them thoi gian ma song nhay that.
+    wv = (_WAVE_LIVE or {}).get("mode")
+    if wv in ("top", "mid"):
+        col = (_WAVE_LIVE or {}).get("color", "0xffffff")
+        wh = int(H * 0.055)                       # cao dai song
+        wwd = int(W * 0.22)                       # rong dai song
+        # showhead ve dai dau trang tai y = 3.5%H, cum song o top+34 (toa do 2x)
+        # -> song that phai dat DUNG cho do, khong thi lech khoi 2 net dut hai ben.
+        y = (_WAVE_LIVE or {}).get("y")
+        if y is None:
+            y = int(H * 0.045) if wv == "top" else int(H * 0.47)
+        # aformat mono + volume: giong doc thuong -18 LUFS, khong khuech dai thi song
+        # gan nhu phang. scale=sqrt cho bien do nho van thay ro.
+        fc = (f"[0:v]scale={W}:{H},fps={FPS}[bg];"
+              f"[1:a]aformat=channel_layouts=mono,volume=6,"
+              f"showwaves=s={wwd}x{wh}:mode=p2p:rate={FPS}:colors={col}:draw=full:scale=sqrt,"
+              f"format=rgba,colorchannelmixer=aa=0.62[wv];"
+              f"[bg][wv]overlay=x=(W-w)/2:y={y}:shortest=0,format=yuv420p[v]")
+        cmd = ["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-i",ap,
+               "-t",f"{total:.2f}","-filter_complex",fc,
+               "-af",f"aresample=44100,apad=pad_dur={pad}",
+               "-map","[v]","-map","1:a","-fps_mode","cfr"]
+    else:
+        cmd = ["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-i",ap,
+               "-t",f"{total:.2f}","-vf",f"scale={W}:{H},format=yuv420p,fps={FPS}",
+               "-af",f"aresample=44100,apad=pad_dur={pad}",
+               "-map","0:v","-map","1:a","-fps_mode","cfr"]
+    subprocess.run([*cmd, *X264,"-r",str(FPS),"-pix_fmt","yuv420p",
                     "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",vp],
                    check=True, capture_output=True)
 
@@ -1536,11 +1741,169 @@ def synth_dialogue(rows, ctx, out_wav, vmap):
                     "-c", "copy", out_wav], check=True, capture_output=True)
     return starts, dur_of(out_wav)
 
+# ═══════════ ĐỌC CẢ ĐOẠN (block TTS) — giữ ngữ cảnh cho engine ═══════════
+# Doc TUNG CAU roi ghep -> moi cau bi engine coi la mot cau tron: len giong dau cau,
+# ha giong dut khoat cuoi cau, khong co declination xuyen doan -> nghe "may doc".
+# Doc CA DOAN mot lan -> ngu dieu lien mach, nhung mat moc tung cau de doi slide.
+# Giai: doc ca doan, roi DO KHOANG LANG tren chinh file do de lay lai moc.
+# (Azure Batch Synthesis tra JSON moc chinh xac hon, nhung can resource rieng + co the
+#  chan goi F0; cach nay chay duoc voi MOI engine: azure/edge/gemini/vieneu/eleven.)
+
+def _detect_silences(path, noise="-38dB", dmin=0.20):
+    """[(start, end)] cac khoang lang trong file."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", path,
+                        "-af", f"silencedetect=noise={noise}:d={dmin}", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    log = r.stderr or ""
+    starts = [float(x) for x in _re.findall(r"silence_start: ([\d.]+)", log)]
+    ends = [float(x) for x in _re.findall(r"silence_end: ([\d.]+)", log)]
+    return list(zip(starts, ends))[:len(ends)]
+
+
+def _split_points(path, weights):
+    """Chon len(weights)-1 diem cat trong file audio, moi phan ~ ti le voi weights
+       (so ky tu tung cau). Tra ve list moc giay tang dan.
+       Cach chon: voi moi ranh gioi ky vong, lay khoang lang GAN NHAT co diem cao nhat
+       (dai + gan vi tri ky vong) -> tranh chon nham nhip nghi giua cau."""
+    total = dur_of(path)
+    sil = [s for s in _detect_silences(path) if s[1] < total - 0.05 and s[0] > 0.05]
+    n = len(weights)
+    if n <= 1 or not sil:
+        return []
+    acc, cum = sum(weights), 0
+    want = []
+    for w in weights[:-1]:
+        cum += w
+        want.append(total * cum / acc)
+    used, pts = set(), []
+    for wt in want:
+        best, best_score = None, -1e9
+        for k, (a, b) in enumerate(sil):
+            if k in used:
+                continue
+            mid, ln = (a + b) / 2, (b - a)
+            score = ln * 2.0 - abs(mid - wt)        # dai thi tot, lech xa thi tru
+            if score > best_score:
+                best, best_score, bk = mid, score, k
+        if best is None:
+            continue
+        used.add(bk)
+        pts.append(best)
+    return sorted(pts)
+
+
+def _block_one(blk, segs, ctx):
+    """Doc MOT khoi cau lien tiep bang mot request, roi cat ra tung cau theo khoang lang.
+    Tra ve so cau da xu ly (0 = that bai -> caller de nguyen cho doc tung cau)."""
+    text_of = lambda s: (s.get("tts") or s.get("hanzi") or "").strip()
+    texts = [text_of(segs[k]) for k in blk]
+    voice = ctx.get("voice_zh", VOICE_ZH)
+    big = os.path.join(AUDIO, f"blk{blk[0]:02d}.mp3")
+    try:
+        synth(" ".join(texts), voice, big, rate=ctx.get("rate", "-8%"),
+              azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
+              eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
+        pts = _split_points(big, [max(1, len(t)) for t in texts])
+        if len(pts) != len(blk) - 1:
+            print(f"  [block-tts] khoi {blk[0]}: doi {len(blk)-1} moc, do duoc {len(pts)}"
+                  f" -> bo qua khoi nay, doc tung cau nhu cu")
+            return 0
+        bounds = [0.0] + pts + [dur_of(big)]
+        for k, si in enumerate(blk):
+            out = os.path.join(AUDIO, f"a{si:02d}.mp3")
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{bounds[k]:.3f}",
+                            "-to", f"{bounds[k+1]:.3f}", "-i", big,
+                            "-c:a", "libmp3lame", "-b:a", "96k", out], check=True)
+            segs[si]["_pretts"] = True
+        return len(blk)
+    except Exception as e:
+        print(f"  [block-tts] khoi {blk[0]} loi ({str(e)[:60]}) -> doc tung cau nhu cu")
+        return 0
+
+
+def pretts_blocks(segs, ctx):
+    """Doc CA DOAN mot lan roi cat ra file tung cau (AUDIO/a{i:02d}.mp3).
+       Chi ap cho cac segment 'sentence' LIEN TIEP, cung mot giong, khong co emo rieng.
+       Segment nao da co file thi make_anim_segment se dung luon, khong goi TTS nua."""
+    if not ctx.get("block_tts", True):
+        return 0
+    text_of = lambda s: (s.get("tts") or s.get("hanzi") or "").strip()
+    blocks, cur = [], []
+    for i, s in enumerate(segs):
+        if s.get("type") == "sentence" and text_of(s):
+            if s.get("_nhan"):        # cau nhan: doc RIENG (cham hon) -> khong gop khoi
+                if cur:
+                    blocks.append(cur); cur = []
+                continue
+            cur.append(i)
+            if s.get("_para_end") or len(cur) >= 8:      # het doan hoac khoi qua dai
+                blocks.append(cur); cur = []
+        else:
+            if cur:
+                blocks.append(cur); cur = []
+    if cur:
+        blocks.append(cur)
+
+    # TANG TOC: cac khoi doc lap nhau -> chay SONG SONG. Vbee la API bat dong bo
+    # (POST -> poll -> tai CDN), moi cau ~4s nhung phan lon la CHO, khong phai tinh toan.
+    # Chay 4 khoi cung luc rut thoi gian con ~1/3. Engine local (VieNeu) thi khong loi gi
+    # nen giu tuan tu de khoi tranh CPU.
+    _par = 1 if str(ctx.get("voice_zh", "")).startswith("vieneu:") else int(
+        ctx.get("tts_parallel", 4) or 1)
+
+    done = 0
+    def _do_block(blk):
+        if len(blk) < 2:
+            return 0
+        return _block_one(blk, segs, ctx)
+
+    if _par > 1 and len(blocks) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=_par) as ex:
+            done = sum(x for x in ex.map(_do_block, blocks) if x)
+        if done:
+            print(f"  [block-tts] da doc ca doan cho {done} cau ({len(blocks)} khoi, "
+                  f"{_par} luong song song)")
+        return done
+
+    for blk in blocks:
+        if len(blk) < 2:                                 # 1 cau thi doc kieu cu, khong loi gi
+            continue
+        texts = [text_of(segs[k]) for k in blk]
+        voice = ctx.get("voice_zh", VOICE_ZH)
+        big = os.path.join(AUDIO, f"blk{blk[0]:02d}.mp3")
+        try:
+            synth(" ".join(texts), voice, big,
+                  rate=ctx.get("rate", "-8%"),
+                  azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
+                  eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
+            pts = _split_points(big, [max(1, len(t)) for t in texts])
+            if len(pts) != len(blk) - 1:
+                print(f"  [block-tts] khoi {blk[0]}: doi {len(blk)-1} moc, do duoc {len(pts)}"
+                      f" -> bo qua khoi nay, doc tung cau nhu cu")
+                continue
+            bounds = [0.0] + pts + [dur_of(big)]
+            for k, si in enumerate(blk):
+                out = os.path.join(AUDIO, f"a{si:02d}.mp3")
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{bounds[k]:.3f}",
+                                "-to", f"{bounds[k+1]:.3f}", "-i", big,
+                                "-c:a", "libmp3lame", "-b:a", "96k", out],
+                               check=True)
+                segs[si]["_pretts"] = True
+            done += len(blk)
+        except Exception as e:
+            print(f"  [block-tts] khoi {blk[0]} loi ({str(e)[:60]}) -> doc tung cau nhu cu")
+    if done:
+        print(f"  [block-tts] da doc ca doan cho {done} cau ({len(blocks)} khoi)")
+    return done
+
+
 def make_anim_segment(seg, ctx, i):
     """Slide chu hien dan tung chu / tung dong theo giong doc."""
     t = seg["type"]
     ap = os.path.join(AUDIO, f"a{i:02d}.mp3")
     pad = seg.get("_pad", ctx.get("pad", PAD))     # _pad: nhip deu cho tung luot podcast
+    pad = _pad_for(seg, ctx, pad)                  # nhip tho: nghi theo dau cau + do dai
     vp = os.path.join(AUDIO, f"v{i:02d}.mp4")
     states = []
 
@@ -1566,11 +1929,15 @@ def make_anim_segment(seg, ctx, i):
         return vp, total
 
     text, voice = tts_for(seg, ctx)
-    sents = synth_paced(text, voice, ap, rate=seg.get("_rate") or ctx.get("rate", "-8%"),
-                        comma_pause=float(ctx.get("comma_pause", 0.0) or 0.0),
-                        azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
-                        eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"),
-                        emo=_seg_emo(ctx, seg.get("hanzi", "")))
+    if seg.get("_pretts") and os.path.exists(ap) and os.path.getsize(ap) > 0:
+        sents = []                       # da doc theo CA DOAN o pretts_blocks -> khoi TTS lai
+    else:
+        sents = synth_paced(text, voice, ap,
+                            rate=_rate_for(seg, ctx),
+                            comma_pause=float(ctx.get("comma_pause", 0.0) or 0.0),
+                            azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
+                            eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"),
+                            emo=_seg_emo(ctx, seg.get("hanzi", "")))
     adur = dur_of(ap)
     # "dam chieu": them khoang lang phan tu sau cau cam xuc (moi engine)
     try:
@@ -1580,6 +1947,7 @@ def make_anim_segment(seg, ctx, i):
     # NGHI GIUA DOAN: cau ket thuc 1 doan (truoc dong trong) -> nghi dai hon (para_gap)
     if seg.get("_para_end"):
         pad = pad + float(ctx.get("para_gap", 0.0) or 0.0)
+    pad = pad + _lang_them(seg)          # '//' hoac dong '~' nguoi viet dat
     total = adur + pad
 
     # Cau/tu vung: hien CA CAU ngay tu dau (1 state tinh) -> text luon khop voi giong doc.
@@ -1597,11 +1965,56 @@ def build(lesson, progress=None):
     ctx = json.load(open(lesson, encoding="utf-8")) if isinstance(lesson, str) else lesson
     global _eleven_model_override
     _eleven_model_override = ctx.get("_eleven_model")     # model ElevenLabs nguoi dung chon
-    global _expressive
+    # CHE DO LOFI: keo theo ca 3 tham so cua preset, tru khi nguoi dung da chinh tay
+    if ctx.get("lofi_mix"):
+        ctx.setdefault("rate", RATE_LOFI)
+        if str(ctx.get("rate")) in ("-8%", "", None):
+            ctx["rate"] = RATE_LOFI
+        ctx["pad"] = float(ctx.get("pad") or 0) or PAD_LOFI
+        if not ctx.get("music_vol"):
+            ctx["music_vol"] = MUSIC_VOL_LOFI
+        print(f"  [lofi] rate={ctx['rate']} pad={ctx['pad']} music_vol={ctx['music_vol']}"
+              f" · nen dong + LRA5")
+    global _expressive, _WAVE_LIVE
     try:
         _expressive = int(ctx.get("expressive", 60) or 60)
     except Exception:
         _expressive = 60
+    # SONG AM NHAY THEO TIENG (ffmpeg showwaves, ve luc ma hoa tung cau).
+    # 'auto' -> theo bien the (style_podcast.VARIANTS[...]['wave']); 'off' -> tat han.
+    _wf = str(ctx.get("waveform") or "auto").strip().lower()
+    _vname = str(ctx.get("podcast_variant") or "inkwash")
+    if _wf == "auto":
+        try:
+            import style_podcast as _sp
+            _wf = str(_sp.VARIANTS.get(_vname, {}).get("wave") or "off")
+            # Bien the co DAU TRANG (showhead) tu ve mot cum song trang tri o dinh khung.
+            # Cum do von la hinh TINH -> 'auto' phai hieu la BAT song that dung cho ay,
+            # khong thi nguoi dung thay song dung im ma khong hieu tai sao.
+            if _sp.VARIANTS.get(_vname, {}).get("header"):
+                _wf = "top"
+        except Exception:
+            _wf = "off"
+    if _wf in ("top", "mid"):
+        # mau song = mau pinyin cua bien the -> hoa vao bang mau san co
+        _col = "0xffffff"
+        try:
+            import style_podcast as _sp
+            _c = _sp.VARIANTS.get(str(ctx.get("podcast_variant") or "inkwash"), {}).get("pinyin")
+            if _c:
+                _col = "0x%02x%02x%02x" % tuple(_c[:3])
+        except Exception:
+            pass
+        _WAVE_LIVE = {"mode": _wf, "color": _col}
+        try:
+            import style_podcast as _sp2
+            if _sp2.VARIANTS.get(_vname, {}).get("header"):
+                # dai dau trang: top = 3.5%H, cum song ve tai top + 34 (he toa do 2x = 17px 1x)
+                _WAVE_LIVE["y"] = int(H * 0.035) + 17 - int(H * 0.055) // 2
+        except Exception:
+            pass
+    else:
+        _WAVE_LIVE = None
     segs = ctx["segments"]
     if ctx.get("podcast"):
         # podcast: bo intro/outro + cac doan noi tieng Viet, chi giu noi dung Trung
@@ -1754,6 +2167,15 @@ def build(lesson, progress=None):
 
     seg_videos = []
     seg_meta = []          # [{index,type,dur,start,end,hanzi,viet,label}] cho timestamp YouTube
+    # DOC CA DOAN truoc (giu ngu canh cho engine) roi cat ra tung cau theo khoang lang.
+    # Khoi nao cat khong dat se tu quay ve doc tung cau — khong chan pipeline.
+    if ctx.get("block_tts", True):
+        if progress:
+            progress(0, len(segs) + 1, "Đọc cả đoạn (giữ ngữ điệu)…")
+        try:
+            pretts_blocks(segs, ctx)
+        except Exception as _e:
+            print("  [block-tts] bo qua:", str(_e)[:80])
     _clock = 0.0
     for i, seg in enumerate(segs):
         if _seg_bg:                       # dat nguon nen cho doan nay truoc khi render
@@ -1790,7 +2212,7 @@ def build(lesson, progress=None):
     # RE-ENCODE khi noi (khong dung -c copy): ep khung hinh deu (CFR) + dong bo lai audio
     # -> tranh lech tieng-hinh TICH LUY qua nhieu luot (chu chay truoc tieng o luot sau).
     subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",concat_txt,
-                    "-vsync","cfr","-r",str(FPS),
+                    "-fps_mode","cfr","-r",str(FPS),
                     *X264,"-pix_fmt","yuv420p",
                     "-af","aresample=async=1:first_pts=0",
                     "-c:a","aac","-b:a","192k","-ar","44100","-ac","2",narr],
