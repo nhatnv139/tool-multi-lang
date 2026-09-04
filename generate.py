@@ -85,6 +85,77 @@ EMO_CONF = {
                     gm="đau xót, nghẹn ngào, chực trào nước mắt"),
 }
 
+# ---------- NHIP KE: vai tro tung cau ----------
+# Vbee (vbee.vn) chi cho chinh DUNG MOT num la speed_rate — do thu API 2026-09-04:
+# input_type/text_type/emotion/style/pitch/volume/emphasis deu tra 400 "not allowed",
+# con the <break time="3s"/> thi no DOC TO LEN thanh chu chu khong thanh khoang lang.
+# Nen muon loi ke co cao thap thi phai: (1) chia cau thanh tung cum cung vai tro, moi
+# cum mot request rieng voi speed_rate rieng, (2) nan cao do + am luong SAU bang ffmpeg.
+# Vai tro khong tag tay — app.py suy tu cau truc san co cua kich ban (dau nghi '//',
+# ngoac kep, cau cut, cau dau/cuoi shot).
+#   dr  = lech toc do cong vao rate goc (%)   — '-8%' + dr
+#   pr  = ti le cao do (1.03 = cao hon 3%)    — giu nguyen do dai
+#   vol = lech am luong (dB)
+#   pad = khoang lang dat sau cau (giay)
+ROLE_CONF = {
+    "mo":    dict(dr=0,   pr=0.995, vol=-0.5, pad=0.35),   # cau mo shot: thong tha
+    "ke":    dict(dr=+7,  pr=1.010, vol=+0.0, pad=0.20),   # ke viec: nhip chay
+    "dam":   dict(dr=+17, pr=1.030, vol=+1.0, pad=0.28),   # cau cut: don, hoi cao
+    "thoai": dict(dr=-2,  pr=0.955, vol=+0.5, pad=0.60),   # trong ngoac kep: khac nguoi ke
+    "chot":  dict(dr=-10, pr=0.962, vol=-1.5, pad=0.75),   # ngay sau dau nghi: cham + tram
+    "ha":    dict(dr=-6,  pr=0.972, vol=-1.0, pad=0.55),   # cau cuoi shot: ha giong ket doan
+}
+
+def _role_rate(rate, role):
+    """Cong lech toc do cua vai tro vao rate goc."""
+    c = ROLE_CONF.get(role or "")
+    if not c:
+        return rate
+    try:
+        pct = int(str(rate).replace("%", ""))
+    except ValueError:
+        pct = -8
+    return f"{pct + c['dr']}%"
+
+def _srate(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                        "-show_entries", "stream=sample_rate", "-of", "csv=p=0", path],
+                       capture_output=True, text=True)
+    try:
+        return int((r.stdout or "").strip())
+    except ValueError:
+        return 24000
+
+def _shape_role(path, role):
+    """Nan cao do + am luong theo vai tro, GIU NGUYEN do dai.
+       asetrate doi cao do (keo ca toc do) -> atempo keo nguoc lai cho bang cu.
+       Chay duoc voi moi engine; can nhat cho Vbee vi Vbee khong co num pitch."""
+    c = ROLE_CONF.get(role or "")
+    if not c:
+        return
+    pr, vol = float(c["pr"]), float(c["vol"])
+    if abs(pr - 1.0) < 0.002 and abs(vol) < 0.05:
+        return
+    sr = _srate(path)
+    af = []
+    if abs(pr - 1.0) >= 0.002:
+        af.append(f"asetrate={int(sr * pr)},aresample={sr},atempo={1.0 / pr:.6f}")
+    if abs(vol) >= 0.05:
+        af.append(f"volume={vol}dB")
+    tmp = path + ".shape.mp3"
+    try:
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", path, "-af", ",".join(af),
+                        "-ar", str(sr), "-ac", "1", "-c:a", "libmp3lame", "-b:a", "128k", tmp],
+                       check=True, capture_output=True)
+        os.replace(tmp, path)
+    except (subprocess.CalledProcessError, OSError):
+        # nan hong thi giu ban goc — tha doc deu con hon vo job
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
 def rate_nhan(rate, dr=-8):
     """Cau nguoi viet danh dau '*' -> doc cham hon dr%. '-8%' + (-8) -> '-16%'."""
     try:
@@ -884,19 +955,35 @@ def synth_vbee(text, voice_code, path, rate="-8%"):
     payload = {"app_id": app_id, "response_type": "direct",
                "input_text": text, "voice_code": voice_code,
                "audio_type": "mp3", "bitrate": 128, "speed_rate": str(speed)}
-    req = urllib.request.Request(
-        "https://vbee.vn/api/v1/tts", data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": "Bearer " + token,
-                 "Content-Type": "application/json"})
-    try:
-        j = json.loads(urllib.request.urlopen(req, timeout=60).read())
-    except urllib.error.HTTPError as e:
-        detail = ""
+    # CloudFront truoc vbee.vn hay tra 504/502 nhat thoi, nhat la khi mot phim ban
+    # hang chuc request lien tiep (chia run theo vai tro cau -> nhieu request hon truoc).
+    # Loi tam thoi thi thu lai, dung de vo ca job dung dang giua chung.
+    j = None
+    for _try in range(5):
+        req = urllib.request.Request(
+            "https://vbee.vn/api/v1/tts", data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": "Bearer " + token,
+                     "Content-Type": "application/json"})
         try:
-            detail = e.read().decode("utf-8", "replace")[:300]
-        except Exception:
-            pass
-        raise RuntimeError(f"Vbee TTS loi {e.code}: {detail or e.reason}")
+            j = json.loads(urllib.request.urlopen(req, timeout=90).read())
+            break
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")[:300]
+            except Exception:
+                pass
+            if e.code in (429, 500, 502, 503, 504) and _try < 4:
+                time.sleep(2.0 * (2 ** _try))          # 2s, 4s, 8s, 16s
+                continue
+            raise RuntimeError(f"Vbee TTS loi {e.code}: {detail or e.reason}")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            if _try < 4:
+                time.sleep(2.0 * (2 ** _try))
+                continue
+            raise RuntimeError(f"Vbee TTS loi mang: {e}")
+    if j is None:
+        raise RuntimeError("Vbee TTS: goi 5 lan deu khong xong")
     res = j.get("result") or {}
     rid = res.get("request_id") or res.get("id") or ""
     link = res.get("audio_link") or ""
@@ -922,7 +1009,11 @@ def synth_vbee(text, voice_code, path, rate="-8%"):
                 elif st in ("FAILURE", "ERROR", "FAILED"):
                     raise RuntimeError(f"Vbee TTS bao loi: {rr}")
             except urllib.error.HTTPError as e:
-                raise RuntimeError(f"Vbee TTS poll loi {e.code}")
+                if e.code not in (429, 500, 502, 503, 504):
+                    raise RuntimeError(f"Vbee TTS poll loi {e.code}")
+                pass                                   # loi tam thoi -> vong sau hoi lai
+            except (urllib.error.URLError, OSError, ValueError):
+                pass                                   # mang chop chop -> vong sau hoi lai
         else:
             raise RuntimeError(f"Vbee TTS khong tra request_id/audio_link: {j}")
         time.sleep(1.0)
@@ -930,7 +1021,7 @@ def synth_vbee(text, voice_code, path, rate="-8%"):
 
 
 def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
-          gemini=None, emo=None, fpt=None):
+          gemini=None, emo=None, fpt=None, role=None):
     """Giong doc co cache. chattts -> ChatTTS local; eleven=key -> ElevenLabs;
        gemini=key -> Gemini TTS; azure=(key,region) -> Azure; con lai -> edge-tts.
        emo (detect_emotion): doc bieu cam theo cam xuc cau — doi toc do/cao do/style.
@@ -942,7 +1033,9 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
            ("gm" if gemini else ("el" if eleven else ("az" if azure else "ed"))))
     if emo:
         eng = eng + "~" + emo["name"]          # cache rieng theo cam xuc
-    rate = _emo_rate(rate, emo)
+    if role:
+        eng = eng + "#" + role                 # cache rieng theo vai tro (toc do/cao do khac)
+    rate = _role_rate(_emo_rate(rate, emo), role)
     # ElevenLabs: chen <break> trong cau (chi engine nay) -> text khac -> key khac
     text_el = _eleven_breaks(text, _expressive) if eleven else text
     key_text = text_el if eleven else text
@@ -986,6 +1079,8 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
             synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo)
         else:
             _synth_edge(text, _edge_voice(voice), c, rate, pitch=emo["pitch"] if emo else None)
+        if role and not _is_empty_tts(text):
+            _shape_role(c, role)
     shutil.copyfile(c, path)
 
 def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,

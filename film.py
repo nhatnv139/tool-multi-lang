@@ -39,7 +39,14 @@ SUB_FADE = _env_flag("FILM_SUB_FADE", False)
 # Mac dinh TAT: dip phang da chuan style, mask ton ~2-3ms/frame fade (c1, c3).
 FADE_FOCUS = _env_flag("FILM_FADE_FOCUS", False)
 
-X264 = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+X264 = ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        # GOP 2s + keyint_min 1s: mac dinh x264 la 250 frame (~8,3s) -> tua trong trinh
+        # duyet roi vao giua GOP, Chrome dung macroblock cu cua canh truoc -> hinh "xe"
+        # thanh nhieu dai ngang lan mau. Anh khoa day thi cho tua nao cung gan mot IDR.
+        "-g", str(FPS * 2), "-keyint_min", str(FPS), "-sc_threshold", "0"]
+# +faststart: day moov atom len dau file. Khong co no, trinh duyet phai tai duoi
+# file 78MB ve truoc moi doc duoc index -> vua tai vua tua = decode do dang.
+FASTSTART = ["-movflags", "+faststart"]
 # Segment CANH/CARD la file TRUNG GIAN (bi re-encode lai o _join_video khi ghep + grade)
 # -> encode nhanh + crf thap hon de khong mat chat qua 2 lan nen. veryfast ~3x medium.
 X264_SEG = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
@@ -1364,7 +1371,10 @@ def make_scene(scene, opts, i):
                 return None                     # cau trong / dau nghi -> run rieng, khong gop
             emo = s.get("emo")
             en = emo.get("name") if isinstance(emo, dict) else emo
-            return (s.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural"), en)
+            # VAI TRO cung nam trong khoa run: doi vai tro la doi toc do/cao do
+            # -> phai cat sang request khac, khong gop chung mot hoi doc.
+            return (s.get("voice") or opts.get("voice", "zh-CN-XiaoxiaoNeural"),
+                    en, s.get("role"))
         runs, cur = [], object()
         for k, s in enumerate(subs):
             kk = _run_key(s)
@@ -1397,7 +1407,8 @@ def make_scene(scene, opts, i):
             fp = s0.get("fpt") or (opts.get("fpt") if vc == opts.get("voice") else None)
             mp = os.path.join(FILM, f"_tts_{i}_{k0}.mp3")
             generate.synth(joined, _clean_voice(vc), mp, rate=opts.get("rate", "-8%"),
-                           azure=az, gemini=gm, eleven=el, fpt=fp, emo=s0.get("emo"))
+                           azure=az, gemini=gm, eleven=el, fpt=fp, emo=s0.get("emo"),
+                           role=s0.get("role"))
             tmp.append(mp)
             adur = max(0.9, _dur(mp))
             # NHIP PHIM: pad chi con SAU run (trong run TTS tu ngat); cau cuoi canh co 'beat'
@@ -1436,7 +1447,10 @@ def make_scene(scene, opts, i):
         _sub_bottom = LB_SUB_BOTTOM if opts.get("letterbox") else None
         # Dau nghi '//' la LENH, khong phai loi -> phu de trong (man hinh sach).
         _hz, _vi = s.get("hz", ""), s.get("vi", "")
-        if re.match(r"^/{2,4}$", (_hz or "").strip()):
+        # Phim tieng Viet: app.py don chu sang truong 'vi' va de 'hz' rong
+        # -> chi kiem 'hz' thi dau nghi lot luoi va bi VE LEN MAN HINH.
+        if re.match(r"^/{2,4}$", (_hz or "").strip()) or \
+           re.match(r"^/{2,4}$", (_vi or "").strip()):
             _hz = _vi = ""
         render_subtitle(_hz, _vi, show_py, p, bottom=_sub_bottom)
         sub_pngs.append(p); tmp.append(p)
@@ -1807,7 +1821,7 @@ def _join_video(seg_videos, opts):
                 fc.append(f"[vj]{_letterbox_filter()}[vg]"); vmap = "[vg]"
             subprocess.run(["ffmpeg", "-y", *inp, "-filter_complex", ";".join(fc),
                             "-map", vmap, "-map", "[aj]",
-                            *X264, "-pix_fmt", "yuv420p", "-r", str(FPS),
+                            *X264, *FASTSTART, "-pix_fmt", "yuv420p", "-r", str(FPS),
                             "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
                            check=True, capture_output=True)
             return narr
@@ -1823,7 +1837,8 @@ def _join_video(seg_videos, opts):
     _vfchain = _grade_simple(lb) if grade else (_letterbox_filter() if lb else "")
     vf = ["-vf", _vfchain] if _vfchain else []
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
-                    "-fps_mode", "cfr", "-r", str(FPS), *vf, *X264, "-pix_fmt", "yuv420p",
+                    "-fps_mode", "cfr", "-r", str(FPS), *vf, *X264, *FASTSTART,
+                    "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
                    check=True, capture_output=True)
     try: os.remove(lst)
@@ -1839,7 +1854,7 @@ def _add_roomtone(narr):
     subprocess.run(["ffmpeg", "-y", "-i", narr,
                     "-f", "lavfi", "-i", "anoisesrc=r=44100:color=brown:seed=7",
                     "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
-                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out],
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out],
                    check=True, capture_output=True)
     os.replace(out, narr)
     return narr
@@ -1871,7 +1886,7 @@ def _concat_and_music(seg_videos, opts, out_path, total):
         try:
             subprocess.run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
                             "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
-                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out_path],
+                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out_path],
                            check=True, capture_output=True)
         except subprocess.CalledProcessError:             # ducking loi -> tron thuong
             fc = (f"[1:a]volume={vol},afade=t=in:st=0:d=2,afade=t=out:st={max(0,total-3):.2f}:d=3[m];"
@@ -1879,7 +1894,7 @@ def _concat_and_music(seg_videos, opts, out_path, total):
             try:
                 subprocess.run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
                                 "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
-                                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out_path],
+                                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out_path],
                                check=True, capture_output=True)
             except subprocess.CalledProcessError as e:
                 # capture_output nuot het stderr -> UI chi thay cau lenh, khong thay ly do.

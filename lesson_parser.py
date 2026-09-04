@@ -238,17 +238,28 @@ def boc_dau_nhip(item):
     return s.strip(), nhan, lang_them
 
 
-def boc_dau_nhip_van_ban(text):
+_DAU_NGHI_RE = re.compile(r"^/{2,4}$")
+
+def boc_dau_nhip_van_ban(text, giu_dau_nghi=False):
     """Boc ky tu ngat nghi khoi CA VAN BAN, giu nguyen cau truc dong.
 
     Dung cho cac duong KHONG di qua parse_lesson — PDF ban chu (study_pdf),
     trang /short, trang /film. Neu khong boc thi '*' va '//' hien nguyen trong
     PDF va bi TTS doc thanh tieng (do duoc: '*是累。*' dai 3,12s so voi 1,78s).
+
+    giu_dau_nghi=True: dong CHI GOM 2-4 dau '/' la LENH NGHI cua kich ban phim
+    (NHIP-NGAT-NGHI-V3.md: '//' 0,8s · '///' 1,5s · '////' 2,4s), khong phai chu.
+    Truoc day _boc() an luon duoi cua no: '//' va '////' bi xoa sach con '///'
+    teo thanh '/' roi bi doc len — ca he thong ngat nghi cua kich ban khong bao
+    gio den duoc video. Trang /film truyen True; cac duong khac giu nguyen nhu cu.
     """
     out = []
     for raw in (text or "").splitlines():
         s = raw.strip()
         if s in ("~", "～", "~~", "~~~"):     # dong lang cho nhac troi -> khong phai chu
+            continue
+        if giu_dau_nghi and _DAU_NGHI_RE.match(s):
+            out.append(s)                    # lenh nghi -> chuyen thang cho film.py
             continue
         if not s or s.startswith(("@", "#", "<!--")):
             out.append(raw)

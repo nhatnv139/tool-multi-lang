@@ -1863,7 +1863,9 @@ def _parse_film(content):
     '#' = ranh gioi canh; '@voices' = khai giong; '---' = het (phu luc bo qua)."""
     import lesson_parser as lp
     voices_spec, scenes, cur = {}, [], None
-    content = lp.boc_dau_nhip_van_ban(content)   # boc '*' '//' '~' truoc khi tach
+    # giu_dau_nghi=True: dong '//' '///' '////' la LENH NGHI cua kich ban phim,
+    # phai den duoc film._pause_sec() chu khong duoc boc nhu dau nhip cuoi cau.
+    content = lp.boc_dau_nhip_van_ban(content, giu_dau_nghi=True)
     for raw in (content or "").splitlines():
         line = raw.strip()
         if lp._HR_RE.match(line):
@@ -2319,6 +2321,43 @@ def run_film_job(job_id, data):
         # cảm xúc (Azure express-as). Câu buồn/nghẹn -> chậm + nghỉ dài hơn.
         names = list(cvoices)
         SLOW_EMO = {"sad", "sorrow", "tender", "lyrical"}
+
+        # NHIP KE (truyen Viet): moi cau mot VAI TRO, vai tro quyet dinh toc do + cao do.
+        # Khong tag tay — suy tu cau truc SAN CO trong kich ban:
+        #   cau ngay sau dau nghi '//'  -> chot  (cham, tram, nghi lau)
+        #   cau trong ngoac kep         -> thoai (khac giong nguoi ke)
+        #   cau cuoi shot               -> ha    (ha giong ket doan)
+        #   cau dau shot                -> mo    (thong tha)
+        #   cau cut <= 22 ky tu         -> dam   (don, hoi cao)
+        #   con lai                     -> ke
+        # Vi sao can: Vbee chi cho chinh speed_rate, ma film.py gom ca canh vao MOT
+        # request -> doc mot hoi, mot ngu dieu, nghe tang tang. Chia theo vai tro thi
+        # moi cum mot toc do rieng, cao do nan them o generate._shape_role().
+        # Chi chay cho vn_mode -> bai tieng Trung khong doi gi.
+        if vn_mode:
+            _PAUSE_RE = re.compile(r"^/{2,4}$")
+            for sc in scenes:
+                subs = sc["subs"]
+                real = [k for k, s in enumerate(subs)
+                        if not _PAUSE_RE.match((s.get("hz") or "").strip())]
+                if not real:
+                    continue
+                first, last = real[0], real[-1]
+                after_pause = False
+                for k, s in enumerate(subs):
+                    hz = (s.get("hz") or "").strip()
+                    if _PAUSE_RE.match(hz):
+                        after_pause = True
+                        continue
+                    if after_pause:                        r = "chot"
+                    elif hz[:1] in ('"', "\u201c", "\u2018"):   r = "thoai"
+                    elif k == last:                        r = "ha"
+                    elif k == first:                       r = "mo"
+                    elif len(hz) <= 22:                    r = "dam"
+                    else:                                  r = "ke"
+                    s["role"] = r
+                    after_pause = False
+
         for sc in scenes:
             for s in sc["subs"]:
                 hz = s["hz"]
@@ -2344,6 +2383,9 @@ def run_film_job(job_id, data):
                     pass
                 if s.get("emo", {}) and s["emo"].get("name") in SLOW_EMO:
                     s["pad"] = float(s["pad"]) + 0.6         # câu xúc động: nghỉ lâu hơn cho ngấm
+                _rc = generate.ROLE_CONF.get(s.get("role") or "")
+                if _rc and not dlg:                          # nhịp nghỉ theo vai trò câu
+                    s["pad"] = _rc["pad"]
                 if who and who in cvoices:
                     v = cvoices[who]
                     if (v.startswith("gemini:") and not load_gemini()) or \
@@ -2542,6 +2584,11 @@ def _film_srt(fscenes, scene_starts):
         off = scene_starts[i] if i < len(scene_starts) else 0
         for st in sc.get("_subtimes", []):
             hz = st["hz"]
+            # dong dau nghi '//' la LENH, khong phai loi -> chiem cho trong timeline
+            # (de moc cac cau sau khong lech) nhung khong duoc lot vao file SRT.
+            if re.match(r"^/{2,4}$", (hz or "").strip()) or \
+               re.match(r"^/{2,4}$", (st.get("vi") or "").strip()):
+                continue
             try:
                 py = " ".join(p for _, p, h in _sp.group_units(hz) if p) if hz else ""
             except Exception:
