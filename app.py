@@ -1917,6 +1917,11 @@ def _parse_film(content):
             tts_txt = hz
             hz = re.sub(r"<\|emotion_\d+\|>|\[(thở dài|cười|hắng giọng|sigh|chuckle|clear throat)\]",
                         "", hz, flags=re.I).strip()
+        # THE SSML viet tay ('<break…/>' '<prosody…>' '<mstts:…>'): doc GIU the (Azure
+        # truyen thang, engine khac tu boc trong generate.synth) — phu de hien CHU SACH.
+        if generate.la_ssml(hz):
+            tts_txt = hz
+            hz = generate._strip_ssml(hz)
         if hz or vi:
             sub = {"hz": hz, "vi": vi, "emo_name": emo_name}
             if tts_txt:

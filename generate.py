@@ -392,9 +392,10 @@ def tts_for(seg, ctx):
     if t in ("vocab", "practice_a"):
         return (f'{seg["hanzi"]}。{seg["hanzi"]}。', vz)
     if t == "sentence":
-        return (seg["hanzi"], vz)
+        # seg["tts"]: ban co the SSML viet tay (lesson_parser tach ra) — doc ban nay
+        return (seg.get("tts") or seg["hanzi"], vz)
     if t == "dialogue":
-        return ("。".join(r["hanzi"] for r in seg["rows"]), vz)
+        return ("。".join((r.get("tts") or r["hanzi"]) for r in seg["rows"]), vz)
     if t == "practice_q":
         return (seg["question"], vv)
     if t == "outro":
@@ -463,6 +464,37 @@ def _tts_key(text, voice, rate, expressive=0, engine=""):
 def _ssml_escape(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+# ---------- SSML VIET TAY trong content ----------
+# Nguoi viet duoc dat the SSML thang trong dong loi ke ('<break time="600ms"/>',
+# '<prosody rate="-20%">…</prosody>', '<mstts:express-as style="sad">…') de cam giong doc.
+# - Azure: giu nguyen the, truyen thang vao <voice> (nguoi viet cam het num).
+# - Engine khac (edge/vbee/vieneu/gemini/eleven): boc sach the truoc khi doc,
+#   khong thi may doc "break time…" thanh loi. Phu de cung boc o parser.
+# Do that tren zh-CN-Yunxi:DragonHDFlashLatestNeural 2026-09-05: rate va break AN THAT
+# (+20% dung, +0,9s dung); express-as duoc nhan nhung yeu; prosody PITCH bi nuot —
+# giong HD la model sinh, cung mot SSML ba lan render lech F0 163→193Hz.
+_SSML_TAG_RE = _re.compile(
+    r"</?(?:break|prosody|emphasis|say-as|phoneme|lang|sub|silence|s|p)(?=[\s/>])[^>]*>"
+    r"|</?mstts:[a-zA-Z-]+(?=[\s/>])[^>]*>", _re.I)
+
+def la_ssml(t):
+    """Dong nay co the SSML viet tay khong?"""
+    return bool(_SSML_TAG_RE.search(t or ""))
+
+def _strip_ssml(t):
+    """Boc het the SSML, giu chu — cho phu de va cho engine khong hieu SSML."""
+    return _re.sub(r"\s{2,}", " ", _SSML_TAG_RE.sub("", t or "")).strip()
+
+def _ssml_escape_giu_the(t):
+    """Escape '&' va '<' KHONG thuoc the SSML hop le — chong vo XML vi chu thuong."""
+    t = _re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;", t or "")
+    holes = []
+    def _keep(m):
+        holes.append(m.group(0)); return f"\x00{len(holes)-1}\x00"
+    t = _SSML_TAG_RE.sub(_keep, t)
+    t = t.replace("<", "&lt;").replace(">", "&gt;")
+    return _re.sub(r"\x00(\d+)\x00", lambda m: holes[int(m.group(1))], t)
+
 def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None):
     """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path.
        mood -> mstts:express-as style; emo (tu detect_emotion) -> style + do manh +
@@ -474,6 +506,31 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
     voice, base_pitch = _edge_pitch_split(voice)
     pitch = _pitch_add(base_pitch, emo["pitch"] if emo else None)
     pitch_attr = f' pitch="{pitch}"' if pitch else ""
+    if la_ssml(text):
+        # SSML viet tay: nguoi viet cam het num — khong boc prosody/express-as cua tool
+        # de len nua (rate toan video KHONG ap vao dong nay).
+        inner_user = _ssml_escape_giu_the(text)
+        ssml_x = (f'<speak version="1.0" '
+                  f'xmlns="http://www.w3.org/2001/10/synthesis" '
+                  f'xmlns:mstts="https://www.w3.org/2001/mstts" '
+                  f'xml:lang="zh-CN"><voice name="{voice}">{inner_user}</voice></speak>')
+        url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+        headers = {"Ocp-Apim-Subscription-Key": key,
+                   "Content-Type": "application/ssml+xml",
+                   "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+                   "User-Agent": "chinese-youtube"}
+        req = urllib.request.Request(url, data=ssml_x.encode("utf-8"),
+                                     headers=headers, method="POST")
+        try:
+            data = urllib.request.urlopen(req, timeout=60).read()
+        except urllib.error.HTTPError as e:
+            # the viet sai -> boc sach the, doc thuong, KHONG vo job
+            print(f"[DEBUG-TTS] SSML tay loi {e.code} -> boc the doc thuong")
+            return synth_azure(_strip_ssml(text), voice, path, key, region,
+                               rate=rate, mood=mood, emo=emo)
+        with open(path, "wb") as f:
+            f.write(data)
+        return
     inner = (f'<prosody rate="{_norm_rate(rate)}"{pitch_attr}>{_ssml_escape(text)}</prosody>')
     # style: cam xuc cau (emo) > mood video > narration-relaxed
     if emo:
@@ -1049,18 +1106,19 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
             print(f"[DEBUG-TTS] synth() cau rong (chi dau cau) -> ghi im lang: {text!r}")
             _silence_mp3(c)
         elif _is_vieneu(voice):
-            synth_vieneu(text, voice.split(":", 1)[1], c, rate)
+            synth_vieneu(_strip_ssml(text), voice.split(":", 1)[1], c, rate)
         elif _is_vbee(voice):
-            synth_vbee(text, voice.split(":", 1)[1], c, rate)
+            synth_vbee(_strip_ssml(text), voice.split(":", 1)[1], c, rate)
         elif chattts:
             try:
                 import chattts_engine
                 style = chattts if isinstance(chattts, str) else "warm"
                 p = chattts_engine.STYLES.get(style, chattts_engine.STYLES["warm"])
-                chattts_engine.synth_chattts(text, c, speed=_rate_to_speed(rate), **p)
+                chattts_engine.synth_chattts(_strip_ssml(text), c,
+                                             speed=_rate_to_speed(rate), **p)
             except Exception as e:
                 print(f"[ChatTTS khong dung duoc -> chuyen sang edge-tts] {e}")
-                _synth_edge(text, _edge_voice(voice), c, rate,
+                _synth_edge(_strip_ssml(text), _edge_voice(voice), c, rate,
                             pitch=emo["pitch"] if emo else None)
         elif fpt:
             try:
@@ -1072,13 +1130,14 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
                 print(f"[FPT TTS loi (het quota?) -> chuyen sang edge {ev}] {e}")
                 _synth_edge(text, ev, c, rate, pitch=emo["pitch"] if emo else None)
         elif gemini:
-            synth_gemini(text, voice, c, gemini, rate, emo=emo)
+            synth_gemini(_strip_ssml(text), voice, c, gemini, rate, emo=emo)
         elif eleven:
-            synth_eleven(text_el, voice, c, eleven, rate, emo=emo)
+            synth_eleven(_strip_ssml(text_el), voice, c, eleven, rate, emo=emo)
         elif azure:
             synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo)
         else:
-            _synth_edge(text, _edge_voice(voice), c, rate, pitch=emo["pitch"] if emo else None)
+            _synth_edge(_strip_ssml(text), _edge_voice(voice), c, rate,
+                        pitch=emo["pitch"] if emo else None)
         if role and not _is_empty_tts(text):
             _shape_role(c, role)
     shutil.copyfile(c, path)
@@ -1816,7 +1875,7 @@ def synth_dialogue(rows, ctx, out_wav, vmap):
         v = vmap.get(r.get("sp", ""), default_v)
         rp = os.path.join(AUDIO, f"_dlg_{k:02d}.mp3")
         emo = _seg_emo(ctx, r.get("hanzi", ""))    # cam xuc rieng TUNG luot noi
-        synth(r["hanzi"], v, rp, rate=rate, azure=azure,
+        synth(r.get("tts") or r["hanzi"], v, rp, rate=rate, azure=azure,
               chattts=chattts, eleven=eleven, gemini=gemini, emo=emo)
         wp = os.path.join(AUDIO, f"_dlg_{k:02d}.wav")
         subprocess.run(["ffmpeg", "-y", "-i", rp, "-ar", "44100", "-ac", "2",

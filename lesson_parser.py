@@ -25,6 +25,14 @@ Dinh dang:
 """
 import re
 
+def generate_la_ssml(t):
+    import generate as _g
+    return _g.la_ssml(t)
+
+def generate_strip_ssml(t):
+    import generate as _g
+    return _g._strip_ssml(t)
+
 def _section_type(name):
     u = name.upper()
     if "VỰNG" in u or "VOCAB" in u or "TỪ" in u:        return "vocab"
@@ -461,7 +469,10 @@ def parse_lesson(text):
                     sp = m.group(1).strip()
                     body = it[m.end():]            # phan con lai: 'hanzi | viet'
                 hz, vi = _split_item(body)
-                rows.append({"sp": sp or "A", "hanzi": hz, "pinyin": "", "viet": vi})
+                row = {"sp": sp or "A", "hanzi": hz, "pinyin": "", "viet": vi}
+                if generate_la_ssml(hz):        # the SSML viet tay -> doc co the, hien khong the
+                    row["tts"], row["hanzi"] = hz, generate_strip_ssml(hz)
+                rows.append(row)
             segs.append({"type": "dialogue", "rows": rows})
         elif st == "practice":
             for it in sec["items"]:
@@ -478,6 +489,9 @@ def parse_lesson(text):
                 nhan = idx in nhans                  # '*' — da boc khoi chu tu luc doc dong
                 hz, vi = _split_item(it)
                 s2 = {"type": st, "hanzi": hz, "pinyin": "", "viet": vi}
+                if generate_la_ssml(hz):        # the SSML viet tay (xem generate.la_ssml)
+                    s2["tts"], s2["hanzi"] = hz, generate_strip_ssml(hz)
+                    hz = s2["hanzi"]            # pad/nhip do tren chu sach
                 bp = breath_pad(hz)                  # nhip tho theo dau cau
                 if bp is not None:
                     s2["_pad"] = bp
