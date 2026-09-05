@@ -5,9 +5,15 @@ description: Bật/tinh chỉnh lớp hạt bay (đom đóm / bụi sáng) proce
 
 # Film Particles — đom đóm / bụi nắng overlay (YC2)
 
-Lớp hạt sáng procedural trong `film.py` (repo `D:\dev\tool-multi-lang`), không cần asset
-ngoài: 10–25 hạt/khung 2–6px có glow gaussian, trôi chậm lên trên + dao động sin ngang +
-nhấp nháy alpha (đom đóm). Bắt chước lớp đốm sáng của video mẫu "Chuyện Quê Xưa".
+Lớp hạt sáng procedural trong `film.py` (repo `~/project/tool-multi-lang`), không cần asset
+ngoài: hạt có glow gaussian, trôi chậm lên trên + dao động sin ngang + nhấp nháy alpha
+(đom đóm). Bắt chước lớp đốm sáng của video mẫu "Chuyện Quê Xưa".
+
+> **Cập nhật 2026-09-04** — ba thứ đã đổi, số cũ bên dưới không còn đúng:
+> 1. Các num độ đậm tách ra thành hằng `FLY_*` ở đầu `film.py`, **chỉ áp cho lớp đom đóm**
+>    (`blink=True`); lớp bụi giữ số cũ, không thì bụi nắng ban ngày nổi thành đốm trắng.
+> 2. `auto` **không còn đoán ngày/đêm bằng độ sáng ảnh** — nó đọc lời tả `@bg`.
+> 3. Kịch bản đè được bằng `@fx` viết thẳng trong `content.md`.
 
 ## Cơ chế
 
@@ -27,31 +33,51 @@ nhấp nháy alpha (đom đóm). Bắt chước lớp đốm sáng của video m
 
 ## Bảng preset + điều kiện auto
 
-| Preset | Màu (RGB) | Alpha | Số hạt | Auto chọn khi (mean HSV ảnh chủ đạo) |
+| Preset | Màu (BGR) | Alpha | Số hạt | Auto chọn khi |
 |---|---|---|---|---|
-| `warm` | 255,190,90 vàng ấm | 0.85 | 12–20 | V < 150 VÀ mean R > mean B + 8 (tối + ấm: hoàng hôn, đèn dầu) |
-| `green` | 180,220,120 xanh đom đóm | 0.80 | 12–20 | V < 150 VÀ không ấm (tối + lạnh: đêm) |
-| `dust` | 245,240,235 trắng mờ | 0.32 | 14–25 | V ≥ 150 (cảnh sáng ngày — bụi nắng, alpha thấp) |
+| `warm` | 70,195,255 vàng ấm | 1.00 | 46–66 | `@bg` nói ĐÊM, không phải đèn dầu, ảnh tông ấm |
+| `green` | 120,240,200 vàng-xanh | 1.00 | 46–66 | `@bg` nói ĐÊM, không phải đèn dầu, ảnh tông lạnh |
+| `dust` | 235,240,245 trắng mờ | 0.30 | 34–52 | còn lại (ban ngày) |
+| `dust` đậm | như trên | 0.42 | 30–44 | ĐÊM nhưng là đặc tả dưới đèn dầu (`P-VANG`) |
 
-Mode `firefly` = ép nhóm đom đóm nhưng vẫn chọn `warm`/`green` theo tông ấm/lạnh;
-mode `dust` = ép bụi nắng; `none` = tắt.
+**Luật auto** (`_p_canh_dem` + `_p_den_dau`):
+
+- `@bg` có `night` `moonlit` `starlit` `dusk` `lantern` `oil-lamp`… mà không có `morning`
+  `daylight` `sunlit`… → **đêm**. Ngược lại → **ngày**. Không đoán được → coi là ngày:
+  đom đóm là hiệu ứng mạnh, chỉ thả khi kịch bản nói rõ.
+- Đêm **nhưng** `@bg` có chữ ký đèn dầu (`single oil-lamp flame`, `lamplight`) → đặc tả
+  trong nhà → **bụi trong quầng đèn**, không phải đom đóm.
+
+⛔ **Đừng quay lại đo độ sáng pixel.** Đã thử ngưỡng V<150: tranh tông trầm nên 19/20 ảnh
+bài 17 bị coi là đêm, đom đóm bay giữa cánh đồng buổi sáng. Ảnh cảnh đêm (V=110,7) còn
+sáng hơn ảnh ban ngày (V=72,5) — pixel không tách được ngày/đêm cho loại tranh này.
 
 ## Opts
 
 | Khóa | Mặc định | Ý nghĩa |
 |---|---|---|
-| `opts["particles"]` | `"auto"` | `none` \| `firefly` \| `dust` \| `auto` — áp cho cả phim. |
-| `scene["particles"]` | — | Ghi đè per-scene trong JSON phân cảnh (vd cảnh trong nhà → `"none"`). |
+| `opts["particles"]` | `"auto"` | `none` \| `firefly` \| `dust` \| `smoke` \| `mist` \| `leaves` \| `auto` — cả phim. |
+| `scene["particles"]` | — | Ghi đè từng cảnh. Trang `/film` lấy từ dòng `@fx` trong kịch bản. |
+
+**`@fx` — cách dùng thật cho kênh Chuyện Quê Xưa.** Viết trong `content.md` ngay dưới `@bg`:
+
+```
+@fx bui        <!-- trong chuồng trâu, không phải ngoài trời -->
+```
+
+Nhận `domdom` · `bui` · `khoi` · `may` · `la` · `none`, ghép bằng `+`. `expand_bg.py` mang
+nó sang `content-film.md`; chú thích cùng dòng được bóc. Cần vì prompt `@bg` bung từ `@set`
+nên cảnh trong nhà vẫn dính đầy chữ ngoài trời — không luật từ khoá nào đoán đúng hết.
 
 Chỉ có ở đường cv2 (`_kb_video`); lỗi phân tích ảnh → bỏ hạt cảnh đó, không chặn phim.
 
 ## Lệnh build mẫu
 
 ```bash
-D:\dev\tool-multi-lang\venv\Scripts\python.exe build_film_story.py data/film_xxx.json
-# build_film_story.py đã set particles="auto" trong opts; ép tắt 1 cảnh:
-#   trong JSON: {"id": 5, "particles": "none", ...}
+cd ~/project/tool-multi-lang && .venv/bin/python app.py     # trang /film, cổng 5001
 ```
+
+⛔ **`python3 app.py` là mất sạch hạt bay** — xem Troubleshooting bên dưới.
 
 ## Checklist QA sau khi render
 
@@ -66,12 +92,17 @@ D:\dev\tool-multi-lang\venv\Scripts\python.exe build_film_story.py data/film_xxx
 
 ## Troubleshooting
 
-- **Không thấy hạt**: thiếu cv2 (`film._HAVE_CV2 == False`) → fallback zoompan BỎ QUA
-  hạt (by design). Cài `opencv-python<5` rồi restart Flask.
-- **Cảnh sáng "không có hạt"**: dust alpha 0.32 rất nhẹ — nhìn kỹ vùng trời/đồng; muốn
-  rõ hơn ép `scene["particles"]="firefly"` (chỉ nên cho hoàng hôn/đêm).
-- **Preset sai tông** (vd cảnh đêm ra vàng ấm): ảnh có nguồn lửa lớn kéo mean R lên —
-  ép `scene["particles"]` per-scene.
+- **Không thấy hạt**: gần như luôn là `film._HAVE_CV2 == False` → nhánh zoompan BỎ QUA hạt
+  (by design), **không log gì cả**. Nguyên nhân hay gặp nhất không phải thiếu thư viện mà là
+  **chạy sai trình thông dịch**: `python3` hệ thống không có cv2, `.venv/bin/python` mới có.
+  Mất theo cả chuyển động máy quay và dip-to-black. Kiểm:
+  `.venv/bin/python -c "import film; print(film._HAVE_CV2)"` phải in `True`.
+  Đánh đổi khi bật: nhánh cv2 vẽ từng frame bằng Python nên chậm ~2×.
+- **Cảnh sáng "không có hạt"**: dust alpha 0.30 rất nhẹ — đúng thiết kế, đừng vặn lên.
+- **Đom đóm mờ quá**: vặn `FLY_*` ở đầu `film.py`. Num ăn thua nhất là `FLY_BLINK_MIN`
+  (độ sáng GIỮA hai lần nháy) — số cũ 0,06 làm hạt tắt hẳn nên chỉ 7–11/33 con nhìn thấy
+  được tại một thời điểm; giờ 0,22, đom đóm vẫn âm ỉ như ngoài đời.
+- **Thả sai cảnh** (đom đóm trong nhà, hoặc giữa ban ngày): ép `@fx` cho shot đó.
 - **Hạt "nhảy" giữa 2 lần render**: chỉ xảy ra nếu ai đó đổi seed khỏi chỉ số cảnh —
   giữ nguyên `_particle_field(i, ...)`, KHÔNG dùng random không seed.
 - **Hạt đè lên chữ**: không thể — phụ đề overlay ở bước ffmpeg SAU khi hạt đã vẽ vào

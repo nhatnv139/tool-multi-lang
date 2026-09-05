@@ -1879,6 +1879,12 @@ def _parse_film(content):
                 voices_spec = lp._parse_voices(val)
             elif k == "bg" and cur is not None:
                 cur["bg"] = val.strip()          # prompt ảnh nền AI riêng của cảnh (EN, có thể tả nhân vật)
+            elif k == "fx" and cur is not None:
+                # LỚP HẠT của riêng cảnh này, đè lên lựa chọn tự động:
+                #   @fx domdom · @fx bui · @fx khoi · @fx la · @fx none · @fx domdom+la
+                # bỏ chú thích '<!-- ... -->' viết cùng dòng, nếu không nó chui vào
+                # tên lớp hạt và film.py tra không ra -> im lặng mất hiệu ứng
+                cur["particles"] = re.sub(r"<!--.*?-->", "", val).strip().lower()
             continue
         if line.startswith("#"):
             cur = {"label": line.lstrip("#").strip(), "subs": []}
@@ -1955,6 +1961,8 @@ def film_page():
                            azure_voices=AZURE_VOICES, azure_ready=bool(akey),
                            gemini_ready=bool(load_gemini()),
                            together_ready=bool(_load_together_key()),
+                           openai_ready=bool(_load_openai_key()),
+                           openai_models=OPENAI_IMG_MODELS,
                            vi_voices=VI_VOICES, vieneu_voices=VIENEU_VOICES,
                            eleven_voices=ELEVEN_VOICES, eleven_ready=bool(load_eleven()),
                            fpt_voices=FPT_VOICES, fpt_ready=bool(load_fpt()),
@@ -2152,6 +2160,46 @@ def _ai_together(prompt, w=1024, h=576):
     raise RuntimeError("Together không trả ảnh: " + str(resp)[:200])
 
 
+def _load_openai_key():
+    try:
+        return (json.load(open(os.path.join(ROOT, "openai_config.json"),
+                               encoding="utf-8")).get("api_key") or "").strip()
+    except Exception:
+        return os.environ.get("OPENAI_API_KEY", "").strip()
+
+
+# Model anh OpenAI cho phep chon tren trang /film. Gia = $/100 anh khổ 1536x1024,
+# theo bang gia developers.openai.com/api/docs/pricing (2026-09-04), cong prompt ~200 token.
+# KHONG co "gpt-image-1.5-mini" — /v1/models cua key nay chi co 6 model, mini chi co doi 1.
+OPENAI_IMG_MODELS = [
+    ("gpt-image-1-mini", "gpt-image-1-mini — rẻ nhất",   {"low": 0.36, "medium": 1.29, "high": 5.01}),
+    # gpt-image-2 dùng bảng token khác, rẻ hơn ước tính ban đầu: low đo thật = 158 token
+    # (2026-09-05, usage API). medium/high chưa đo — tạm theo tỉ lệ.
+    ("gpt-image-2",      "gpt-image-2 — mới nhất",       {"low": 0.57, "medium": 1.96, "high": 7.46}),
+    ("gpt-image-1.5",    "gpt-image-1.5 — đắt hơn 2",    {"low": 1.38, "medium": 5.12, "high": 19.97}),
+]
+_OPENAI_MODEL_IDS = {m for m, _, _ in OPENAI_IMG_MODELS}
+
+
+def _ai_openai(prompt, model=None, quality=None):
+    """OpenAI Images -> PNG bytes. Thu tu uu tien model/muc net:
+       tham so (o chon tren /film) > openai_config.json > mac dinh gpt-image-1-mini/medium.
+    gpt-image-1 (model cu tool tro truoc day) dat gap 5 lan mini — dung dat lai."""
+    import ai_visuals as _av
+    key = _load_openai_key()
+    if not key:
+        raise RuntimeError("chua co key OpenAI (openai_config.json)")
+    cfg = {}
+    try:
+        cfg = json.load(open(os.path.join(ROOT, "openai_config.json"), encoding="utf-8"))
+    except Exception:
+        pass
+    model = model if model in _OPENAI_MODEL_IDS else (cfg.get("model") or _av.OPENAI_IMG_MODEL)
+    quality = quality if quality in ("low", "medium", "high") else (cfg.get("quality") or "medium")
+    return _av.gen_openai_image(prompt, key=key, model=model, quality=quality,
+                                size=cfg.get("size") or "1536x1024")
+
+
 def _ai_imagen(prompt):
     """Google Imagen 4 (Gemini API :predict) -> PNG bytes. Cần key có quyền Imagen."""
     import ai_visuals
@@ -2178,10 +2226,131 @@ def _ai_gemini_nano(prompt):
 
 
 _AI_ENGINES = {                                       # backend -> (nhãn hiển thị, hàm -> PNG bytes)
+    "openai":   ("OpenAI gpt-image", _ai_openai),
     "together": ("Together FLUX", _ai_together),
     "imagen":   ("Imagen 4",      _ai_imagen),
     "gemini":   ("Gemini Nano",   _ai_gemini_nano),
 }
+
+
+# ---------- OpenAI BATCH cho ảnh nền phim: rẻ ½, trả trong ≤24h ----------
+# developers.openai.com/api/docs/guides/batch — nhận /v1/images/generations.
+# Luồng: gửi (JSONL -> /files -> /batches) ghi vào output/batches.json; hôm sau bấm
+# "lấy về" -> /batches/{id} -> tải output file -> ghi ảnh vào uploads/ -> trả path từng cảnh.
+BATCHES_JSON = os.path.join(OUT, "batches.json")
+
+
+def _oa_api(path, key, data=None, raw=None, ctype="application/json"):
+    import urllib.request, urllib.error
+    body = raw if raw is not None else (json.dumps(data).encode() if data else None)
+    req = urllib.request.Request("https://api.openai.com/v1" + path, data=body,
+                                 method="POST" if body else "GET",
+                                 headers={"Authorization": "Bearer " + key,
+                                          **({"Content-Type": ctype} if body else {})})
+    try:
+        return urllib.request.urlopen(req, timeout=120).read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"OpenAI {e.code}: {e.read().decode('utf-8', 'ignore')[:200]}")
+
+
+def _batches_load():
+    try:
+        return json.load(open(BATCHES_JSON, encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _batches_save(d):
+    json.dump(d, open(BATCHES_JSON, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
+def _film_prompt(d):
+    """Cùng cách ghép prompt với film_ai_bg, để ảnh batch giống hệt ảnh gọi thẳng."""
+    style = (d.get("style") or "2d").strip()
+    base = (d.get("prompt") or "").strip() or _film_bg_base(d.get("label", ""))
+    tmpl = _BG_STYLES.get(style, _BG_STYLES["2d"])
+    suffix = "" if style == "story" else " (empty establishing shot, wide angle)"
+    return tmpl.replace("{S}", base + suffix) + ", no text, no watermark"
+
+
+@app.route("/film/ai_bg_batch", methods=["POST"])
+def film_ai_bg_batch():
+    """Gửi MỘT batch cho nhiều cảnh. body: {scenes:[{i, prompt, label}], style, oa_model, oa_quality}"""
+    d = request.get_json(force=True) or {}
+    key = _load_openai_key()
+    if not key:
+        return jsonify(error="chưa có key OpenAI (openai_config.json)"), 400
+    scenes = [sc for sc in (d.get("scenes") or []) if isinstance(sc, dict)]
+    if not scenes:
+        return jsonify(error="không có cảnh nào để gửi"), 400
+    model = d.get("oa_model") if d.get("oa_model") in _OPENAI_MODEL_IDS else "gpt-image-1-mini"
+    quality = d.get("oa_quality") if d.get("oa_quality") in ("low", "medium", "high") else "medium"
+    lines = []
+    for sc in scenes:
+        lines.append(json.dumps({
+            "custom_id": f"scene_{int(sc.get('i', 0))}", "method": "POST",
+            "url": "/v1/images/generations",
+            "body": {"model": model, "prompt": _film_prompt({**sc, "style": d.get("style")}),
+                     "size": "1536x1024", "quality": quality, "n": 1}}, ensure_ascii=False))
+    jsonl = ("\n".join(lines) + "\n").encode("utf-8")
+    ranh = "----film_batch_" + str(int(time.time()))
+    body = (f"--{ranh}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
+            f"--{ranh}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"film.jsonl\"\r\n"
+            f"Content-Type: application/jsonl\r\n\r\n").encode() + jsonl + f"\r\n--{ranh}--\r\n".encode()
+    try:
+        f = json.loads(_oa_api("/files", key, raw=body, ctype=f"multipart/form-data; boundary={ranh}"))
+        b = json.loads(_oa_api("/batches", key, data={"input_file_id": f["id"],
+                                                       "endpoint": "/v1/images/generations",
+                                                       "completion_window": "24h"}))
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 502
+    reg = _batches_load()
+    reg[b["id"]] = {"n": len(scenes), "model": model, "quality": quality, "status": b.get("status"),
+                    "sent": time.strftime("%Y-%m-%d %H:%M"), "title": (d.get("title") or "")[:80]}
+    _batches_save(reg)
+    return jsonify(batch_id=b["id"], status=b.get("status"), n=len(scenes), model=model, quality=quality)
+
+
+@app.route("/film/ai_bg_batch/<bid>")
+def film_ai_bg_batch_get(bid):
+    """Hỏi trạng thái; xong thì tải ảnh về uploads/ và trả {paths: {i: path}}."""
+    import base64
+    key = _load_openai_key()
+    if not key:
+        return jsonify(error="chưa có key OpenAI"), 400
+    try:
+        b = json.loads(_oa_api("/batches/" + bid, key))
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 502
+    rc = b.get("request_counts") or {}
+    reg = _batches_load()
+    if bid in reg:
+        reg[bid]["status"] = b.get("status"); _batches_save(reg)
+    out = {"batch_id": bid, "status": b.get("status"),
+           "done": rc.get("completed", 0), "total": rc.get("total", 0), "failed": rc.get("failed", 0)}
+    if b.get("status") != "completed" or not b.get("output_file_id"):
+        return jsonify(out)
+    try:
+        content = _oa_api("/files/" + b["output_file_id"] + "/content", key).decode("utf-8")
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 502
+    paths, errs = {}, {}
+    for line in content.splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        i = r["custom_id"].split("_", 1)[1]
+        resp = r.get("response") or {}
+        if resp.get("status_code") != 200:
+            errs[i] = str(resp.get("body"))[:120]; continue
+        png = base64.b64decode(resp["body"]["data"][0]["b64_json"])
+        name = f"filmai_batch_{bid[-8:]}_{i}.png"
+        dst = os.path.join(UP, name)
+        with open(dst, "wb") as fh:
+            fh.write(png)
+        paths[i] = {"path": dst, "url": "/filmimg/" + name}
+    out.update(paths=paths, errors=errs)
+    return jsonify(out)
 
 
 @app.route("/film/ai_bg", methods=["POST"])
@@ -2202,7 +2371,12 @@ def film_ai_bg():
     if backend in _AI_ENGINES:
         label, fn = _AI_ENGINES[backend]
         try:
-            png = fn(prompt + ", no text, no watermark")
+            if backend == "openai":
+                png = fn(prompt + ", no text, no watermark",
+                         model=(d.get("oa_model") or "").strip(),
+                         quality=(d.get("oa_quality") or "").strip())
+            else:
+                png = fn(prompt + ", no text, no watermark")
             name = f"filmai_{int(time.time()*1000)}_{seed}.png"
             dst = os.path.join(UP, name)
             with open(dst, "wb") as f:
@@ -2419,7 +2593,10 @@ def run_film_job(job_id, data):
             spec = sfx_specs[i] if i < len(sfx_specs) else "auto"
             sfx = _resolve_sfx(spec, sc["label"]) if scene_sfx else ""
             fs = {"clip": clip, "subs": sc["subs"], "sfx": sfx,
-                  "narrate": narrate, "keep_audio": keep_audio}
+                  "narrate": narrate, "keep_audio": keep_audio,
+                  "bg": sc.get("bg", "")}     # loi ta canh -> film.py chon lop hat bay
+            if sc.get("particles"):
+                fs["particles"] = sc["particles"]      # '@fx ...' cua canh -> de tay len auto
             # Loi ke nap san cho canh nay (mp3/wav tu Vbee Studio…) -> film.py bo qua TTS
             na = str(narr_files[i] if i < len(narr_files) else "").strip()
             if na and os.path.exists(na):

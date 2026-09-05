@@ -196,11 +196,28 @@
         <label style="margin:0">🤖 Engine</label>
         <select id="bgEngine" style="flex:0 0 340px">
           <option value="pollinations">Pollinations · FLUX (free, không cần key)</option>
+          <option value="openai" {% if not openai_ready %}disabled{% endif %}>OpenAI · gpt-image-1-mini (rẻ nhất ~$1,3 / 100 ảnh · cần credit)</option>
           <option value="together" {% if not together_ready %}disabled{% endif %}>Together.ai · FLUX schnell (cần nạp $5 lấy key)</option>
           <option value="imagen" {% if not gemini_ready %}disabled{% endif %}>Google · Imagen 4 (cần key CÓ billing)</option>
           <option value="gemini" {% if not gemini_ready %}disabled{% endif %}>Google · Gemini / Nano Banana (cần key CÓ billing)</option>
         </select>
+        <span id="oaOpts" style="display:none;gap:6px;align-items:center">
+          <select id="oaModel">
+            {% for mid, mlabel, mprice in openai_models %}
+            <option value="{{ mid }}" data-price='{{ mprice|tojson }}'>{{ mlabel }}</option>
+            {% endfor %}
+          </select>
+          <select id="oaQuality">
+            <option value="low">low</option>
+            <option value="medium" selected>medium</option>
+            <option value="high">high</option>
+          </select>
+          <b id="oaPrice" class="hint"></b>
+        </span>
         <span class="hint">
+          <b>OpenAI</b>: chọn model + mức nét ở hai ô bên trên, giá hiện ngay ($ / 100 ảnh khổ 1536×1024).
+          Rẻ nhất là <code>gpt-image-1-mini · low</code>. <code>mini·medium</code> và <code>2·low</code> giá gần
+          bằng nhau — mắt phải so xem cái nào đẹp hơn.
           Prompt đã tối ưu (câu tự nhiên → ảnh đẹp hơn). Muốn <b>nét hơn nữa</b>: đăng ký free ở
           <code>enter.pollinations.ai</code> → lưu <code>pollinations_config.json</code> {"token":"…"} để mở lại model <b>FLUX</b>
           (mặc định ẩn danh dùng Sana). Google/Together đã bỏ free-tier ảnh.
@@ -216,6 +233,11 @@
           <option value="ink">Thuỷ mặc Trung Hoa</option>
         </select>
         <button class="btn-ghost" type="button" onclick="genAll()">✨ Tạo ảnh AI cho mọi cảnh trống</button>
+        <button class="btn-ghost" type="button" id="batchSendBtn" onclick="batchSend()" style="display:none"
+                title="OpenAI Batch API: rẻ một nửa, trả trong tối đa 24 giờ (thường vài chục phút). Gửi tối nay, mai lấy.">
+          📦 Gửi Batch (rẻ ½ · ≤24h)</button>
+        <button class="btn-ghost" type="button" id="batchGetBtn" onclick="batchGet()" style="display:none">
+          ⬇️ Lấy ảnh batch về</button>
         <span id="aiAllSt" class="hint"></span>
       </div>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -374,7 +396,7 @@ async function upSfx(i, inp){
   catch(e){ st.innerHTML='<span class="err">'+e.message+'</span>'; }
 }
 
-const ENGNAME={pollinations:'FLUX',together:'Together FLUX',imagen:'Imagen 4',gemini:'Gemini'};
+const ENGNAME={pollinations:'FLUX',openai:'gpt-image',together:'Together FLUX',imagen:'Imagen 4',gemini:'Gemini'};
 async function genOne(i){
   const backend=document.getElementById('bgEngine').value;
   const lbl=document.getElementById('cf'+i);
@@ -383,7 +405,9 @@ async function genOne(i){
   const style=document.getElementById('bgStyle').value;
   try{
     const r=await fetch('/film/ai_bg',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt,label:SCENES[i].label,subs:SCENES[i].subs,style,seed:SEEDS[i],backend})});
+        body:JSON.stringify({prompt,label:SCENES[i].label,subs:SCENES[i].subs,style,seed:SEEDS[i],backend,
+                             oa_model:document.getElementById('oaModel').value,
+                             oa_quality:document.getElementById('oaQuality').value})});
     const j=await r.json(); if(j.error) throw new Error(j.error);
     CLIPS[i]=j.path;
     const pv=document.getElementById('pv'+i); pv.src=j.url+'?t='+Date.now(); pv.style.display='block';
@@ -393,6 +417,72 @@ async function genOne(i){
 }
 
 function reroll(i){ SEEDS[i]=Math.floor(Math.random()*1e6); genOne(i); }
+
+// ===== OpenAI BATCH: gui mot lan moi canh trong, hom sau lay ve =====
+// batch id luu localStorage theo tieu de bai -> dong tab mo lai van lay duoc.
+function batchKey(){ const t=(document.getElementById('content').value.match(/^@title\s+(.+)$/m)||[])[1]||'noname'; return 'filmBatch:'+t.trim().slice(0,80); }
+function batchRefreshBtn(){
+  const eng=document.getElementById('bgEngine').value;
+  const has=!!localStorage.getItem(batchKey());
+  document.getElementById('batchSendBtn').style.display = eng==='openai' ? '' : 'none';
+  document.getElementById('batchGetBtn').style.display = (eng==='openai'&&has) ? '' : 'none';
+}
+async function batchSend(){
+  const st=document.getElementById('aiAllSt');
+  const scenes=[]; SCENES.forEach((s,i)=>{ if(!CLIPS[i]) scenes.push({i,label:s.label,prompt:document.getElementById('pr'+i).value.trim()}); });
+  if(!scenes.length){ st.textContent='Mọi cảnh đã có nền.'; return; }
+  const m=document.getElementById('oaModel'), q=document.getElementById('oaQuality').value;
+  const price=(JSON.parse(m.options[m.selectedIndex].dataset.price||'{}')[q]||0)/2;
+  if(!confirm('Gửi '+scenes.length+' cảnh qua Batch API?\n'+m.value+' · '+q+' · ≈ $'+(price*scenes.length/100).toFixed(2)+' (đã giảm 50%)\nẢnh về trong ≤24 giờ, thường nhanh hơn. Mai bấm "Lấy ảnh batch về".')) return;
+  st.textContent='⏳ đang gửi batch…';
+  try{
+    const r=await fetch('/film/ai_bg_batch',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scenes,style:document.getElementById('bgStyle').value,oa_model:m.value,oa_quality:q,
+                           title:(document.getElementById('content').value.match(/^@title\s+(.+)$/m)||[])[1]||''})});
+    const j=await r.json(); if(j.error) throw new Error(j.error);
+    localStorage.setItem(batchKey(), j.batch_id);
+    st.innerHTML='<span class="ok">✓ đã gửi batch '+esc(j.batch_id)+' ('+j.n+' cảnh, '+esc(j.model)+' · '+esc(j.quality)+')</span> — mai bấm ⬇️ Lấy ảnh batch về';
+    batchRefreshBtn();
+  }catch(e){ st.innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
+}
+async function batchGet(){
+  const st=document.getElementById('aiAllSt'); const bid=localStorage.getItem(batchKey());
+  if(!bid){ st.textContent='Chưa gửi batch nào cho bài này.'; return; }
+  st.textContent='⏳ hỏi OpenAI…';
+  try{
+    const r=await fetch('/film/ai_bg_batch/'+encodeURIComponent(bid)); const j=await r.json();
+    if(j.error) throw new Error(j.error);
+    if(j.status!=='completed'){ st.textContent='⏳ batch '+j.status+' — xong '+j.done+'/'+j.total+(j.failed?(' · hỏng '+j.failed):'')+'. Thử lại sau.'; return; }
+    let n=0;
+    for(const [i,p] of Object.entries(j.paths||{})){
+      CLIPS[+i]=p.path; n++;
+      const pv=document.getElementById('pv'+i); if(pv){ pv.src=p.url+'?t='+Date.now(); pv.style.display='block'; }
+      const lbl=document.getElementById('cf'+i); if(lbl) lbl.innerHTML='<span class="ok">✓ ảnh AI (batch)</span>';
+    }
+    const errs=Object.keys(j.errors||{});
+    st.innerHTML='<span class="ok">✓ đã lấy '+n+' ảnh</span>'+(errs.length?(' <span class="err">· hỏng cảnh '+errs.join(', ')+' — bấm ✨ để gen bù</span>'):'');
+    if(!errs.length) localStorage.removeItem(batchKey());
+    batchRefreshBtn();
+  }catch(e){ st.innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
+}
+
+// O chon model OpenAI: chi hien khi engine = openai; gia doc tu data-price cua option.
+function oaRefresh(){
+  batchRefreshBtn();
+  const eng=document.getElementById('bgEngine').value;
+  const box=document.getElementById('oaOpts');
+  box.style.display = eng==='openai' ? 'inline-flex' : 'none';
+  if(eng!=='openai') return;
+  const m=document.getElementById('oaModel'); const q=document.getElementById('oaQuality').value;
+  const price=JSON.parse(m.options[m.selectedIndex].dataset.price||'{}')[q];
+  const n=SCENES.length||0;
+  document.getElementById('oaPrice').textContent = price==null ? '' :
+    '≈ $'+price.toFixed(2)+'/100 ảnh' + (n ? ' · bài này '+n+' cảnh ≈ $'+(price*n/100).toFixed(2) : '');
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  ['bgEngine','oaModel','oaQuality'].forEach(id=>document.getElementById(id).addEventListener('change',oaRefresh));
+  oaRefresh();
+});
 
 async function genAll(){
   const st=document.getElementById('aiAllSt');

@@ -13,7 +13,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # ---- Model mac dinh (doi duoc qua config) ----
 VEO_MODEL      = "veo-3.1-fast-generate-preview"   # video-gen Gemini (fast: re+nhanh)
-OPENAI_IMG_MODEL = "gpt-image-1"                   # anh OpenAI
+OPENAI_IMG_MODEL = "gpt-image-1-mini"              # anh OpenAI — RE NHAT ($8/1M token ra;
+                                                   # gpt-image-1 cu la $40/1M, dat gap 5)
 GEMINI_IMG_MODEL = "imagen-4.0-fast-generate-001"  # anh Gemini (fallback neu OpenAI ket)
 
 # 10 o input theo thu tu hien thi tren web -> (khoa, nhan tieng Viet)

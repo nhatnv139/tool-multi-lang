@@ -699,14 +699,17 @@ def _p_sprite(r):
     r = int(max(1, min(5, r)))
     k = ("glow", r)
     if k not in _P_SPRITES:
-        sig = r * 1.6
+        # QUANG rong va day hon ban dau (sig 1.6r -> 2.2r, tron 0.5 -> 0.8): phong to
+        # ra thi hat cu chi la mot cham cung, khong co vung sang toa quanh nen nhin
+        # giong bui hon giong dom dom.
+        sig = r * FLY_HALO_SIG
         S = (int(sig * 6) | 1)
         c = S // 2
         yy, xx = _np.mgrid[0:S, 0:S]
         d2 = ((xx - c) ** 2 + (yy - c) ** 2).astype(_np.float32)
         core = _np.exp(-d2 / (2.0 * (r * 0.65) ** 2))      # loi sang gon
         glow = _np.exp(-d2 / (2.0 * sig ** 2))             # quang mem xung quanh
-        _P_SPRITES[k] = _np.clip(core + 0.5 * glow, 0.0, 1.0).astype(_np.float32)
+        _P_SPRITES[k] = _np.clip(core + FLY_HALO_MIX * glow, 0.0, 1.0).astype(_np.float32)
     return _P_SPRITES[k]
 
 
@@ -748,9 +751,19 @@ def _p_leaf(size, ang):
 
 # kind: glow = cong sang (dom dom / bui nang) · puff = khoi-may (tron alpha)
 #       leaf = la bay (tron alpha, co xoay). n = so hat @1920x1080.
+# ---------- DOM DOM: cac num chinh do "dam" ----------
+# Do tren canh dem thuc te: voi so cu chi 7-11/33 con co alpha > 0.15 tai mot thoi diem,
+# ban kinh loi 1-3 px tren khung 1920 -> nhin nhu vai hat bui, khong ra dom dom.
+FLY_A_LAYER   = (0.62, 0.26)   # cu (0.45, 0.28) — alpha nen theo tang xa/giua/gan
+FLY_BLINK_MIN = 0.22           # cu 0.06 — do sang GIUA hai lan nhay (dom dom that van am i)
+FLY_BLINK_W   = 0.50           # cu 0.34 — be rong cu nhay, to hon = sang lau hon
+FLY_R_BASE    = 2              # cu 1 — ban kinh loi (sprite tran o 5)
+FLY_HALO_SIG  = 2.2            # cu 1.6 — do rong quang sang quanh hat
+FLY_HALO_MIX  = 0.80           # cu 0.50 — do day cua quang
+
 _P_PRESETS = {
-    "warm":   {"kind": "glow", "col": (90, 190, 255),  "a": 0.85, "n": (26, 40), "blink": True},
-    "green":  {"kind": "glow", "col": (130, 225, 175), "a": 0.80, "n": (26, 40), "blink": True},
+    "warm":   {"kind": "glow", "col": (70, 195, 255),  "a": 1.00, "n": (46, 66), "blink": True},
+    "green":  {"kind": "glow", "col": (120, 240, 200), "a": 1.00, "n": (46, 66), "blink": True},
     "dust":   {"kind": "glow", "col": (235, 240, 245), "a": 0.30, "n": (34, 52), "blink": False},
     "smoke":  {"kind": "puff", "col": (176, 178, 184), "a": 0.14, "n": (6, 9)},
     "mist":   {"kind": "puff", "col": (214, 221, 233), "a": 0.09, "n": (5, 8)},
@@ -762,7 +775,47 @@ _P_ALIAS = {"domdom": "firefly", "dom-dom": "firefly", "bui": "dust", "buinang":
             "la": "leaves", "labay": "leaves", "leaf": "leaves", "fog": "mist"}
 
 
-def _particle_preset(img, mode="auto"):
+# Tu khoa doc tu loi ta canh (@bg) de biet DEM hay NGAY, TRONG NHA hay NGOAI TROI.
+# Do bang pixel khong tach duoc: canh dem soi den (anh 08, V=110.7) con sang hon canh
+# ngay am u (anh 05, V=72.5) -> nguong 150 cu cho dom dom bay giua ban ngay o 19/20 anh.
+_P_DEM = ("night", "midnight", "moonlit", "moonlight", "starlit", "star-lit",
+          "oil-lamp", "oil lamp", "lamplight", "lamp light", "lantern", "candle",
+          "dusk", "nightfall", "evening", "by lamp")
+_P_NGAY = ("morning", "daylight", "daytime", "noon", "afternoon", "sunlight",
+           "sunlit", "sunrise", "midday", "harsh white")
+
+# Chu ky cua canh DAC TA DUOI DEN DAU (bang mau P-VANG trong kich ban chu de 12):
+# dem that, nhung o TRONG, mot ngon den — tha dom dom vao day la sai. Cho bui bay
+# trong quang den, dep hon nhieu.
+_P_DEN_DAU = ("single oil-lamp flame", "single oil lamp flame", "lamplight",
+              "by lamp light", "one oil lamp", "in lamp light")
+
+
+def _p_den_dau(bg):
+    return any(k in (bg or "").lower() for k in _P_DEN_DAU)
+
+
+def _p_canh_dem(bg):
+    """Doc @bg -> co phai canh DEM khong. None = kich ban khong noi gi.
+
+    KHONG co doan trong nha / ngoai troi o day: prompt @bg duoc bung tu @set nen canh
+    trong nha van dinh day chu ngoai troi ('a yard of beaten earth', 'bamboo fence'...)
+    -> moi luat tu khoa deu doan sai. Canh nao muon khac thi ghi thang '@fx' trong
+    kich ban (vd '@fx bui' cho dac ta trong chuong trau).
+    """
+    t = (bg or "").lower()
+    if not t:
+        return None
+    dem = any(k in t for k in _P_DEM)
+    ngay = any(k in t for k in _P_NGAY)
+    if dem and not ngay:
+        return True
+    if ngay and not dem:
+        return False
+    return None
+
+
+def _particle_preset(img, mode="auto", bg=""):
     """Tra DANH SACH lop hat se ve (nhieu lop chong nhau duoc) — [] la tat han.
     mode: none|firefly|dust|smoke|mist|leaves|auto, ghep nhieu lop bang dau '+'
     (vd 'firefly+leaves'). auto: doc tong mau anh -> canh toi chon dom dom (vang am
@@ -777,14 +830,24 @@ def _particle_preset(img, mode="auto"):
     im = cv2.imread(img) if isinstance(img, str) else img
     if im is not None:
         small = cv2.resize(im, (64, 36), interpolation=cv2.INTER_AREA)
-        dark = float(cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 2].mean()) < 150
+        dark = float(cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 2].mean()) < 105
         warm = float(small[..., 2].mean()) > float(small[..., 0].mean()) + 8   # R > B
+    # Loi ta canh dang tin hon pixel -> de no ghi de ket qua do mau.
+    # Khong doan duoc thi coi la BAN NGAY: dom dom la hieu ung manh, chi tha khi
+    # kich ban noi ro la dem. Doan bay thi ra canh cong duong giua trua day dom dom.
+    if bg:
+        dark = bool(_p_canh_dem(bg))
 
     out = []
     for p in parts:
         if p == "auto":
-            out.append(dict(_P_PRESETS["warm" if warm else "green"] if dark
-                            else _P_PRESETS["dust"]))
+            if dark and _p_den_dau(bg):
+                _d = dict(_P_PRESETS["dust"])     # bui trong quang den, day hon bui ngay
+                _d["a"], _d["n"] = 0.42, (30, 44)
+                out.append(_d)
+            else:
+                out.append(dict(_P_PRESETS["warm" if warm else "green"] if dark
+                                else _P_PRESETS["dust"]))
             mist = dict(_P_PRESETS["mist"])      # lop may mong -> tao chieu sau
             mist["a"] = mist["a"] * (0.8 if dark else 1.0)
             out.append(mist)
@@ -825,6 +888,7 @@ def _particle_field(seed, specs):
         base_a = float(sp["a"])
         if kind == "glow":
             M = 60.0
+            _fly = bool(sp.get("blink", True))               # dom dom, khong phai bui
             lay = rng.randint(0, 3, n)                       # 0 xa · 1 giua · 2 gan
             L = {
                 "kind": kind, "M": M, "blink": bool(sp.get("blink", True)),
@@ -843,8 +907,12 @@ def _particle_field(seed, specs):
                 "bt": rng.uniform(1.2, 3.6, n),                     # chu ky nhap nhay
                 "bp": rng.uniform(0, 2 * _np.pi, n),
                 "duty": rng.uniform(0.22, 0.55, n),                 # % chu ky con sang
-                "a": base_a * (0.45 + 0.28 * lay) * rng.uniform(0.7, 1.0, n),
-                "r": (1 + lay + (1 if sp.get("big") else 0)).astype(_np.int32),
+                # Cac num FLY_* chi danh cho DOM DOM (blink=True). Lop BUI dung so cu:
+                # vặn chung thì bụi nắng ban ngày nổi thành đốm trắng như bẩn ống kính.
+                "a": base_a * ((FLY_A_LAYER[0] + FLY_A_LAYER[1] * lay) if _fly
+                               else (0.45 + 0.28 * lay)) * rng.uniform(0.7, 1.0, n),
+                "r": ((FLY_R_BASE if _fly else 1) + lay
+                      + (1 if sp.get("big") else 0)).astype(_np.int32),
             }
         elif kind == "puff":
             M = 240.0
@@ -925,8 +993,8 @@ def _p_draw_glow(fr, L, t):
     if L["blink"]:
         # dom dom that: TAT HAN roi bung sang thanh nhip, khong phai sin deu deu
         u = ((t / L["bt"]) + L["bp"] / (2 * _np.pi)) % 1.0
-        e = _np.exp(-((u - 0.5) / _np.maximum(0.06, L["duty"] * 0.34)) ** 2)
-        al = L["a"] * (0.06 + 0.94 * e)
+        e = _np.exp(-((u - 0.5) / _np.maximum(0.06, L["duty"] * FLY_BLINK_W)) ** 2)
+        al = L["a"] * (FLY_BLINK_MIN + (1.0 - FLY_BLINK_MIN) * e)
     else:
         al = L["a"] * (0.70 + 0.30 * _np.sin(2 * _np.pi * t / L["bt"] + L["bp"]))
     al = al * _p_edge_fade(xs, ys, M)
@@ -1479,7 +1547,7 @@ def make_scene(scene, opts, i):
     if _HAVE_CV2 and is_img:
         _pmode = str(scene.get("particles") or opts.get("particles") or "auto")
         try:
-            _pp = _particle_preset(clip, _pmode)
+            _pp = _particle_preset(clip, _pmode, bg=scene.get("bg", ""))
             if _pp:
                 _pf = _particle_field(i, _pp)    # seed = chi so canh -> deterministic
         except Exception:
