@@ -178,12 +178,19 @@ def _ends_breath(s):
     head = s.rsplit(" | ", 1)[0] if " | " in s else s
     if _ends_terminal(head):
         return True
+    # BOC SSML: dong gan the ket bang '</prosody>' / '</mstts:express-as>' chu khong
+    # phai '，'. Khong boc thi ky tu cuoi la '>' -> khong khop _BREATH_END -> parser
+    # tuong cau chua ngat va NUOT DONG KE TIEP. (bai 61 mat 4 dong, 2026-09-06)
+    head = generate_strip_ssml(head)
     h = head.rstrip().rstrip("\"'”’」』）) ")
     return bool(h) and h[-1] in _BREATH_END
 
 def breath_pad(hanzi):
     """Nghi bao lau sau cau nay — theo dau cau va do dai, thay cho PAD co dinh 0.8s."""
-    t = (hanzi or "").rstrip().rstrip("\"'”’」』）) ")
+    # Boc SSML truoc: neu khong, ky tu cuoi luon la '>' nen MOI cau gan the deu
+    # roi xuong nhanh mac dinh, va so chu Han dem ca ten the -> nghi sai.
+    t = generate_strip_ssml(hanzi or "")
+    t = t.rstrip().rstrip("\"'”’」』）) ")
     if not t:
         return None
     if t[-1] in _BREATH_END:
@@ -290,7 +297,13 @@ def _is_cjk_char(ch):
     return ("一" <= ch <= "鿿") or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF
 
 def _ends_terminal(s):
-    """Dong da 'dong' chua? (ket thuc bang dau cau, bo qua ngoac/nhay cuoi)."""
+    """Dong da 'dong' chua? (ket thuc bang dau cau, bo qua ngoac/nhay cuoi).
+
+    BOC THE SSML TRUOC KHI XET: dong co the ket thuc bang '</prosody>' /
+    '</mstts:express-as>' chu khong phai '。'. Khong boc thi parser tuong cau chua
+    xong va NUOT DONG KE TIEP vao — bai 61 mat 21 dong vi loi nay (2026-09-06).
+    """
+    s = generate_strip_ssml(s)
     s = s.rstrip().rstrip("\"'”’」』）) ")
     return bool(s) and s[-1] in _TERMINAL
 
