@@ -2,10 +2,58 @@
 """film.py — Dựng PHIM: ghép nhiều CẢNH (mỗi cảnh = 1 clip video/ảnh) thành 1 tập.
 Mỗi cảnh: giữ TIẾNG gốc của clip (tuỳ chọn) + phụ đề (Hán / pinyin / nghĩa) + (tuỳ chọn) lời dẫn TTS.
 Nối các cảnh -> tập phim, thêm nhạc nền. KHÔNG có layout học (phim thuần + phụ đề dưới)."""
-import os, re, shutil, subprocess, hashlib
+import os, re, shutil, subprocess, hashlib, time, tempfile, threading
 from PIL import Image, ImageDraw
 import style_pastel as sp
 from pypinyin import pinyin as _py, Style as _PyStyle
+
+# ---------------------------------------------------------------------------
+# CHAY FFMPEG CO TRAN THOI GIAN + NGHE NUT DUNG
+#
+# LOI DA XAY RA 2026-09-07: 15 loi goi ffmpeg trong file nay deu KHONG co
+# timeout. Mot lan ffmpeg treo o canh 59/120 (0% CPU, ngu vo han) khien ban
+# dung phim ngoi 3 gio 08 phut. Nguoi dung bam Dung tu lau nhung app.py chi
+# kiem co huy GIUA cac canh (app.py:2688) — da chui vao make_scene() thi
+# khong con duong ra. Chay lai dung lenh do thi no xong trong vai giay, tuc
+# treo KHONG TAT DINH -> khong the chua bang cach sua lenh, phai co tran.
+#
+# _run() thay cho subprocess.run: gioi han thoi gian, va cu 0,4s lai hoi
+# NEN_DUNG() mot lan de giet tien trinh con ngay khi nguoi dung bam Dung.
+# Ghi stdout/stderr ra FILE TAM thay vi pipe — khong bao gio ket ong dan.
+FF_TRAN_GIAY = 900          # tran cung cho MOT lenh ffmpeg (canh dai nhat ~1 phut)
+NEN_DUNG = None             # app.py gan: ham tra True khi nguoi dung bam Dung
+
+
+def _run(cmd, check=False, capture_output=False, timeout=None, **kw):
+    han = timeout or FF_TRAN_GIAY
+    fout = ferr = None
+    if capture_output:
+        fout = kw.pop("stdout", None) or tempfile.TemporaryFile()
+        ferr = kw.pop("stderr", None) or tempfile.TemporaryFile()
+        kw["stdout"], kw["stderr"] = fout, ferr
+    pr = subprocess.Popen(cmd, **kw)
+    het = time.time() + han
+    while pr.poll() is None:
+        time.sleep(0.4)
+        if NEN_DUNG is not None and NEN_DUNG():
+            pr.kill(); pr.wait()
+            raise RuntimeError("Đã dừng theo yêu cầu.")
+        if time.time() > het:
+            pr.kill(); pr.wait()
+            raise RuntimeError("ffmpeg treo quá %d giây, đã giết. Lệnh: %s …"
+                               % (han, " ".join(cmd[:8])))
+    out = err = b""
+    if capture_output:
+        try:
+            fout.seek(0); out = fout.read(); fout.close()
+            ferr.seek(0); err = ferr.read(); ferr.close()
+        except (OSError, ValueError):
+            pass
+    if check and pr.returncode != 0:
+        raise subprocess.CalledProcessError(pr.returncode, cmd, out, err)
+    return subprocess.CompletedProcess(cmd, pr.returncode, out, err)
+
+
 
 W, H, FPS = 1920, 1080, 30
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +98,8 @@ FASTSTART = ["-movflags", "+faststart"]
 # Segment CANH/CARD la file TRUNG GIAN (bi re-encode lai o _join_video khi ghep + grade)
 # -> encode nhanh + crf thap hon de khong mat chat qua 2 lan nen. veryfast ~3x medium.
 X264_SEG = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
+X264_KB = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16"]
+FILM_JOBS = max(1, int(os.environ.get("FILM_JOBS") or min(4, max(1, (os.cpu_count() or 4) // 3))))
 _VID_EXT = (".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi")
 
 _TONE = {1: (255, 118, 118), 2: (255, 194, 92), 3: (126, 214, 126),
@@ -130,7 +180,7 @@ def make_music_bed(kind="warm", out_path=None):
     # tron arpeggio + pad -> reverb am + lowpass mem
     fc.append("[arp][pad]amix=inputs=2:normalize=0,aecho=0.8:0.85:110|220:0.35|0.2,"
               "lowpass=f=3400,volume=1.5[a]")
-    subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc),
+    _run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc),
                     "-map", "[a]", "-t", f"{total:.2f}", "-c:a", "aac", "-b:a", "160k",
                     "-ar", "44100", "-ac", "2", out_path], check=True, capture_output=True)
     return out_path
@@ -143,7 +193,7 @@ def ensure_ambience(kind):
     p = os.path.join(SFX_DIR, kind + ".m4a")
     if os.path.exists(p) and os.path.getsize(p) > 0:
         return p
-    subprocess.run(["ffmpeg", "-y", "-filter_complex", AMBIENCES[kind][1],
+    _run(["ffmpeg", "-y", "-filter_complex", AMBIENCES[kind][1],
                     "-map", "[a]", "-t", "60", "-c:a", "aac", "-b:a", "128k",
                     "-ar", "44100", "-ac", "2", p], check=True, capture_output=True)
     return p
@@ -364,7 +414,7 @@ def _flatten(hz):
 
 def _dur(p):
     try:
-        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        r = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                             "-of", "csv=p=0", p], capture_output=True, text=True)
         return float(r.stdout.strip())
     except Exception:
@@ -540,10 +590,16 @@ def find_subject_center(img):
     return iw * 0.5, ih * 0.42, 0.0                               # fallback = heuristic cu
 
 
+_SUBJ_LOCK = threading.RLock()
 _SUBJ_CACHE = {}    # path -> (cx, cy, conf, iw, ih) — DETERMINISM: _next_kb_src goi lai y het
 
 
 def subject_of(img_path):
+    with _SUBJ_LOCK:
+        return _subject_of(img_path)
+
+
+def _subject_of(img_path):
     if img_path not in _SUBJ_CACHE:
         im = cv2.imread(img_path)
         if im is None:
@@ -1088,7 +1144,7 @@ def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
         tTf = min(max(1, int(tTf)), end)         # (c9) dip khong dai hon phan hien thi
     cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
            "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-           "-an", *X264_SEG, "-pix_fmt", "yuv420p", out_path]
+           "-an", *X264_KB, "-pix_fmt", "yuv420p", out_path]
     pr = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
@@ -1363,11 +1419,11 @@ def render_subtitle(hz, vi="", show_pinyin=True, path=None, bottom=None):
 def _seg_audio(tts_mp3, dur, out_wav):
     """Chuan hoa 1 doan tieng -> wav 44100 stereo, dai DUNG 'dur' giay (pad im lang neu thieu)."""
     if tts_mp3 and os.path.exists(tts_mp3):
-        subprocess.run(["ffmpeg", "-y", "-i", tts_mp3,
+        _run(["ffmpeg", "-y", "-i", tts_mp3,
                         "-af", "aresample=44100,apad", "-t", f"{dur:.2f}",
                         "-ac", "2", "-ar", "44100", out_wav], check=True, capture_output=True)
     else:
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        _run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                         "-t", f"{dur:.2f}", out_wav], check=True, capture_output=True)
     return out_wav
 
@@ -1376,7 +1432,7 @@ def _concat_wav(files, out):
     with open(lst, "w") as f:
         for p in files:
             f.write(f"file '{p.replace(os.sep,'/')}'\n")
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
                     "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out],
                    check=True, capture_output=True)
     try: os.remove(lst)
@@ -1667,7 +1723,7 @@ def make_scene(scene, opts, i):
         n_bg = 1
     cur = "[bg]"
     for k, p in enumerate(sub_pngs):
-        inputs += ["-loop", "1", "-i", p]
+        inputs += (["-loop", "1"] if SUB_FADE else []) + ["-i", p]
         idx = n_bg + k
         s0, e0 = starts[k], starts[k] + sub_dur[k]
         if SUB_FADE:
@@ -1683,6 +1739,9 @@ def make_scene(scene, opts, i):
         cur = out
     if not sub_pngs:
         fc.append(f"[bg]null[v]")
+    _vc = _seg_vchain(opts)
+    if _vc:
+        fc.append(f"[v]{_vc}[vout]")
     filt = ";".join(fc)
 
     # audio: giong/thoai + tieng clip + SFX khong khi — tron theo trong so
@@ -1691,7 +1750,7 @@ def make_scene(scene, opts, i):
     ai = n_bg + len(sub_pngs)              # index audio input ke tiep
     if scene_audio:
         inputs += ["-i", scene_audio]
-        srcs.append((f"{ai}:a", 1.0)); ai += 1
+        srcs.append((f"{ai}:a", float(opts.get("voice_vol", 1.0) or 1.0))); ai += 1
     if keep:
         srcs.append(("0:a", 0.45 if scene_audio else 1.0))
     if sfx and os.path.exists(sfx):        # nen khong khi (quan/pho/mua...) lap vo han, am nho
@@ -1700,23 +1759,24 @@ def make_scene(scene, opts, i):
     if not srcs:                           # cau: im lang
         inputs += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
         srcs.append((f"{ai}:a", 1.0)); ai += 1
-    if len(srcs) == 1 and srcs[0][1] >= 1.0:
+    if len(srcs) == 1 and srcs[0][1] == 1.0:
         a_filt, amap = "", srcs[0][0] + ("?" if srcs[0][0] == "0:a" else "")
     else:
         parts, labs = [], []
         for j, (m, v) in enumerate(srcs):
-            parts.append(f"[{m}]volume={v}[aa{j}]"); labs.append(f"[aa{j}]")
+            lim = ",alimiter=limit=0.97:level=disabled" if v > 1.0 else ""
+            parts.append(f"[{m}]volume={v}{lim}[aa{j}]"); labs.append(f"[aa{j}]")
         a_filt = (";" + ";".join(parts) + ";" + "".join(labs)
                   + f"amix=inputs={len(srcs)}:duration=first:dropout_transition=0:normalize=0[a]")
         amap = "[a]"
 
     cmd = ["ffmpeg", "-y", *inputs, "-t", f"{scene_dur:.2f}",
            "-filter_complex", filt + a_filt,
-           "-map", "[v]", "-map", amap,
-           *X264_SEG, "-r", str(FPS), "-pix_fmt", "yuv420p",
+           "-map", ("[vout]" if _vc else "[v]"), "-map", amap,
+           *_seg_x264(opts), "-r", str(FPS), "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
            "-shortest", vp]
-    subprocess.run(cmd, check=True, capture_output=True)
+    _run(cmd, check=True, capture_output=True)
     for f in tmp:
         if os.path.exists(f):
             try: os.remove(f)
@@ -1755,14 +1815,17 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
     out_path = out_path or os.path.join(FILM, f"_cardvid_{kind}.mp4")
     frames = int(dur * FPS)
     fade = (f"fade=t=in:st=0:d=0.6,fade=t=out:st={max(0,dur-0.6):.2f}:d=0.6,format=yuv420p")
+    opts = opts or {}
+    if _seg_vchain(opts):
+        fade += "," + _seg_vchain(opts)
     if _HAVE_CV2:                                     # zoom cham subpixel (muot), roi fade
         kbv = _kb_video(png, frames, zoom_in=True,
                         out_path=os.path.join(FILM, f"_cardkb_{kind}.mp4"),
                         zoom=min(0.012 * dur, 0.08))
-        subprocess.run(["ffmpeg", "-y", "-i", kbv,
+        _run(["ffmpeg", "-y", "-i", kbv,
                         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
                         "-vf", fade, "-map", "0:v", "-map", "1:a",
-                        *X264_SEG, "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                        *_seg_x264(opts), "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
                         "-shortest", out_path], check=True, capture_output=True)
         try: os.remove(kbv)
         except OSError: pass
@@ -1772,10 +1835,10 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
         zexpr = f"1.0+{min(0.012 * dur, 0.08):.4f}*{_ze}"
         vf = (f"scale={W*2}:{H*2},zoompan=z='{zexpr}':d={frames}:x='iw/2-(iw/zoom/2)':"
               f"y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS}," + fade)
-        subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", png,
+        _run(["ffmpeg", "-y", "-loop", "1", "-i", png,
                         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
                         "-vf", vf, "-map", "0:v", "-map", "1:a",
-                        *X264_SEG, "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                        *_seg_x264(opts), "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
                         "-shortest", out_path], check=True, capture_output=True)
     try: os.remove(png)
     except OSError: pass
@@ -1792,7 +1855,7 @@ def make_title_thumb(video_path, title, header, out_jpg, bg_image=None):
     else:
         t = max(0.5, _dur(video_path) * 0.62)             # khung ~cao trào
         frame = out_jpg + ".f.jpg"
-        subprocess.run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", video_path,
+        _run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", video_path,
                         "-frames:v", "1", "-q:v", "2", frame], check=True, capture_output=True)
         src = frame
     im = Image.open(src).convert("RGB").resize((1280, 720), Image.LANCZOS)
@@ -1833,9 +1896,10 @@ def make_film(scenes, opts, out_path):
     if opts.get("title_card") and opts.get("film_title"):
         cp, cd = make_card("title", opts["film_title"], opts.get("film_header", ""), dur=3.5, opts=opts)
         seg_videos.append(cp); durs.append(cd)
-    for i, sc in enumerate(scenes):
-        vp, d = make_scene(sc, opts, i)
-        seg_videos.append(vp); durs.append(d)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=FILM_JOBS) as ex:
+        for vp, d in ex.map(lambda a: make_scene(a[1], opts, a[0]), enumerate(scenes)):
+            seg_videos.append(vp); durs.append(d)
     if opts.get("end_card"):
         cp, cd = make_card("end", "HẾT", "", dur=3.0, opts=opts)
         seg_videos.append(cp); durs.append(cd)
@@ -1855,6 +1919,23 @@ def _grade_rich(inlab, outlab, letterbox=False):
 
 def _grade_chain():
     return _grade_simple()
+
+
+def _pregrade(opts):
+    return (opts.get("transition") or "fade").lower() == "none"
+
+
+def _seg_vchain(opts):
+    if not _pregrade(opts):
+        return ""
+    lb = bool(opts.get("letterbox"))
+    if opts.get("grade", True):
+        return _grade_simple(lb)
+    return _letterbox_filter() if lb else ""
+
+
+def _seg_x264(opts):
+    return X264 if _pregrade(opts) else X264_SEG
 
 
 def _join_video(seg_videos, opts):
@@ -1887,7 +1968,7 @@ def _join_video(seg_videos, opts):
                 fc.append(_grade_rich("[vj]", "[vg]", lb)); vmap = "[vg]"   # bloom+teal-orange+grain(+letterbox)
             elif lb:
                 fc.append(f"[vj]{_letterbox_filter()}[vg]"); vmap = "[vg]"
-            subprocess.run(["ffmpeg", "-y", *inp, "-filter_complex", ";".join(fc),
+            _run(["ffmpeg", "-y", *inp, "-filter_complex", ";".join(fc),
                             "-map", vmap, "-map", "[aj]",
                             *X264, *FASTSTART, "-pix_fmt", "yuv420p", "-r", str(FPS),
                             "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
@@ -1902,13 +1983,19 @@ def _join_video(seg_videos, opts):
     with open(lst, "w") as f:
         for v in seg_videos:
             f.write(f"file '{v.replace(os.sep,'/')}'\n")
-    _vfchain = _grade_simple(lb) if grade else (_letterbox_filter() if lb else "")
-    vf = ["-vf", _vfchain] if _vfchain else []
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
-                    "-fps_mode", "cfr", "-r", str(FPS), *vf, *X264, *FASTSTART,
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
-                   check=True, capture_output=True)
+    if _pregrade(opts):
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+              "-c:v", "copy", *FASTSTART,
+              "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
+             check=True, capture_output=True)
+    else:
+        _vfchain = _grade_simple(lb) if grade else (_letterbox_filter() if lb else "")
+        vf = ["-vf", _vfchain] if _vfchain else []
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+                        "-fps_mode", "cfr", "-r", str(FPS), *vf, *X264, *FASTSTART,
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
+                       check=True, capture_output=True)
     try: os.remove(lst)
     except OSError: pass
     return narr
@@ -1919,7 +2006,7 @@ def _add_roomtone(narr):
     out = os.path.join(FILM, "_film_rt.mp4")
     fc = ("[1:a]volume=0.012,lowpass=f=500[rt];"
           "[0:a][rt]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
-    subprocess.run(["ffmpeg", "-y", "-i", narr,
+    _run(["ffmpeg", "-y", "-i", narr,
                     "-f", "lavfi", "-i", "anoisesrc=r=44100:color=brown:seed=7",
                     "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out],
@@ -1952,7 +2039,7 @@ def _concat_and_music(seg_videos, opts, out_path, total):
             fc = (f"[1:a]volume={vol},afade=t=in:st=0:d=2,afade=t=out:st={max(0,total-3):.2f}:d=3[m];"
                   f"[0:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
         try:
-            subprocess.run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
+            _run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
                             "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
                             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out_path],
                            check=True, capture_output=True)
@@ -1960,7 +2047,7 @@ def _concat_and_music(seg_videos, opts, out_path, total):
             fc = (f"[1:a]volume={vol},afade=t=in:st=0:d=2,afade=t=out:st={max(0,total-3):.2f}:d=3[m];"
                   f"[0:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
             try:
-                subprocess.run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
+                _run(["ffmpeg", "-y", "-i", narr, "-stream_loop", "-1", "-i", music,
                                 "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
                                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out_path],
                                check=True, capture_output=True)
