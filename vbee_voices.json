@@ -1,12 +1,12 @@
 {
  "voices": [
   {
-   "code": "n_hanoi_female_trangthithi20260820231019716_story_vc",
-   "name": "Trang Thi Thi",
+   "code": "n_hanoi_female_trangthithis20260903220609278_book_vc",
+   "name": "Trang Thi This",
    "gender": "female",
    "lang": "vi-VN",
    "own": "PERSONAL",
-   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8720c9c2344bc276fca808/hai_phong_ubnd_thanh_pho_dang_nghien_cuu_lap_chu_68df80ff-7a43-442d-90f4-7df72517a96a.mp3.mp3",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a998baf698ebe48cc5d45e0/ga_lam_sach_cha_xat_bang_chanh_va_muoi_hat_de_0454cf20-8ff9-4645-a2c6-bd5cf3865746.mp3.mp3",
    "credit": 1
   },
   {
@@ -97,6 +97,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a7dd113f2c9e5aa8b020ecb/co_mat_tai_toa_cha_ruot_chau_be_khong_yeu_cau_537ed726-8b5b-4de2-9b67-36adc5651787.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_hanoi_male_adlervu_education_vc",
+   "name": "Adler Vu",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9701531dc729cbe9b43203/6a97f6e444439a2a1ee6c77f.mp3",
    "credit": 1
   },
   {
@@ -195,7 +204,7 @@
    "gender": "male",
    "lang": "vi-VN",
    "own": "COMMUNITY",
-   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a79f8b9d68c44a19ea8bca6/nhung_danh_si_khap_noi_khi_nghe_danh_tieng_va_2d6c4524-73e0-40b3-9664-a724c037ee75.mp3.mp3",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a7a2109ad79efa084987e6d/6a7a2112435b33b4b0df67cd.mp3",
    "credit": 1
   },
   {
@@ -595,6 +604,15 @@
    "credit": 1
   },
   {
+   "code": "s_travinh_male_bactinh20260827075638939_education_vc",
+   "name": "Bác Tính Pro",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8d7e77d9b4e6046a67076e/chua_nhu_ky_vong_nhung_tinh_hinh_dang_sang_dan_01835647-1a11-4ad3-b5ae-3c4c4a502f3c.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "c_hatinh_male_bacsiduongquan20260408231007091_news_vc",
    "name": "Bác sĩ Dương Quân",
    "gender": "male",
@@ -685,6 +703,15 @@
    "credit": 1
   },
   {
+   "code": "s_hochiminh_male_anhbao20260604223854413_advertise_vc",
+   "name": "Bảo BĐS",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a0fd77c3afab2360fc87564/viec_ban_hanh_bang_gia_dat_hang_nam_de_cai_cach_939fae91-cd23-481d-b6d2-7110744bb3bb.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_hochiminh_female_baonghikhin_story_vc",
    "name": "Bảo Nghi dễ thương",
    "gender": "female",
@@ -721,21 +748,21 @@
    "credit": 1
   },
   {
+   "code": "s_hochiminh_male_baokaka20260826140952035_news_vc",
+   "name": "Bảo kaka",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8d3b48d9b4e6046a664b8e/massage_xoa_bop_nhe_nhang_co_the_giup_giam_dau_70705c1d-96d5-4e8b-b334-7f24d10e53db.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_hochiminh_female_bautroiyeuthuong_book_vc",
    "name": "Bầu Trời Yêu Thương",
    "gender": "female",
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-68e9ccaf8d0c3959d1b0981a/mot_so_quoc_gia_bay_to_su_de_dat_trong_viec_f2372b03-2011-48dc-a305-64f267e45fc4.mp3.mp3",
-   "credit": 1
-  },
-  {
-   "code": "n_hanoi_male_anhsyvip01_story_vc",
-   "name": "Bắc Kỳ",
-   "gender": "male",
-   "lang": "vi-VN",
-   "own": "COMMUNITY",
-   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a1cc0311bc55156aa68ff44/chiec_o_to_cua_bi_thu_huyen_uy_dua_anh_di_nhap_617e160a-6cb7-4ea8-90dd-4c01cfc1061d.mp3.mp3",
    "credit": 1
   },
   {
@@ -910,6 +937,15 @@
    "credit": 1
   },
   {
+   "code": "n_hanoi_female_chumxaudio4_story_vc",
+   "name": "ChumXaudio 4",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a996df6b246b58e09db77cf/6a9a493c33fbf151fb001c47.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_phutho_male_chunle_book_vc",
    "name": "Chun Lê",
    "gender": "male",
@@ -943,6 +979,24 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-690b0ca7f5e17ac3012f5761/cac_chau_nhin_thay_khong_giao_su_chi_tay_9da74ff8-f2b8-49d0-992a-d98dd1e1a1a8.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_female_chuonggio1_book_vc",
+   "name": "Chuông gió 1",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8bd7c8c2344bc276057df6/khi_cam_giac_nhe_nhom_do_thi_cu_nam_thu_nhat_xong_e80568c5-40e0-4ab2-81a0-7721065ee938.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_female_chuonggio2_story_vc",
+   "name": "Chuông gió 2",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a911ea8d9b4e6046a6d0491/ong_vano_noi_voi_giong_co_thien_cam_o_nha_tam_1a3a8d0d-1d39-4aee-87ec-9fbe13e0581a.mp3.mp3",
    "credit": 1
   },
   {
@@ -1495,6 +1549,24 @@
    "credit": 1
   },
   {
+   "code": "s_angiang_male_duylinhmientaytvc_advertise_vc",
+   "name": "Duy Linh Miền Nam TVC",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9166add9b4e6046a6db08c/dung_lo_nuoc_lau_san_moi_voi_cong_nghe_fc732a14-c6d7-42f8-8fe1-b2a26d7e3de2.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_angiang_male_duylinhmientaytramam20260830150526176_news_vc",
+   "name": "Duy Linh Miền Nam Trầm Ấm",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a93e7c31dc729cbe9859b99/6a93e7cc5bb3926a2cb1945e.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_tayninh_male_duyman_review_vc",
    "name": "Duy Mẩn",
    "gender": "male",
@@ -1510,6 +1582,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/n_hn_male_duyonyx_oaistable_vc.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_male_duypierre20260826133100358_story_vc",
+   "name": "Duy Pierre Audio",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8e90b93d5e8fe0f057c44a/6a8e90c43bdb1f63e981d955.mp3",
    "credit": 1
   },
   {
@@ -1549,6 +1630,24 @@
    "credit": 1
   },
   {
+   "code": "s_angiang_male_duylinhtax_education_vc",
+   "name": "DuyLinhMienTay",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8b2426ad79efa084356eb4/6a8ba7ef237b117383c4e4ac.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_angiang_male_duylinhthoisu_news_vc",
+   "name": "DuyLinhMienTayBanTin",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8c5bdac2344bc276071175/khong_chi_ung_ho_nguoi_ngheo_o_dia_ban_thu_do_2cd314cd-4c9f-44ed-b30e-c5b358a2b725.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_male_duytrancsc20260323215247225_book_vc",
    "name": "DuyTranCSC",
    "gender": "male",
@@ -1573,6 +1672,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69f2388913f82e04efcce2d2/tieng_cuoi_duc_duc_khan_khan_nay_toi_da_nghe_bb22ca73-52d4-49dc-a4fa-6aaf55a2d5a2.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_quangninh_male_casang1_review_vc",
+   "name": "Dân Dao nói Tiếng Việt",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a91aed71dc729cbe9829129/6a91aee25922c87f459e7a26.mp3",
    "credit": 1
   },
   {
@@ -1918,12 +2026,30 @@
    "credit": 1
   },
   {
+   "code": "n_hanoi_female_giangkienthuc20260904084530798_education_vc",
+   "name": "Giang Kiến Thức",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9a39653e1e0e285c7193e9/6a9a492833fbf151fb000fb7.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_female_giangkechuyen20260707171309644_story_vc",
    "name": "Giang Kể Chuyện",
    "gender": "female",
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a4cd875c88de1e48065ab2a/6a4cd88002c1cc2f46ddbe3c.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_hanoi_female_giangsocialmedia20260901093258738_news_vc",
+   "name": "Giang News",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a96374a698ebe48cc57e1aa/nhung_loi_ich_cua_thanh_toan_truc_tuyen_voi_doanh_9525cf93-9137-405c-82b4-b2f71bb990b0.mp3.mp3",
    "credit": 1
   },
   {
@@ -2278,6 +2404,15 @@
    "credit": 1
   },
   {
+   "code": "c_daklak_male_giongnghenhuctai_review_vc",
+   "name": "Giọng nghe nhức tai",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9bcb94082af98f44196213/luc_nay_mot_dai_ca_cua_bang_nhom_o_phia_sau_ong_b83b7990-e18c-4b34-8377-fdb016a98a51.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_female_giongnuhanoitramam_book_vc",
    "name": "Giọng nữ Hà Nội trầm ấm",
    "gender": "female",
@@ -2287,12 +2422,21 @@
    "credit": 1
   },
   {
+   "code": "n_langson_female_giongnulongtiengbac20260905023510199_review_vc",
+   "name": "Giọng nữ lồng tiếng Bắc",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9b1534082af98f441881d2/nhieu_hang_vien_thong_chau_au_van_su_dung_thiet_e57825c3-b22e-4537-a152-15f7935f2db8.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_langson_female_giongnumienbacchuan_news_vc",
    "name": "Giọng nữ miền Bắc chuẩn",
    "gender": "female",
    "lang": "vi-VN",
    "own": "COMMUNITY",
-   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69bd796e2b04060761bee726/69bd797a333dbb991e9ecb25.mp3",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69bd796e2b04060761bee726/69bd797a333dbb991e9ecb26.mp3",
    "credit": 1
   },
   {
@@ -2899,12 +3043,30 @@
    "credit": 1
   },
   {
+   "code": "s_hochiminh_male_hoangbao20260827135940734_story_vc",
+   "name": "Hoàng Bảo",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8fdcebd9b4e6046a6ae4b5/su_ho_tro_tai_noi_lam_viec_rat_quan_trong_doi_voi_cbaa3105-7835-48fb-983a-3f4044a054d4.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_travinh_male_hoangduonglhd_story_vc",
    "name": "Hoàng Dương LHD",
    "gender": "male",
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a5cb94c5241575ea38f76dd/6a5cb9570345a6b2fecf1f3d.mp3",
+   "credit": 1
+  },
+  {
+   "code": "c_quangngai_male_minhhoang76_book_vc",
+   "name": "Hoàng Giọng Miền Nam",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9613c2698ebe48cc57b4d6/nguoi_an_noi_ngong_cuong_thich_khoe_khoang_tu_679d6abf-d419-428d-8255-03be220a3344.mp3.mp3",
    "credit": 1
   },
   {
@@ -3070,6 +3232,15 @@
    "credit": 1
   },
   {
+   "code": "s_angiang_male_huychuongtintuc_news_vc",
+   "name": "Huy Chương đọc thời sự",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a855347f2c9e5aa8b0f41cd/thu_tuong_de_nghi_cac_bo_tiep_thu_cac_y_kien_76f87eb6-b8b2-42c7-aa73-e9a45571c00a.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "c_daklak_male_huyhieuquangcao_advertise_vc",
    "name": "Huy Hiếu Quảng cáo",
    "gender": "male",
@@ -3193,6 +3364,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-697585399ba303141af3f967/khi_di_chuyen_trong_dam_dong_khong_nen_buoc_5d227d48-66b9-4002-abcb-0d42286e70a9.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_male_huynhviet20260823164348398_education_vc",
+   "name": "Huỳnh Việt",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a88fd07c2344bc276000b22/trong_bai_nay_chung_ta_se_cung_phan_tich_viec_su_8f958d5b-c162-490b-a0a0-ea480d2d5ef9.mp3.mp3",
    "credit": 1
   },
   {
@@ -3376,6 +3556,15 @@
    "credit": 1
   },
   {
+   "code": "s_hochiminh_female_halan20260713191551682_story_vc",
+   "name": "Hạ Lan đọc Truyện",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a54dbb2c88de1e48009669e/6a54dbc0caa982a3d0394054.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_female_havan_education_vc",
    "name": "Hạ Vân",
    "gender": "female",
@@ -3481,6 +3670,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "",
+   "credit": 1
+  },
+  {
+   "code": "n_tuyenquang_male_haitruyen_story_vc",
+   "name": "Hải Truyện",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9185aa1dc729cbe9d66009/6a9185b3477f462159dd4f11.mp3",
    "credit": 1
   },
   {
@@ -4321,15 +4519,6 @@
    "credit": 1
   },
   {
-   "code": "s_hochiminh_male_linhmoto89_story_vc",
-   "name": "Linhmoto89",
-   "gender": "male",
-   "lang": "vi-VN",
-   "own": "COMMUNITY",
-   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-68a52eb050b78cd9450e7122/cay_da_co_tu_bao_gio_khong_ai_biet_no_duoc_ai_ff4c97a8-8c9c-47b2-a0f9-6f214932227b.mp3.mp3",
-   "credit": 1
-  },
-  {
    "code": "c_daklak_female_lieumew_review_vc",
    "name": "Liễu Mew",
    "gender": "female",
@@ -4399,6 +4588,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-680851761489653986b207bb/ff089e1f-5a18-444d-9db9-6cdb62bfdf06.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_haiduong_male_longx2_book_vc",
+   "name": "Longx2",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a94f2ca698ebe48cc562163/ba_ay_la_mot_phu_nu_dang_hoi_xuan_co_cuoc_song_1502ab84-ff3b-4d14-bbb3-f180d4b3fdf0.mp3.mp3",
    "credit": 1
   },
   {
@@ -4480,6 +4678,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6985481bc938acd7273f37be/luon_nho_rang_tre_em_con_non_not_nhay_cam_doi_30058f55-cd6a-489f-a57a-159680d3b0f2.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_thaibinh_female_baxalethiha20260904173902832_news_vc",
+   "name": "LÊ HÀ",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9aa2fb3e1e0e285c72c7d5/6a9aa307982928bd78b0115e.mp3",
    "credit": 1
   },
   {
@@ -4690,6 +4897,15 @@
    "credit": 1
   },
   {
+   "code": "n_bacninh_male_lehongdong_advertise_vc",
+   "name": "Lê hồng đông",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8bbdfac2344bc276053714/hay_cam_nhan_tung_sac_mau_ruc_ro_voi_the_he_tivi_97fc09e7-7d31-4bf6-ad15-9f4b0460fced.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_male_ledangquyetkechuyen_story_vc",
    "name": "Lê Đăng Quyết Kể Chuyện",
    "gender": "male",
@@ -4750,6 +4966,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a2e30e0eb69826afd79861a/qua_viec_bon_my_dung_cai_chet_cua_phong_de_danh_f1f317eb-3265-4b75-aad8-4aa8e6b0e1e0.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_dongthap_male_locphan66_news_vc",
+   "name": "Lộc Phan66",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8ae761c2344bc27603fbd9/thu_tuong_de_nghi_cac_bo_tiep_thu_cac_y_kien_eea00c02-698e-4585-ae79-040d996aeb1e.mp3.mp3",
    "credit": 1
   },
   {
@@ -5509,12 +5734,30 @@
    "credit": 1
   },
   {
+   "code": "s_angiang_female_mychaupodcast_story_vc",
+   "name": "MyChauMienTay",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8dab493d5e8fe0f08a956b/6a8dab6be750264d840db368.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_bentre_female_mymynail_advertise_vc",
    "name": "Mymy Nail",
    "gender": "female",
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69508d607c7986c3681a217d/thuong_thuc_tron_vi_voi_goi_gia_vi_kno_chi_can_10e4bd6d-e66e-4f99-88dd-a8671845e482.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_female_maytintucthoisu20260829103209039_news_vc",
+   "name": "Mây Tin tức Thời sự",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a925f3f1dc729cbe999fb19/6a925f4a8781733ff74ccbc3.mp3",
    "credit": 1
   },
   {
@@ -5617,12 +5860,21 @@
    "credit": 1
   },
   {
+   "code": "s_angiang_male_mychaumientay2_education_vc",
+   "name": "Mỹ Châu Miền Tây 2",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a95a3e61dc729cbe9bd7ec9/6a95a3f5bc38af128f23c82b.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_langson_female_mylienmc6_story_vc",
    "name": "Mỹ Liên MC6",
    "gender": "female",
    "lang": "vi-VN",
    "own": "COMMUNITY",
-   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69ab090224bbe48f05e9b5a1/69ab090d0d48a5f9bcfd2b62.mp3",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69aafeb090903a25622be8b4/cac_hopbit_nhin_ong_va_ngac_nhien_khi_thay_mat_f5cf5d66-55f2-4381-b208-ac4c62ec3168.mp3.mp3",
    "credit": 1
   },
   {
@@ -5947,6 +6199,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a2557761bc55156aa77f780/anh_lai_xe_nhan_chan_ga_chiec_xe_luot_em_ru_9a377bb7-524e-4a7c-8d42-5074b2130a95.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "c_daklak_male_nambmt90_news_vc",
+   "name": "Nambmt90",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8719a2f2c9e5aa8b132d46/xay_dung_chu_nghia_xa_hoi_doi_hoi_thiet_lap_mot_0423c6e9-3e1e-477d-a735-0993b0093ebe.mp3.mp3",
    "credit": 1
   },
   {
@@ -6697,6 +6958,15 @@
    "credit": 1
   },
   {
+   "code": "s_soctrang_male_nhiquangcao_advertise_vc",
+   "name": "Nhí quảng cáo",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a7cae80d68c44a19eae055d/eogi_invotto_la_giai_phap_thong_minh_giup_c1216af1-1fe3-4c76-bbb3-4a44e468ee70.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_bariavungtau_female_nhungocbro_news_vc",
    "name": "Như Ngọc Bro",
    "gender": "female",
@@ -6990,7 +7260,7 @@
    "gender": "female",
    "lang": "vi-VN",
    "own": "COMMUNITY",
-   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a83d5eaf2c9e5aa8b0c2327/chi_le_ngoc_diep_von_mac_benh_lau_ngay_nay_cd6d1ea7-d16f-4138-b046-ab9f34b64dbe.mp3.mp3",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a83d5eaf2c9e5aa8b0c2327/thong_qua_su_ho_tro_cua_nha_nhan_ai_co_hai_em_2ed82253-6ff3-45da-be3f-5f15c83137b3.mp3.mp3",
    "credit": 1
   },
   {
@@ -7027,6 +7297,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-68b9a429eb8fd281736ac370/so_y_te_ha_noi_vua_yeu_cau_cac_don_vi_du_phong_85c01782-3642-4ad4-afb7-0231a89a3834.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_male_phantbao20260824161842290_news_vc",
+   "name": "PhanTBao",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8bf32ec2344bc27605d3da/cha_me_can_khuyen_khich_con_tap_the_duc_thuong_79005d22-16c6-47a4-8180-52de53181283.mp3.mp3",
    "credit": 1
   },
   {
@@ -7435,6 +7714,15 @@
    "credit": 1
   },
   {
+   "code": "n_bacninh_male_qtvsach_book_vc",
+   "name": "QTV sách nói",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8ad657c2344bc27603d8c8/tu_tho_phung_con_goi_la_gosip_chi_su_f372f5a9-f0f8-4fbd-bccc-943a7d08c54b.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_tayninh_female_quyentn_education_vc",
    "name": "QUYÊN TN",
    "gender": "female",
@@ -7696,6 +7984,15 @@
    "credit": 1
   },
   {
+   "code": "n_hanoi_female_quynhphuonghn_callcenter_vc",
+   "name": "Quỳnh Phương HN",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a96870e1dc729cbe98b82b8/6a97f700165f442ffbd880ea.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_female_quynhtrangdaotao_education_vc",
    "name": "Quỳnh Trang đào tạo",
    "gender": "female",
@@ -7864,6 +8161,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6954906e7c7986c3682209d1/khong_chut_chan_chu_long_coi_ao_mua_bo_cap_82b06055-7e56-42e4-bd39-6a80bde56893.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_quangninh_female_senbinhan_story_vc",
+   "name": "Sen Bình An",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a87f243c2344bc276fdf339/ong_vano_noi_voi_giong_co_thien_cam_o_nha_tam_4f29e782-4043-4352-952d-95718993b36c.mp3.mp3",
    "credit": 1
   },
   {
@@ -8170,6 +8476,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6908a168f5e17ac3012a38a6/mot_nguoi_trong_nhom_quyet_dinh_go_vao_cua_so_1145b800-7715-4b47-a856-e3d7e125045d.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_female_tesla_book_vc",
+   "name": "Tesla",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a899183c2344bc27601a5c7/mot_ngay_truoc_ngay_idetx_co_mot_con_chim_hong_d6f54237-38a2-4c9f-a72f-1eb593d489fb.mp3.mp3",
    "credit": 1
   },
   {
@@ -8578,12 +8893,30 @@
    "credit": 1
   },
   {
+   "code": "n_quangninh_male_thanhlong16031_advertise_vc",
+   "name": "Thành Long review aff",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9a8ca8082af98f44176c58/tra_thanh_nhiet_docto_thanh_voi_cong_nghe_vo_b63197cc-bf5b-4bcc-8ffa-26c10663456e.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_male_thanhnagiip_review_vc",
    "name": "Thành Nagi Ip",
    "gender": "male",
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-68c912e0bb5a6e182d726435/ten_cam_dau_cung_khai_rang_chu_tich_bao_phai_ac81fbf9-a8a7-4ebe-8b17-bf1bb151c7b8.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_haiphong_male_thanhquangcaohp_advertise_vc",
+   "name": "Thành Quảng Cáo HP",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a3fd5b4c7fe1d301d96b257/nuoc_sup_thom_ngon_tu_tom_va_ot_vi_chua_cay_ea9c5f2b-c8e7-42d9-9213-882dbed6d728.mp3.mp3",
    "credit": 1
   },
   {
@@ -8794,6 +9127,15 @@
    "credit": 1
   },
   {
+   "code": "s_angiang_male_thayminhpodcast_book_vc",
+   "name": "Thầy Minh Thích Kể Truyện",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a95a6611dc729cbe9c96eab/6a95a66a3ba33442229d5070.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_haugiang_male_thaytri_book_vc",
    "name": "Thầy Trí",
    "gender": "male",
@@ -8965,6 +9307,15 @@
    "credit": 1
   },
   {
+   "code": "n_hanoi_male_tienquynh_education_vc",
+   "name": "Tiến Quỳnh",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a86b21df2c9e5aa8b11f348/neu_ban_ket_hop_tat_ca_cac_ky_thuat_ma_chung_ta_fe5d9139-6bd8-4cd0-b5f4-af4b1a77dcc3.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "s_hochiminh_female_tieudinh_review_vc",
    "name": "Tiểu Dĩnh",
    "gender": "female",
@@ -9046,6 +9397,15 @@
    "credit": 1
   },
   {
+   "code": "s_hochiminh_male_tranhuuhau4_education_vc",
+   "name": "Tran huu hau 4",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a95a652698ebe48cc57755e/trong_bai_van_nay_hinh_anh_san_truong_ngay_he_84500a8d-49b8-403d-87e4-fc9e3260e696.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "c_nghean_male_tranlongpc_book_vc",
    "name": "Tran long pc",
    "gender": "male",
@@ -9061,6 +9421,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-689328773284f2969143e289/84016a35-de96-4cae-8351-f55f857d8639.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_dongthap_male_tranphuoc2_education_vc",
+   "name": "TranPhuocDotcom",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a97d16c1dc729cbe981b5d3/6a97d1766e7ed052fc4002be.mp3",
    "credit": 1
   },
   {
@@ -9469,6 +9838,15 @@
    "credit": 1
   },
   {
+   "code": "s_dongthap_male_tranthanhliem_education_vc",
+   "name": "Trần Thanh Liêm",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a902453d9b4e6046a6b870c/dung_vay_hom_nay_chung_ta_se_tiep_tuc_voi_6bd1d9b2-5bda-49ed-a76a-d174a83ea4d6.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_quangninh_male_tranthanhphong_news_vc",
    "name": "Trần Thanh Phong",
    "gender": "male",
@@ -9574,6 +9952,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-68873e25fab34e96bdfef8c4/45fc894e-7e97-4eb8-b02b-d028c9c87548.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_hochiminh_male_tunatran_advertise_vc",
+   "name": "TunaTran",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a98259e698ebe48cc5acec1/cong_thuc_ket_hop_suc_manh_khoa_hoc_giup_phong_5d01cd0e-45ce-4d92-b671-4fa5db9c9085.mp3.mp3",
    "credit": 1
   },
   {
@@ -10072,6 +10459,15 @@
    "credit": 1
   },
   {
+   "code": "n_bacninh_male_tacuonglichsuvietnam_story_vc",
+   "name": "Tạ Cường lịch sử Việt Nam",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a704f16d68c44a19e96f444/anh_nhe_nhang_nang_mat_nang_len_gan_guong_mat_3ab9d368-a1e1-465f-bd78-5b2da9ed516b.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_female_talinhnhai_story_vc",
    "name": "Tạ Linh Nhai",
    "gender": "female",
@@ -10168,6 +10564,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-698039fb51dfafbdf658b18f/trung_quoc_voi_quan_diem_khong_mieng_go_nao_c7dfff63-fea6-4073-9827-3756d6a52080.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "s_angiang_male_vdmdoctruyen_story_vc",
+   "name": "VDM Đọc Truyện",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a819c1af2c9e5aa8b089b3f/su_vuong_diu_dang_bao_soi_khanh_cho_ta_muon_35061a69-af4a-42ee-820c-d5599ada723b.mp3.mp3",
    "credit": 1
   },
   {
@@ -10657,6 +11062,15 @@
    "credit": 1
   },
   {
+   "code": "n_hanoi_male_vutrannguyen_news_vc",
+   "name": "Vũ Trần Nguyên",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a86b9d9f2c9e5aa8b12140a/nam_ngoai_it_nhat_tam_muoi_lam_nguoi_da_thiet_a6eb1032-a8fb-4bce-bcfe-55a6f94dec7a.mp3.mp3",
+   "credit": 1
+  },
+  {
    "code": "n_hanoi_male_vuvanxuan20260316024112289_story_vc",
    "name": "Vũ Văn Xuân",
    "gender": "male",
@@ -10951,6 +11365,15 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://prod-aivoice.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-69843fc5b958894d44c9ea30/69843fdcf5e5281a68743e42.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_phutho_female_amdongdeu_book_vc",
+   "name": "Âm đồng đều",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a8ee7c2d9b4e6046a6988f9/anh_ta_tu_choi_uong_nuoc_trong_mu_sat_de_chia_b7663686-e5cb-4ded-a1b9-b6a735b29325.mp3.mp3",
    "credit": 1
   },
   {
@@ -11257,6 +11680,24 @@
    "lang": "vi-VN",
    "own": "COMMUNITY",
    "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-68a4bdfa50b78cd9450e215c/anh_ay_lam_nhieu_viec_tot_lam_ne_lieu_anh_ay_co_96433ccb-e734-454c-be55-a51e4ae0084b.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_hanoi_male_ducbachkechuyen_story_vc",
+   "name": "Đức Bách Kể Chuyện",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9808e2698ebe48cc5a98bf/khi_co_buoc_qua_tam_tham_day_co_giong_nhu_mot_cd0a15b2-77b2-40c4-8e2b-84ee5b8879d4.mp3.mp3",
+   "credit": 1
+  },
+  {
+   "code": "n_hanoi_male_ducbachtintuc_news_vc",
+   "name": "Đức Bách Tin Tức",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "COMMUNITY",
+   "demo": "https://vbee-studio-tmp.s3.ap-southeast-1.amazonaws.com/voice-cloning/samples/voice-6a9804a8698ebe48cc5a8fe4/theo_so_lieu_cua_quy_tien_te_quoc_te_tinh_den_48cf2893-b9a4-40e6-9c1d-d59db4b0644b.mp3.mp3",
    "credit": 1
   },
   {
@@ -11780,6 +12221,15 @@
    "own": "VBEE",
    "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/google/fil-ph-Neural2-A.mp3",
    "credit": 4
+  },
+  {
+   "code": "hn_male_phuthang_stor_24k-stl",
+   "name": "Anh Khôi nâng cao (Beta)",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/hn_male_phuthang_stor_24k-stl.mp3",
+   "credit": 2
   },
   {
    "code": "en-IN-Standard-C",
@@ -12446,6 +12896,15 @@
    "own": "VBEE",
    "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/google/el-GR-Standard-A.mp3",
    "credit": 1
+  },
+  {
+   "code": "hue_male_duyphuong_full_24k-stl",
+   "name": "Duy Phương nâng cao (Beta)",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/hue_male_duyphuong_full_24k-stl.mp3",
+   "credit": 2
   },
   {
    "code": "bm_dylan",
@@ -13193,6 +13652,15 @@
    "own": "VBEE",
    "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/google/yue-HK-Standard-B.mp3",
    "credit": 1
+  },
+  {
+   "code": "hue_female_huonggiang_full_24k-stl",
+   "name": "Hương Giang nâng cao (Beta)",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/hue_female_huonggiang_full_24k-stl.mp3",
+   "credit": 2
   },
   {
    "code": "bf_iana",
@@ -14293,6 +14761,15 @@
    "credit": 3
   },
   {
+   "code": "hn_female_ngochuyen_full_24k-stl",
+   "name": "Ngọc Huyền nâng cao (Beta)",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/hn_female_ngochuyen_full_24k-stl.mp3",
+   "credit": 2
+  },
+  {
    "code": "cmn-TW-Standard-C",
    "name": "Nikita",
    "gender": "male",
@@ -15112,6 +15589,15 @@
    "credit": 1
   },
   {
+   "code": "hn_male_thanhlong_talk_24k-stl",
+   "name": "Thanh Long nâng cao (Beta)",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/hn_male_thanhlong_talk_24k-stl.mp3",
+   "credit": 2
+  },
+  {
    "code": "en-US-Standard-B",
    "name": "Theodore",
    "gender": "male",
@@ -15146,6 +15632,24 @@
    "own": "VBEE",
    "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/microsoft/en-US-TonyNeural.mp3",
    "credit": 4
+  },
+  {
+   "code": "sg_male_trungkien_vdts_24k-stl",
+   "name": "Trung Kiên nâng cao (Beta)",
+   "gender": "male",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/sg_male_trungkien_vdts_24k-stl.mp3",
+   "credit": 2
+  },
+  {
+   "code": "sg_female_tuongvy_call_24k-stl",
+   "name": "Tường Vy nâng cao (Beta)",
+   "gender": "female",
+   "lang": "vi-VN",
+   "own": "VBEE",
+   "demo": "https://vbee.s3.ap-southeast-1.amazonaws.com/audios/demo/vbee/sg_female_tuongvy_call_24k-stl.mp3",
+   "credit": 2
   },
   {
    "code": "fi-FI-Wavenet-B-Premium",

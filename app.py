@@ -8,7 +8,7 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, redirect
 import generate, lesson_parser, seo
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -623,7 +623,10 @@ def upload():
     if not f or not f.filename:
         return jsonify(error="Chưa chọn file"), 400
     ext = os.path.splitext(f.filename)[1].lower()[:6]
-    name = f"{kind}_{int(time.time()*1000)}{ext}"
+    # them hau to ngau nhien: trang film upload 4 file song song -> trung mili-giay
+    # -> 2 file ghi chong vao 1 ten -> anh vo nua duoi (glitch xanh/tim)
+    import uuid
+    name = f"{kind}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}{ext}"
     p = os.path.join(UP, name)
     f.save(p)
     if kind == "bg":
@@ -1249,11 +1252,18 @@ def yt_connect():
         return ("Chưa có client_secret.json. " +
                 youtube_upload.setup_hint().replace("<code>", "").replace("</code>", "")), 400
     try:
-        info = youtube_upload.connect()      # mo trinh duyet dang nhap (blocking)
-        return (f"<h2>✅ Đã kết nối kênh: {info['title']}</h2>"
-                "<p>Đóng tab này và quay lại trang đăng video, danh sách kênh sẽ tự cập nhật.</p>")
+        # Tra ve url dang nhap Google roi CHUYEN THANG tab nay sang do (khong cho server
+        # tu mo trinh duyet nua — chay nen thi viec do hay im lang khong xay ra).
+        return redirect(youtube_upload.start_connect(), code=302)
     except Exception as e:
+        traceback.print_exc()
         return f"<h2>❌ Lỗi kết nối</h2><pre>{e}</pre>", 500
+
+
+@app.route("/yt/connect/status")
+def yt_connect_status():
+    """Trang dang xem OAuth xong chua de tu nap lai danh sach kenh."""
+    return jsonify(youtube_upload.connect_status())
 
 # ---------- SHORTS STUDIO: sinh Short doc TRUC TIEP tu cau (khong can video dai) ----------
 @app.route("/shorts")
@@ -2069,7 +2079,9 @@ _SFX_MAP = [
 def _sfx_suggest(label):
     low = (label or "").lower()
     for keys, kind in _SFX_MAP:
-        if any(k in low for k in keys):
+        # khop NGUYEN TU: 'hồ' khong duoc dinh vao 'hồi 1: ...' (nhan chuong) -> ca phim
+        # bi gan tieng suoi (nhieu trang) nghe nhu nuoc soi
+        if any(re.search(r"(?<!\w)" + re.escape(k) + r"(?!\w)", low) for k in keys):
             return kind
     return ""
 
@@ -2625,6 +2637,7 @@ def run_film_job(job_id, data):
                 "rate": data.get("rate") or "-8%",
                 "music_file": music_file,
                 "music_vol": float(data.get("music_vol") or 0.16),
+                "voice_vol": max(0.0, min(2.0, float(data.get("voice_vol", 1.0)))),
                 # nâng cấp điện ảnh
                 "kenburns": bool(data.get("kenburns", True)),
                 "film_mode": film_mode,               # da shot (fake coverage) + thoai dien

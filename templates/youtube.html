@@ -25,6 +25,8 @@
   .mt { margin-top:14px; }
   button { cursor:pointer; border:none; border-radius:10px; font-size:14px; font-weight:600; padding:9px 14px; }
   .btn-ghost { background:#fbe9ee; color:var(--pink); }
+  a.btn-a { display:inline-block; text-decoration:none; border-radius:10px; font-size:14px;
+            font-weight:600; padding:9px 14px; cursor:pointer; }
   .btn-copy { background:#eef1f4; color:#555; font-size:12px; padding:5px 10px; }
   .btn-go { background:var(--yt); color:#fff; padding:15px 22px; font-size:17px; width:100%; border-radius:12px; }
   .btn-go:disabled { opacity:.5; cursor:not-allowed; }
@@ -90,7 +92,10 @@
   <div class="card">
     <div class="lblrow">
       <label style="margin:0">📺 Kênh đăng <span class="hint">(tick nhiều kênh để đăng cùng lúc)</span></label>
-      <button class="btn-ghost" onclick="connectChannel()">+ Kết nối kênh mới</button>
+      <!-- THE <a> chu khong phai window.open(): Chrome chan popup thi bam khong ra gi ca,
+           khong bao loi, server cung khong thay request nao. Link thi khong bao gio bi chan. -->
+      <a class="btn-ghost btn-a" href="/yt/connect" target="_blank" rel="noopener"
+         onclick="connectChannel()">+ Kết nối kênh mới</a>
     </div>
     <div id="channelList" class="mt"><div class="muted">— Đang tải danh sách kênh… —</div></div>
     <div id="chanWarn" class="warn mt" style="display:none">
@@ -323,9 +328,26 @@ async function loadSocialMulti(channels){
   }));
   list.innerHTML = `<div class="warn" style="margin-bottom:10px">Đăng cùng video lên <b>${channels.length} kênh YouTube</b>. Mỗi kênh tự lan toả sang các MXH đã bật & kết nối của nó, caption tự sinh chuẩn SEO. (Muốn sửa caption tay thì chỉ chọn 1 kênh.)</div>` + rows.join('');
 }
-function connectChannel(){ window.open('/yt/connect','_blank');
-  setStatus('Sau khi đăng nhập xong, quay lại đây và bấm tải lại danh sách kênh.', '');
-  setTimeout(loadChannels, 4000); }
+// Link da tu mo tab /yt/connect -> tab do nhay thang sang Google. O day chi ngoi hoi
+// server xem xong chua (toi 10 phut) roi tu nap lai danh sach kenh.
+function connectChannel(){
+  setStatus('Đang mở trang đăng nhập Google ở tab mới… cấp quyền xong quay lại đây, danh sách kênh tự cập nhật.', '');
+  let n = 0;
+  const t = setInterval(async () => {
+    n++;
+    if(n > 300){ clearInterval(t); return; }                 // 300 x 2s = 10 phut
+    let st;
+    try { st = await (await fetch('/yt/connect/status')).json(); } catch(e){ return; }
+    if(st.state === 'done'){
+      clearInterval(t);
+      setStatus('✅ Đã kết nối kênh: ' + st.title, 'ok');
+      loadChannels();
+    } else if(st.state === 'error'){
+      clearInterval(t);
+      setStatus('❌ Kết nối kênh lỗi: ' + st.error, 'err');
+    }
+  }, 2000);
+}
 
 function setStatus(msg, cls){ const s=document.getElementById('status'); s.className=cls||''; s.textContent=msg; }
 
