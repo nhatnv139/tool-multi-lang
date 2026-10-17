@@ -3,7 +3,7 @@
    - Can file client_secret.json (tao o Google Cloud Console).
    - Moi kenh dang nhap 1 lan -> token luu trong yt_tokens/<channel_id>.json.
 """
-import os, json, glob
+import os, json, glob, time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CLIENT_SECRET = os.path.join(ROOT, "client_secret.json")
@@ -36,6 +36,75 @@ def _channel_info(creds):
         return None
     it = items[0]
     return {"id": it["id"], "title": it["snippet"]["title"]}
+
+
+# Trang thai cua lan ket noi dang cho (start_connect): UI hoi qua connect_status()
+_CONNECT = {"state": "idle", "url": "", "title": "", "error": ""}
+
+
+def _save_token(creds):
+    info = _channel_info(creds)
+    if not info:
+        raise RuntimeError("Không lấy được thông tin kênh")
+    with open(os.path.join(TOKENS_DIR, info["id"] + ".json"), "w", encoding="utf-8") as f:
+        f.write(creds.to_json())
+    # luu kem ten kenh de liet ke nhanh
+    with open(os.path.join(TOKENS_DIR, info["id"] + ".name"), "w", encoding="utf-8") as f:
+        f.write(info["title"])
+    return info
+
+
+def start_connect(timeout_seconds=600):
+    """Bat dau OAuth nhung KHONG chan request: tra ve NGAY url dang nhap Google de tab
+    cua nguoi dung tu chuyen sang. Viec cho Google goi lai localhost chay o luong nen.
+
+    connect() cu goi flow.run_local_server() -> no tu goi webbrowser.open() TU PHIA
+    SERVER va chan request cho toi khi dang nhap xong. Server chay nen ma mo trinh duyet
+    that bai thi khong ai thay gi ca, tab cu quay mai. Tra url ve cho client thi khong
+    con phu thuoc vao chuyen do nua.
+    """
+    if not is_configured():
+        raise RuntimeError("Chưa có client_secret.json")
+    import threading, wsgiref.simple_server
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google_auth_oauthlib.flow import _RedirectWSGIApp, _WSGIRequestHandler
+
+    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET, SCOPES)
+    wsgi_app = _RedirectWSGIApp("✅ Đã cấp quyền. Đóng tab này và quay lại tool.")
+    wsgiref.simple_server.WSGIServer.allow_reuse_address = False
+    # port 0: cong trong bat ky -> khong dam nhau khi ket noi nhieu kenh lien tiep
+    server = wsgiref.simple_server.make_server("localhost", 0, wsgi_app,
+                                               handler_class=_WSGIRequestHandler)
+    flow.redirect_uri = f"http://localhost:{server.server_port}/"
+    auth_url, _ = flow.authorization_url(prompt="consent")
+    _CONNECT.update(state="waiting", url=auth_url, title="", error="")
+
+    def _wait():
+        try:
+            server.timeout = timeout_seconds
+            server.handle_request()
+            resp = getattr(wsgi_app, "last_request_uri", None)
+            if not resp:
+                raise RuntimeError(f"Quá {timeout_seconds}s chưa thấy Google trả lời "
+                                   "— bấm kết nối lại.")
+            flow.fetch_token(authorization_response=resp.replace("http", "https"))
+            info = _save_token(flow.credentials)
+            _CONNECT.update(state="done", title=info["title"], error="")
+        except Exception as e:
+            _CONNECT.update(state="error", error=str(e))
+        finally:
+            try:
+                server.server_close()
+            except Exception:
+                pass
+
+    threading.Thread(target=_wait, daemon=True).start()
+    return auth_url
+
+
+def connect_status():
+    """{state: idle|waiting|done|error, url, title, error} cho UI hoi."""
+    return dict(_CONNECT)
 
 
 def connect():
@@ -104,12 +173,23 @@ def upload(channel_id, video_path, title, description, tags, privacy="public",
                     "tags": tags, "categoryId": category},
         "status": status,
     }
-    media = MediaFileUpload(video_path, chunksize=-1, resumable=True,
+    # Chia khuc 8MB: chunksize=-1 day ca file (vai tram MB) trong MOT request -> mang
+    # chap chon 1 giay (SSLEOFError) la hong ca luot. Khuc nho + thu lai thi chi gui lai
+    # dung khuc dang do (resumable upload tu noi tiep tu byte server da nhan).
+    media = MediaFileUpload(video_path, chunksize=8 * 1024 * 1024, resumable=True,
                             mimetype="video/mp4")
     req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
-    resp = None
+    resp, fails = None, 0
     while resp is None:
-        _status, resp = req.next_chunk()
+        try:
+            _status, resp = req.next_chunk(num_retries=5)
+            fails = 0
+        except (OSError, ConnectionError, TimeoutError) as e:   # ssl.SSLError la OSError
+            fails += 1
+            if fails > 8:
+                raise RuntimeError(f"Mạng rớt liên tục khi tải lên YouTube: {e}") from e
+            print(f"[YT] ⚠ mat ket noi khi upload ({e}) -> thu lai lan {fails} sau {min(60, 2 ** fails)}s")
+            time.sleep(min(60, 2 ** fails))
     vid = resp["id"]
     return {"id": vid, "url": f"https://youtu.be/{vid}"}
 

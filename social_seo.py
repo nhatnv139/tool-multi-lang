@@ -4,6 +4,8 @@
    cta (kêu gọi), hashtags, link — rồi RÁP lại theo chuẩn từng nền tảng.
    Tái dùng dữ liệu seo.py, KHÔNG gọi lại seo.generate. Không dùng AI.
 """
+import re
+
 import seo
 
 # giới hạn & cấu hình từng nền tảng (SEO/organic best-practice)
@@ -17,12 +19,17 @@ DEFAULT_CTA = "🔔 Đăng ký kênh để mỗi ngày có một bài nghe mới
 
 
 def _chapters_bullets(seo_data, limit=4):
-    out = []
-    for c in (seo_data.get("chapters") or [])[:limit]:
-        label = (c.get("label") or "").strip()
-        if label:
-            out.append(f"• {label}")
-    return "\n".join(out)
+    # 'chapters' co HAI dang: bai hoc tra list dict {label:...}, con phim (_film_seo)
+    # tra MOT CHUOI "0:00 Mo dau\n1:23 Canh 2...". Chi doc dang dict thi trang dang
+    # cua phim no 500 (AttributeError: 'str' object has no attribute 'get').
+    ch = seo_data.get("chapters") or []
+    if isinstance(ch, str):
+        rows = [re.sub(r"^\s*\d+:\d{2}(?::\d{2})?\s*", "", ln).strip()
+                for ln in ch.splitlines()]
+    else:
+        rows = [(c.get("label") if isinstance(c, dict) else str(c) or "").strip()
+                for c in ch]
+    return "\n".join(f"• {r}" for r in [r for r in rows if r][:limit])
 
 
 def _truncate(text, n):

@@ -85,6 +85,28 @@ Mở trình duyệt: **http://127.0.0.1:5000**
 
 ---
 
+### 🏮 Biến thể layout (dropdown "Biến thể layout")
+
+Ngoài các biến thể cũ (thủy mặc, cuộn thư, đèn lồng, thẻ tre…), có thêm nhóm
+**"Mẫu kênh podcast lớn"** — bắt chước bố cục các kênh dạy tiếng Trung nổi tiếng:
+
+| Biến thể | Bố cục | Hợp với ảnh nền kiểu |
+|----------|--------|----------------------|
+| 💌 `postcard` | Thanh tiêu đề cam bo tròn trên đỉnh · chữ Hán xanh · pinyin **nghiêng** · nghĩa Việt đậm | Studio ấm, 2 người dẫn ngồi hai bên |
+| 🎙️ `showhead` | Đầu trang: tên chương trình (pinyin trên chữ Hán) + sóng âm + chữ tay **"Podcast"** · nét đứt · nghĩa nằm trong dải mờ sát đáy | Tranh thủy mặc / phong cảnh ngang |
+| ↖️ `halfleft` | Tiêu đề nhỏ giãn chữ trên đỉnh · khối chữ **căn trái nửa màn** · khẩu hiệu viết tay góc dưới trái | Ảnh có nhân vật/cảnh nằm **bên phải** |
+| 🖼️ `stage` | Không chrome, chỉ 1 dòng chữ nhỏ sát đáy | Tranh đẹp muốn để trống (full-bleed) |
+
+Ô nhập liên quan: **✍️ Chữ viết tay đầu trang** (mặc định `Podcast`, dùng cho `showhead`),
+**✍️ Chữ bên trái** của thanh chân (dùng luôn làm khẩu hiệu cho `halfleft`),
+**@title / @hanzi** trong nội dung (làm tiêu đề thanh cam và tên chương trình).
+
+> `showhead` tự bật thanh chân trang khi chọn. Font viết tay/nghiêng lấy theo font hệ thống
+> (Ink Free / Times Italic…); máy thiếu font hoặc chữ có dấu tiếng Việt mà font không hỗ trợ
+> thì tự lùi về font thường — **không bao giờ ra ô vuông**.
+
+---
+
 ## 📝 Định dạng nội dung (dán vào app)
 
 ```

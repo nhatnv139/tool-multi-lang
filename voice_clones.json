@@ -1,0 +1,29 @@
+{
+  "_doc": [
+    "Giong CLONE cho VieNeu: ten giong -> file mau am thanh (wav/mp3, 10-60s, sach, 1 nguoi noi).",
+    "Bo file mau vao assets/voice_clones/ roi khai o day. app.py doc chinh file nay de dung",
+    "dropdown -> khong bao gio con lech giua nhan hien ra va giong that su chay duoc.",
+    "Giong nao khong tim thay file mau se KHONG hien trong dropdown."
+  ],
+  "voices": {
+    "Văn Minh 2": {
+      "ref": "assets/voice_clones/van_minh_2.wav",
+      "desc": "GIỌNG CỦA BẠN — mẫu đọc truyện 13s (mẫu mới)",
+      "star": true
+    },
+    "Văn Minh": {
+      "ref": "assets/voice_clones/van_minh.wav",
+      "desc": "GIỌNG CỦA BẠN — mẫu đọc truyện 18s (mẫu cũ)"
+    },
+    "Kho Thóc 1": {
+      "ref": "assets/voice_clones/giong_moi_1.wav",
+      "desc": "Nam trầm (F0 ~100Hz) — mẫu 'kho thóc của làng cháy' 15,9s",
+      "star": true
+    },
+    "Kho Thóc 2": {
+      "ref": "assets/voice_clones/giong_moi_2.wav",
+      "desc": "Nam vừa (F0 ~124Hz) — mẫu 'kho thóc của làng cháy' 14,8s",
+      "star": true
+    }
+  }
+}

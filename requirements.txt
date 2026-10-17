@@ -5,6 +5,8 @@ edge-tts
 pypinyin
 numpy
 requests
+opencv-python>=4.8,<5   # Ken Burns subpixel + dip-to-black; can 4.x vi 5.0 bo CascadeClassifier (detect mat anime)
+python-dotenv
 
 # Đăng YouTube (OAuth + upload + phụ đề + thumbnail)
 google-api-python-client

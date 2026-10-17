@@ -8,13 +8,17 @@
        album    : trang sach co (kinh tuyen do nhat 2 ben)
        minimal  : dien anh toi gian — chi scrim gradient duoi, khong khung
        night    : da thoai — panel muc den, chu nga vang (cho truyen dem)
+       postcard : buu thiep — thanh tieu de bo tron tren dinh + pinyin nghieng
+       showhead : dau trang podcast — ten chuong trinh + song am + chu tay "Podcast"
+       halfleft : khoi chu nua trai (chua cho nhan vat ben phai) + khau hieu viet tay
+       stage    : tranh full, 1 dong chu nho sat day
    - An trien do (con dau) khac ten kenh: ctx['seal_text'] (2-4 chu Han).
    - Do bong mem cho chu Han -> noi khoi tren nen tranh.
    - Texture giay nhe (noise) tren panel -> chat giay that.
    Giu nguyen signature render(seg, ctx, path, reveal_t, t_now) nhu render_podcast_main.
 """
 import os
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 import style_pastel as SP     # dung lai font/flatten/tone/wrap cua bo pastel
 
@@ -134,6 +138,44 @@ VARIANTS = {
         seal=False, rollers=False, redrules=False, scrim=False,
         divider="line", texture=False, grid=True, washi=True,
         highlight=(255, 224, 138), shadow=True, wave="top"),
+    # ---- DOT 4: mo phong bo cuc cac kenh podcast lon (chu TRUC TIEP tren tranh) ----
+    # postcard: thanh tieu de bo tron mau cam tren dinh + pinyin nghieng (kieu studio am ap)
+    "postcard": dict(
+        free=True, anchor="mid", dark=False,
+        ink=(28, 58, 138), pinyin=(78, 104, 168), viet=(26, 26, 30),
+        border=(226, 126, 56), seal=False, halo=(255, 252, 246),
+        ruby=False, viet_style="inline", dashes=False, wave="off",
+        titlepill=(226, 126, 56), pill_ink=(255, 255, 255),
+        py_italic=True, viet_bold=True, y_ratio=0.40,
+        bgfill=(246, 236, 222)),
+    # showhead: dai dau trang (ten chuong trinh + song am + chu "Podcast") kieu Chinese Daily
+    "showhead": dict(
+        free=True, anchor="mid", dark=False,
+        ink=(34, 42, 40), pinyin=(84, 94, 90), viet=(74, 108, 100),
+        # seal=False: user chot 2026-08-11 — bo trien do o bien the "Dau trang podcast"
+        # (no de len goc duoi-trai, dam vao dai nghia tieng Viet). Cac bien the khac giu nguyen.
+        border=(148, 126, 84), seal=False, halo=(255, 255, 255),
+        ruby=False, viet_style="band", dashes=True, wave="off",
+        header=True, head_ink=(58, 50, 42), head_py=(118, 102, 82),
+        script=(36, 36, 40), vietband=(250, 252, 250), y_ratio=0.55,
+        bgfill=(226, 234, 228)),
+    # halfleft: khoi chu nua TRAI (chua chan dung ben phai) + strip tieu de tren + tagline viet tay
+    "halfleft": dict(
+        free=True, anchor="mid", align="left", zone=(0.055, 0.58),
+        dark=False,
+        ink=(38, 46, 62), pinyin=(98, 110, 132), viet=(30, 88, 168),
+        border=(120, 142, 180), seal=False, halo=(255, 255, 255),
+        ruby=True, viet_style="inline", dashes=False, wave="off",
+        topstrip=(56, 82, 138), tagline=(52, 94, 168), y_ratio=0.42,
+        bgfill=(247, 250, 254)),
+    # stage: de tranh "tho" — chi 1 dong ruby nho sat day, khong chrome (kieu canh full-bleed)
+    "stage": dict(
+        free=True, anchor="bottom", dark=False,
+        ink=(36, 34, 32), pinyin=(94, 90, 84), viet=(88, 90, 94),
+        border=(178, 168, 148), seal=False, halo=(255, 255, 255),
+        ruby=True, viet_style="inline", dashes=False, wave="off",
+        zh_max=84, y_bottom=0.94, zone=(0.07, 0.93),
+        bgfill=(236, 234, 228)),
 }
 
 SEAL_RED = (186, 48, 38)
@@ -150,6 +192,10 @@ CHIP_DARK  = [(96, 150, 245), (238, 116, 166), (243, 176, 84), (108, 200, 140), 
 
 
 def _cfg(ctx):
+    # 'anh xua': dat bien module truoc khi bat ky ham nao nap anh nen
+    global _VINTAGE
+    _v = str(ctx.get("bg_vintage") or "").strip().lower()
+    _VINTAGE = _v if _v in VINTAGE_KINDS else None
     v = str(ctx.get("podcast_variant") or "inkwash")
     cfg = VARIANTS.get(v, VARIANTS["inkwash"])
     # nguoi dung tu chon mau: chu tung dong (zh/py/vi_color) + nen panel (panel_color)
@@ -169,9 +215,92 @@ def _cfg(ctx):
 
 # ---------- NEN ----------
 _bg_cache = {}
+VINTAGE_KINDS = ("film", "sepia", "faded", "vhs", "stain")
+_VINTAGE = None          # render()/_render_free() dat theo ctx['bg_vintage']
+
+
+def _apply_vintage(im, kind):
+    """Bien anh nen thanh 'anh xua'. Tra ve anh RGB moi.
+       film  — phim 70s: den bi nhac len (bac mau), highlight am, hat phim, vignette
+       sepia — anh nau co
+       faded — anh phai mau kieu Polaroid (bong ngal xanh, do tuong phan thap)
+       vhs   — bang VHS: le mau + duong quet ngang + hoi nhoe
+       stain — o vang + vet xuoc + bui (anh cu de trong hop)"""
+    import random as _rnd
+    from PIL import ImageEnhance
+    im = im.convert("RGB")
+    w, h = im.size
+    r, g, b = im.split()
+
+    if kind == "sepia":
+        gray = im.convert("L")
+        im = Image.merge("RGB", (
+            gray.point(lambda v: min(255, int(v * 1.07 + 28))),
+            gray.point(lambda v: min(255, int(v * 0.94 + 16))),
+            gray.point(lambda v: min(255, int(v * 0.72 + 6)))))
+    elif kind == "faded":
+        im = ImageEnhance.Color(im).enhance(0.62)
+        r, g, b = im.split()
+        im = Image.merge("RGB", (
+            r.point(lambda v: int(v * 0.96 + 16)),
+            g.point(lambda v: int(v * 0.97 + 14)),
+            b.point(lambda v: min(255, int(v * 0.99 + 26)))))   # bong ngal xanh
+        im = ImageEnhance.Contrast(im).enhance(0.86)
+    elif kind == "vhs":
+        # le mau: dich kenh do sang trai, kenh lam sang phai
+        r, g, b = im.split()
+        im = Image.merge("RGB", (ImageChops.offset(r, -3, 0), g,
+                                 ImageChops.offset(b, 3, 0)))
+        im = im.filter(ImageFilter.GaussianBlur(0.7))
+        sl = Image.new("L", (1, 4), 0)                          # duong quet ngang
+        sl.putpixel((0, 0), 26); sl.putpixel((0, 1), 12)
+        im = ImageChops.subtract(im, Image.merge("RGB", (sl.resize((w, h), Image.NEAREST),) * 3))
+        im = ImageEnhance.Color(im).enhance(1.15)
+    elif kind == "stain":
+        gray = im.convert("L")
+        im = Image.blend(im, Image.merge("RGB", (
+            gray.point(lambda v: min(255, int(v * 1.05 + 30))),
+            gray.point(lambda v: min(255, int(v * 0.96 + 20))),
+            gray.point(lambda v: int(v * 0.70)))), 0.55)
+        ov = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        od = ImageDraw.Draw(ov)
+        rr = _rnd.Random(9)
+        for _ in range(16):                                     # vet o loang
+            cx, cy = rr.randint(0, w), rr.randint(0, h)
+            rad = rr.randint(int(w * 0.05), int(w * 0.16))
+            od.ellipse([cx - rad, cy - rad, cx + rad, cy + rad],
+                       fill=(150, 110, 50, rr.randint(10, 26)))
+        ov = ov.filter(ImageFilter.GaussianBlur(w // 60))
+        for _ in range(40):                                     # vet xuoc doc
+            x0 = rr.randint(0, w); ln = rr.randint(int(h * 0.05), int(h * 0.4))
+            y0 = rr.randint(0, h - ln)
+            ImageDraw.Draw(ov).line([(x0, y0), (x0 + rr.randint(-4, 4), y0 + ln)],
+                                    fill=(255, 250, 235, rr.randint(14, 34)), width=1)
+        im = Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB")
+    else:                                                       # 'film' (mac dinh)
+        im = ImageEnhance.Color(im).enhance(0.80)
+        r, g, b = im.split()
+        im = Image.merge("RGB", (                               # den bi nhac len -> bac mau
+            r.point(lambda v: int(18 + v * 0.93)),
+            g.point(lambda v: int(14 + v * 0.92)),
+            b.point(lambda v: int(12 + v * 0.88))))
+        im = ImageEnhance.Contrast(im).enhance(0.92)
+
+    # HAT PHIM + VIGNETTE — chung cho moi kieu
+    noise = Image.effect_noise((w, h), 26).convert("L").point(
+        lambda v: 128 + (v - 128) // (3 if kind in ("stain", "vhs") else 4))
+    im = Image.blend(im, Image.merge("RGB", (noise, noise, noise)),
+                     0.10 if kind in ("stain", "vhs") else 0.07)
+    vig = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(vig).ellipse([-w * 0.22, -h * 0.28, w * 1.22, h * 1.28], fill=255)
+    vig = vig.filter(ImageFilter.GaussianBlur(w // 14))
+    im = Image.composite(im, ImageChops.multiply(im, Image.new("RGB", (w, h), (86, 74, 60))), vig)
+    return im
+
+
 def _cover_bg_2x(path):
     """Anh nen nguoi dung -> phu kin SWxSH (2x), cache."""
-    k = path
+    k = (path, _VINTAGE)
     if k in _bg_cache:
         return _bg_cache[k].copy()
     src = Image.open(path).convert("RGB")
@@ -183,6 +312,8 @@ def _cover_bg_2x(path):
         src = src.resize((tw, int(tw / sr)), Image.LANCZOS)
     x, y = (src.width - tw) // 2, (src.height - th) // 2
     out = src.crop((x, y, x + tw, y + th))
+    if _VINTAGE in VINTAGE_KINDS:                # 'anh xua' — ap SAU khi crop, truoc khi cache
+        out = _apply_vintage(out, _VINTAGE)
     _bg_cache[k] = out
     return out.copy()
 
@@ -361,26 +492,49 @@ def _draw_redrules(d, box, color):
 
 
 # ---------- CHU ----------
-def _shadow_text(d, xy, text, f, fill, dark_bg):
+def _han_unit(unit, is_han):
+    """Don vi nay co phai ve bang FONT HAN khong.
+       Ngoai chu Han, DAU CAU TOAN-RONG (，。！？：；「」…) cung phai dung font Han:
+       font Latin (Arial/Lexend) KHONG co glyph nay -> ra o vuong tren Windows."""
+    return bool(is_han) or (bool(unit) and SP._is_cjk(unit[0]))
+
+
+def _shadow_on(ctx):
+    """Co ve bong do sau chu khong.
+       ctx['text_shadow']: 'on' / 'off' / '' (auto).
+       AUTO = chi bat khi co ANH/VIDEO nen that — nen mau phang thi bong chi lam ban chu."""
+    v = ctx.get("text_shadow")
+    if isinstance(v, str):
+        v = v.strip().lower()
+        if v in ("off", "0", "no", "false"):
+            return False
+        if v in ("on", "1", "yes", "true"):
+            return True
+    elif v is not None:
+        return bool(v)
+    return bool(ctx.get("bg_image")) or bool(ctx.get("_transparent"))
+
+
+def _shadow_text(d, xy, text, f, fill, dark_bg, shadow=True):
     """Chu co bong mem: bong lech nhe -> chu noi khoi tren nen tranh."""
     x, y = xy
-    if dark_bg:
-        sh = (0, 0, 0, 130)
-    else:
-        sh = (92, 74, 58, 60)
-    d.text((x + 2 * S, y + 2 * S), text, font=f, fill=sh)
+    if shadow:
+        sh = (0, 0, 0, 130) if dark_bg else (92, 74, 58, 60)
+        d.text((x + 2 * S, y + 2 * S), text, font=f, fill=sh)
     d.text((x, y), text, font=f, fill=fill)
 
 
 def _hanzi_lines(d, text, size, max_w, char_gap):
-    """Chia dong nhu SP._hanzi_wrap_lines (toa do 2x)."""
-    cw = lambda ch: SP.text_w(d, ch, SP._charfont(ch, size))
+    """Chia dong (gom tu Latin thanh 1 khoi -> khong tach le/cat giua tu)."""
+    zf = SP.font("zh", size); lf = SP.font("viet", int(size * 0.86))
+    uw = lambda u, h: SP.text_w(d, u, zf if h else lf)
     lines, cur, curw, gi = [], [], 0, 0
-    for ch, p, h in SP.flatten(text):
-        w = cw(ch) + char_gap
-        if curw + w > max_w and cur and ch not in SP._CLOSERS:
+    for unit, p, h in SP.group_units(text):
+        hf = _han_unit(unit, h)
+        w = uw(unit, hf) + char_gap
+        if curw + w > max_w and cur and unit not in SP._CLOSERS:
             lines.append(cur); cur, curw = [], 0
-        cur.append((ch, gi)); curw += w; gi += 1
+        cur.append((unit, hf, gi)); curw += w; gi += 1
     if cur:
         lines.append(cur)
     return lines
@@ -397,50 +551,55 @@ def _fit_hanzi(d, text, max_w, max_h, hi, lo, line_gap):
 
 
 def _draw_hanzi(d, text, cx, top, size, max_w, color, dark_bg,
-                char_gap=None, line_gap=None, reveal_t=None, t_now=BIG, hl=None):
+                char_gap=None, line_gap=None, reveal_t=None, t_now=BIG, hl=None,
+                align="center", shadow=True):
+    """align='left' -> cx la MEP TRAI cua khoi chu (dung cho layout nua-trai)."""
     char_gap = char_gap if char_gap is not None else 8 * S
     line_gap = line_gap if line_gap is not None else 22 * S
     lines = _hanzi_lines(d, text, size, max_w, char_gap)
-    cw = lambda ch: SP.text_w(d, ch, SP._charfont(ch, size))
+    zf = SP.font("zh", size); lf = SP.font("viet", int(size * 0.86))
+    uw = lambda u, h: SP.text_w(d, u, zf if h else lf)
     lh = size + line_gap
     y = top
     for ln in lines:
-        total = sum(cw(ch) + char_gap for ch, _ in ln) - char_gap
-        x = cx - total // 2
+        total = sum(uw(u, h) + char_gap for u, h, _ in ln) - char_gap
+        x = cx if align == "left" else cx - total // 2
         if hl:   # vet but da quang sau chu (study style)
             d.rounded_rectangle([x - 14 * S, y + size * 0.06, x + total + 14 * S,
                                  y + size * 1.12], radius=10 * S, fill=tuple(hl) + (160,))
-        for ch, idx in ln:
+        for unit, h, idx in ln:
             if reveal_t is None or reveal_t[idx] <= t_now:
-                f = SP._charfont(ch, size)
-                oy = 0 if SP._is_cjk(ch) else int(size * 0.12)
-                _shadow_text(d, (x, y + oy), ch, f, color, dark_bg)
-            x += cw(ch) + char_gap
+                f = zf if h else lf
+                oy = 0 if h else int(size * 0.12)
+                _shadow_text(d, (x, y + oy), unit, f, color, dark_bg, shadow)
+            x += uw(unit, h) + char_gap
         y += lh
     return len(lines) * lh
 
 
-def _draw_pinyin(d, text, cx, y, max_w, neutral, tone_map, tone=True, size=None, gap=None):
+def _draw_pinyin(d, text, cx, y, max_w, neutral, tone_map, tone=True, size=None, gap=None,
+                 align="center", italic=False):
+    """italic=True -> dong pinyin bang font nghieng (kieu buu thiep)."""
     size = size or 46 * S
     gap = gap or 10 * S
     toks = []
-    for ch, p, h in SP.flatten(text):
-        if ch.strip() == "":
-            continue
+    for unit, p, h in SP.group_units(text):     # gom tu Latin -> khong giãn rời từng chữ cái
         if h and p:
             toks.append((p, False))
         else:
-            toks.append((ch, SP._is_cjk(ch)))
+            toks.append((unit, _han_unit(unit, h)))
     # tinh be rong TRUOC roi moi thu nho dan — size nho san (nguoi dung ep px)
     # cung phai chay it nhat 1 lan, khong duoc de bien chua gan (bug 'ws')
+    probe = "".join(t for t, isc in toks if not isc)      # chuoi Latin/pinyin thuc su se ve
     while True:
-        pf = SP.font("pinyin", size); zf = SP.font("zh", int(size * 0.92))
+        pf = _font_alt("italic", size, probe) if italic else SP.font("pinyin", size)
+        zf = SP.font("zh", int(size * 0.92))
         ws = [(t, isc, SP.text_w(d, t, zf if isc else pf)) for t, isc in toks]
         total = sum(w for *_, w in ws) + gap * (max(0, len(ws) - 1))
         if total <= max_w or size <= 26 * S:
             break
         size -= 2 * S
-    x = cx - total // 2
+    x = cx if align == "left" else cx - total // 2
     for t, isc, w in ws:
         f = zf if isc else pf
         col = neutral if (isc or not tone) else tone_map[SP._tone_of(t)]
@@ -477,12 +636,14 @@ def _ruby_wrap(d, text, zsize, pysize, max_w, col_gap):
     """Chia cot ruby thanh cac dong <= max_w. Moi cot = (ch, py, col_w, wz, wp).
        Be rong cot = max(be rong chu Han, be rong pinyin). Dau cau dong khong dung dau dong."""
     pf = SP.font("pinyin", pysize)
+    zf = SP.font("zh", zsize)
+    lf = SP.font("viet", int(zsize * 0.86))       # từ Latin (chèn tiếng Anh) -> font Latin, cả từ 1 ô
     cols = []
-    for ch, p, h in SP.flatten(text):
-        f = SP._charfont(ch, zsize)
-        wz = SP.text_w(d, ch, f)
+    for unit, p, h in SP.group_units(text):
+        f = zf if _han_unit(unit, h) else lf
+        wz = SP.text_w(d, unit, f)
         wp = SP.text_w(d, p, pf) if (h and p) else 0
-        cols.append((ch, p if h else "", max(wz, wp), wz, wp))
+        cols.append((unit, p if h else "", max(wz, wp), wz, wp, _han_unit(unit, h)))
     lines, cur, curw = [], [], 0
     gi = 0
     for col in cols:
@@ -513,31 +674,33 @@ def _fit_ruby(d, text, max_w, max_h, hi, lo, pysize_of, py_gap, line_gap, col_ga
 
 def _draw_ruby(d, text, cx, top, zsize, pysize, max_w, ink, py_neutral, tone_map,
                tone=True, dark=False, col_gap=None, py_gap=None, line_gap=None,
-               reveal_t=None, t_now=BIG, hl=None):
+               reveal_t=None, t_now=BIG, hl=None, align="center", shadow=True):
     """Ve khoi ruby: pinyin (to mau thanh dieu) tren TUNG chu Han, canh giua."""
     col_gap = col_gap if col_gap is not None else 18 * S
     py_gap = py_gap if py_gap is not None else 10 * S
     line_gap = line_gap if line_gap is not None else 26 * S
     pf = SP.font("pinyin", pysize)
+    zf = SP.font("zh", zsize)
+    lf = SP.font("viet", int(zsize * 0.86))
     lines = _ruby_wrap(d, text, zsize, pysize, max_w, col_gap)
     lh = _ruby_line_h(zsize, pysize, py_gap, line_gap)
     y = top
     for ln in lines:
         total = sum(c[2] + col_gap for c in ln) - col_gap
-        x = cx - total // 2
+        x = cx if align == "left" else cx - total // 2
         if hl:   # vet but da quang sau hang chu Han
             d.rounded_rectangle([x - 12 * S, y + pysize + py_gap + zsize * 0.04,
                                  x + total + 12 * S, y + pysize + py_gap + zsize * 1.1],
                                 radius=10 * S, fill=tuple(hl) + (160,))
-        for ch, py, colw, wz, wp, idx in ln:
+        for unit, py, colw, wz, wp, h, idx in ln:
             if reveal_t is None or reveal_t[idx] <= t_now:
                 if py:
                     col = tone_map[SP._tone_of(py)] if tone else py_neutral
                     d.text((x + (colw - wp) // 2, y), py, font=pf, fill=col)
-                f = SP._charfont(ch, zsize)
-                oy = 0 if SP._is_cjk(ch) else int(zsize * 0.12)
+                f = zf if h else lf
+                oy = 0 if h else int(zsize * 0.12)
                 _shadow_text(d, (x + (colw - wz) // 2, y + pysize + py_gap + oy),
-                             ch, f, ink, dark)
+                             unit, f, ink, dark, shadow)
             x += colw + col_gap
         y += lh
     return len(lines) * lh
@@ -548,8 +711,11 @@ def _glow_behind(im, overlay, halo, radius=None, layers=3):
        ma KHONG can panel. im: RGBA nen; overlay: RGBA chua chu."""
     radius = radius if radius is not None else 9 * S
     a = overlay.split()[3].point(lambda p: min(255, int(p * 2.2)))
-    glow = Image.composite(Image.new("RGBA", overlay.size, halo + (255,)),
-                           Image.new("RGBA", overlay.size, (0, 0, 0, 0)), a)
+    # QUAN TRONG: giu nguyen MAU halo o moi diem, chi doi ALPHA.
+    # (Image.composite se tron RGB ve (0,0,0) o vung nua trong -> sinh vien XAM
+    #  quanh chu = "do bong ban" tren nen sang.)
+    glow = Image.new("RGBA", overlay.size, tuple(halo) + (0,))
+    glow.putalpha(a)
     glow = glow.filter(ImageFilter.GaussianBlur(radius))
     for _ in range(layers):
         im.alpha_composite(glow)
@@ -563,6 +729,203 @@ def _dashed_line(d, y, color, x0=None, x1=None, dash=14, gap=10, w=2):
     while x < x1:
         d.line([(x, y), (min(x + dash * S, x1), y)], fill=color, width=w * S)
         x += (dash + gap) * S
+
+
+# ---------- FONT PHU + TRANG TRI CHO NHOM LAYOUT KENH LON ----------
+def _pickf(*paths):
+    for p in paths:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+# Thu tu uu tien; font dau tien DU GLYPH cho chuoi can ve se duoc chon.
+_CANDS = {
+    "italic": ["C:/Windows/Fonts/timesi.ttf", "C:/Windows/Fonts/ariali.ttf",
+               "C:/Windows/Fonts/georgiai.ttf", "C:/Windows/Fonts/segoeuii.ttf",
+               "/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf",
+               "/System/Library/Fonts/Supplemental/Georgia Italic.ttf",
+               "/Library/Fonts/Times New Roman Italic.ttf"],
+    "script": ["C:/Windows/Fonts/Inkfree.ttf", "C:/Windows/Fonts/segoesc.ttf",
+               "C:/Windows/Fonts/BRADHITC.TTF",
+               "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf",
+               "/System/Library/Fonts/Supplemental/Noteworthy.ttc"],
+}
+_altf = {}
+_notdef = {}
+
+
+def _covers(f, text):
+    """Font co du glyph cho chuoi text khong? (so mat na tung ky tu voi o vuong .notdef)
+       -> tranh chu Viet/pinyin bien thanh □ khi font trang tri thieu glyph."""
+    try:
+        if f not in _notdef:
+            m = f.getmask("\uFFFF")
+            _notdef[f] = (m.size, bytes(m))
+        ref = _notdef[f]
+        for ch in text:
+            if ch.isspace():
+                continue
+            m = f.getmask(ch)
+            if (m.size, bytes(m)) == ref:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _font_alt(kind, size, text=""):
+    """Font phu: 'italic' (dong pinyin nghieng kieu buu thiep) / 'script' (chu tay "Podcast").
+       Chon font dau tien DU GLYPH cho `text`; khong font nao du -> font Latin cua bo pastel
+       (xau hon mot chut nhung KHONG BAO GIO ra o vuong)."""
+    key = (kind, size, "".join(sorted(set(text))))    # gom theo TAP ky tu -> cache khong phinh
+    if key not in _altf:
+        pick = None
+        for path in _CANDS.get(kind, []):
+            if not os.path.exists(path):
+                continue
+            try:
+                f = ImageFont.truetype(path, size)
+            except Exception:
+                continue
+            if not text or _covers(f, text):
+                pick = f
+                break
+        _altf[key] = pick or SP.font("sansb" if kind == "script" else "sans", size)
+    return _altf[key]
+
+
+def _track_w(d, text, f, track):
+    """Be rong chuoi khi gian chu (letter-spacing)."""
+    if not text:
+        return 0
+    return sum(SP.text_w(d, ch, f) + track for ch in text) - track
+
+
+def _track_text(d, x, y, text, f, fill, track):
+    for ch in text:
+        d.text((x, y), ch, font=f, fill=fill)
+        x += SP.text_w(d, ch, f) + track
+    return x
+
+
+# cum song am TINH (trang tri header) — chieu cao cot, don vi 1x
+_WAVE_BARS = [3, 7, 12, 18, 24, 15, 9, 20, 27, 13, 6, 16, 23, 11, 5, 14, 21, 9, 4]
+
+
+def _wave_glyph(d, cx, cy, half_w, color, dashes=True):
+    """Cum song am tinh + 2 net dut hai ben — dau trang kieu kenh podcast."""
+    step = 9 * S
+    n = len(_WAVE_BARS)
+    x = cx - (n * step) // 2
+    for h in _WAVE_BARS:
+        hh = h * S
+        d.line([(x, cy - hh), (x, cy + hh)], fill=color, width=3 * S)
+        x += step
+    if dashes and half_w > (n * step) // 2 + 30 * S:
+        _dashed_line(d, cy, color, x0=cx - half_w,
+                     x1=cx - (n * step) // 2 - 18 * S, dash=10, gap=8, w=2)
+        _dashed_line(d, cy, color, x0=cx + (n * step) // 2 + 18 * S,
+                     x1=cx + half_w, dash=10, gap=8, w=2)
+
+
+def _pill_title(d, ctx, cfg):
+    """Thanh tieu de bo tron tren dinh (kieu buu thiep): nen cam + chu trang."""
+    text = (ctx.get("title") or ctx.get("bar_left") or "").strip()
+    if not text:
+        return
+    size = 46 * S
+    while size > 26 * S and _mixed_w(d, text, size) > int(W * S * 0.72):
+        size -= 2 * S
+    tw = _mixed_w(d, text, size)
+    ph = size + 44 * S
+    y0 = int(H * S * 0.048)
+    cx = W * S // 2
+    d.rounded_rectangle([cx - tw // 2 - 46 * S, y0, cx + tw // 2 + 46 * S, y0 + ph],
+                        radius=ph // 2, fill=tuple(cfg["titlepill"]) + (245,))
+    _mixed_text(d, cx - tw // 2, y0 + (ph - size) // 2 - 4 * S, text, size,
+                tuple(cfg.get("pill_ink", (255, 255, 255))))
+
+
+def _show_header(d, ctx, cfg, tone_map):
+    """Dai dau trang: ten chuong trinh (pinyin tren chu Han) TRAI · song am GIUA ·
+       chu tay "Podcast" PHAI · net dut ngan cach. Tra ve day cua dai (2x)."""
+    zh_t = (ctx.get("hanzi_title") or "").strip()
+    top = int(H * S * 0.035)
+    ink = tuple(cfg.get("head_ink", cfg["ink"]))
+    pyc = tuple(cfg.get("head_py", cfg["pinyin"]))
+    bot = int(H * S * 0.215)
+    if zh_t:
+        zone_w = int(W * S * 0.30)
+        zsz = _fit_ruby(d, zh_t, zone_w, int(H * S * 0.145), hi=76 * S, lo=34 * S,
+                        pysize_of=lambda z: max(18 * S, int(z * 0.36)),
+                        py_gap=6 * S, line_gap=12 * S, col_gap=8 * S)
+        psz = max(18 * S, int(zsz * 0.36))
+        # ten chuong trinh: pinyin MOT MAU (khong to thanh dieu) -> dau trang diu, khong roi
+        h = _draw_ruby(d, zh_t, int(W * S * 0.20), top, zsz, psz, zone_w, ink, pyc,
+                       tone_map, tone=False, dark=cfg["dark"], col_gap=8 * S,
+                       py_gap=6 * S, line_gap=12 * S)
+        bot = max(bot, top + h + 14 * S)
+    # song am giua — CHI ve cum song TINH khi KHONG bat song nhay theo tieng.
+    # Bat 'top'/'mid' -> generate.py ve song that bang ffmpeg showwaves luc ma hoa;
+    # ve ca hai se chong len nhau thanh vet ban.
+    if str(ctx.get("waveform") or "auto").strip().lower() in ("auto", "off"):
+        _wave_glyph(d, W * S // 2, top + 34 * S, int(W * S * 0.19), pyc + (170,))
+    else:
+        _wave_glyph(d, W * S // 2, top + 34 * S, int(W * S * 0.19), pyc + (0,),
+                    dashes=True)      # chi giu 2 net dut hai ben lam khung
+    # chu tay "Podcast" ben phai
+    word = (ctx.get("show_word") or "Podcast").strip()
+    if word:
+        sf = _font_alt("script", 78 * S, word)
+        sw = SP.text_w(d, word, sf)
+        # mau chu tay: nguoi dung chon (show_word_color) > mau cua bien the
+        wcol = SP.hex2rgb(ctx.get("show_word_color")) or tuple(cfg.get("script", ink))
+        d.text((int(W * S * 0.90) - sw, top + 34 * S), word, font=sf, fill=tuple(wcol))
+    _dashed_line(d, bot, pyc + (150,), dash=16, gap=12, w=2)
+    return bot
+
+
+def _top_strip(d, ctx, cfg):
+    """Dong tieu de nho VIET HOA + gian chu, hai ben la cum song am (kieu nua-trai)."""
+    text = (ctx.get("bar_left") or ctx.get("title") or "").strip().upper()
+    col = tuple(cfg["topstrip"])
+    cy = int(H * S * 0.072)
+    if not text:
+        _wave_glyph(d, W * S // 2, cy, int(W * S * 0.24), col + (150,))
+        return
+    size = 30 * S
+    track = 4 * S
+    f = SP.font("badge", size)
+    while size > 18 * S and _track_w(d, text, f, track) > int(W * S * 0.46):
+        size -= 2 * S
+        f = SP.font("badge", size)
+    tw = _track_w(d, text, f, track)
+    cx = W * S // 2
+    _track_text(d, cx - tw // 2, cy - size // 2, text, f, col + (255,), track)
+    for sgn in (-1, 1):
+        x_end = cx + sgn * (tw // 2 + 30 * S)
+        x_far = cx + sgn * int(W * S * 0.30)
+        x0, x1 = (min(x_end, x_far), max(x_end, x_far))
+        _dashed_line(d, cy, col + (130,), x0=x0, x1=x1, dash=6, gap=6, w=3)
+
+
+def _tagline(d, ctx, cfg):
+    """Cau khau hieu viet tay goc duoi-trai + net gach chan (kieu nua-trai)."""
+    text = (ctx.get("tagline") or ctx.get("bar_left") or "").strip()
+    if not text:
+        return
+    col = tuple(cfg["tagline"])
+    f = _font_alt("script", 52 * S, text)
+    x = int(W * S * 0.06)
+    y = int(H * S * 0.845)
+    tw = SP.text_w(d, text, f)
+    if tw > int(W * S * 0.48):        # dai qua -> thu font cho vua nua trai
+        f = _font_alt("script", max(30 * S, int(52 * S * (W * S * 0.48) / tw)), text)
+        tw = SP.text_w(d, text, f)
+    d.text((x, y), text, font=f, fill=col + (255,))
+    d.line([(x, y + int(f.size * 1.12)), (x + tw, y + int(f.size * 1.12))],
+           fill=col + (120,), width=3 * S)
 
 
 # ---------- RENDER "FREE" (khong panel — chu truc tiep tren tranh) ----------
@@ -585,13 +948,53 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
             od.line([(0, yy), (W * S, yy)], fill=(252, 252, 253, a))
         im = Image.alpha_composite(im, ov)
 
+    # ─── TU DOI MAU CHU THEO NEN (chi cac layout ve DE LEN TRANH) ───────────────
+    # Cac bien the free (postcard/showhead/halfleft/stage) khai muc CO DINH: muc TOI
+    # + halo TRANG. Dep tren tranh sang, nhung tren anh nen TOI (canh dem, rung sao...)
+    # thi muc den chim vao nen, halo trang bien thanh quang mo -> doc rat met.
+    # => Do do sang THUC TE cua vung se dat chu, toi thi dao sang muc SANG + halo DEN.
+    if bgimg and not cfg.get("no_autoink"):
+        _zn = cfg.get("zone") or (0.10, 0.90)
+        _y0 = int(H * S * (0.30 if cfg["anchor"] == "mid" else 0.55))
+        _y1 = int(H * S * (0.80 if cfg["anchor"] == "mid" else 0.95))
+        _crop = im.convert("RGB").crop((int(W * S * _zn[0]), _y0, int(W * S * _zn[1]), _y1))
+        _px_ = _crop.resize((24, 12)).getdata()
+        _lum = sum(0.299 * r + 0.587 * g + 0.114 * b for r, g, b in _px_) / len(_px_)
+        if _lum < 118:                                  # nen TOI
+            cfg = dict(cfg)
+            cfg["ink"] = (247, 246, 242)                # trang nga, khong trang gat
+            cfg["pinyin"] = (206, 214, 222)
+            cfg["viet"] = (228, 232, 236)
+            cfg["halo"] = (6, 8, 14)                    # quang DEN -> chu noi han
+            cfg["head_ink"] = (245, 244, 240)
+            cfg["head_py"] = (198, 206, 214)
+            # (bo sung) hai chi tiet truoc day bi bo sot -> van giu mau toi tren nen toi:
+            cfg["script"] = (238, 236, 230)             # chu tay "Podcast" goc phai
+            if cfg.get("vietband"):                     # dai nghia Viet duoi day
+                cfg["vietband"] = (16, 18, 24)          # dai TOI de chu sang doc duoc
+            if cfg.get("border"):
+                cfg["border"] = (150, 140, 116)
+            dark = True                                 # bong do doi sang kieu nen toi
+            tone_map = TONE_DARK
+
     text = seg.get("hanzi", "")
     viet = seg.get("viet", "")
     hide_viet = bool(seg.get("_hide_viet"))
-    cx = W * S // 2
-    max_w = int(W * S * 0.86)
+    # --- vung chu: mac dinh giua man; cfg['zone'] = (trai, phai) theo ti le -> khoi chu lech ---
+    zone = cfg.get("zone")
+    align = cfg.get("align", "center")
+    if zone:
+        zx0, zx1 = int(W * S * zone[0]), int(W * S * zone[1])
+        max_w = zx1 - zx0
+        cx = zx0 if align == "left" else (zx0 + zx1) // 2
+        vmax_w = max_w
+    else:
+        cx = W * S // 2
+        max_w = int(W * S * 0.78)      # margin thoáng 2 bên -> câu dài tự thu nhỏ, không sát mép
+        vmax_w = int(W * S * 0.84)
     tone = bool(ctx.get("tone_colors", True))
     tone_map = TONE_DARK if dark else TONE_LIGHT
+    shadow = _shadow_on(ctx)
     mode = ctx.get("pinyin_mode") or ("ruby" if cfg.get("ruby") else "line")
 
     # --- co chu: nguoi dung ep px hoac tu dong fit ---
@@ -601,16 +1004,17 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
     vsz = _px(ctx, "vi_px", 46 * S)
     vf = SP.font("viet", vsz)
     max_h = int(H * S * (0.46 if cfg["anchor"] == "mid" else 0.42))
+    zh_hi = int(cfg.get("zh_max", 104)) * S       # tran co chu Han (stage: nho, sat day)
     if mode == "ruby":
-        zsize = zpx or _fit_ruby(d0, text, max_w, max_h, hi=104 * S, lo=56 * S,
+        zsize = zpx or _fit_ruby(d0, text, max_w, max_h, hi=zh_hi, lo=min(56 * S, zh_hi),
                                  pysize_of=py_of, py_gap=10 * S, line_gap=26 * S,
                                  col_gap=18 * S)
         pysize = py_of(zsize)
         n_lines = len(_ruby_wrap(d0, text, zsize, pysize, max_w, 18 * S))
         block_h = n_lines * _ruby_line_h(zsize, pysize, 10 * S, 26 * S)
     else:
-        zsize = zpx or _fit_hanzi(d0, text, max_w, max_h, hi=104 * S, lo=56 * S,
-                                  line_gap=22 * S)
+        zsize = zpx or _fit_hanzi(d0, text, max_w, max_h, hi=zh_hi,
+                                  lo=min(56 * S, zh_hi), line_gap=22 * S)
         pysize = _px(ctx, "py_px", 44 * S)
         n_lines = len(_hanzi_lines(d0, text, zsize, max_w, 8 * S))
         block_h = (pysize + 12 * S) + int(22 * S) + n_lines * (zsize + 22 * S)
@@ -618,25 +1022,46 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
     # --- vi tri khoi theo anchor ---
     sp_name = seg.get("_sp")
     chip_h = 58 * S if sp_name else 0
-    vwraps = SP.wrap_text(d0, viet, vf, int(W * S * 0.84)) if viet else []
+    vwraps = SP.wrap_text(d0, viet, vf, vmax_w) if viet else []
     vie_inline = (cfg["viet_style"] == "inline" and vwraps)
     vie_h = len(vwraps) * (vsz + 10 * S) if vie_inline else 0
     total_h = chip_h + block_h + ((26 * S + vie_h) if vie_h else 0)
     if cfg["anchor"] == "top":
         y = int(H * S * 0.045)
     elif cfg["anchor"] == "bottom":
-        y = int(H * S * 0.93) - total_h
+        y = int(H * S * cfg.get("y_bottom", 0.93)) - total_h
     else:  # mid: tam khoi ~58% chieu cao (chua vung tranh phia tren)
-        y = int(H * S * 0.56) - total_h // 2
+        y = int(H * S * cfg.get("y_ratio", 0.56)) - total_h // 2
 
     # --- ve chu len overlay -> glow sau chu ---
     ov = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     d = ImageDraw.Draw(ov, "RGBA")
+    bar_off = BAR_H * S if ctx.get("bottom_bar") else 0   # chua cho thanh chan (neu bat)
+
+    # --- chrome dau trang cua nhom layout kenh lon ---
+    if cfg.get("titlepill"):
+        _pill_title(d, ctx, cfg)
+        y = max(y, int(H * S * 0.24))          # chu khong de len thanh tieu de
+    if cfg.get("header"):
+        hb = _show_header(d, ctx, cfg, tone_map)
+        y = max(y, hb + 46 * S)
+    if cfg.get("topstrip"):
+        _top_strip(d, ctx, cfg)
+        y = max(y, int(H * S * 0.145))
+    if cfg.get("tagline"):
+        _tagline(d, ctx, cfg)
 
     if cfg.get("dashes"):
         dcol = tuple(cfg["pinyin"]) + (120,)
-        _dashed_line(d, max(y - 40 * S, 30 * S), dcol)
-        _dashed_line(d, min(y + total_h + 44 * S, H * S - 120 * S), dcol)
+        if not cfg.get("header"):              # header da co net dut rieng o tren
+            _dashed_line(d, max(y - 40 * S, 30 * S), dcol)
+        if cfg["viet_style"] == "band" and vwraps:
+            # net dut duoi = vien tren cua dai nghia -> bo cuc khop nhau
+            low = (H * S - 150 * S - bar_off
+                   - (len(vwraps) - 1) * (vsz + 10 * S) - 46 * S)
+        else:
+            low = min(y + total_h + 44 * S, H * S - 120 * S - bar_off)
+        _dashed_line(d, low, dcol)
 
     if sp_name:
         chips = CHIP_DARK if dark else CHIP_LIGHT
@@ -647,27 +1072,34 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
         cf = SP.font("zh", 32 * S) if has_cjk else SP.font("badge", 32 * S)
         lw = SP.text_w(d, label, cf)
         cw2 = lw + 56 * S
-        d.rounded_rectangle([cx - cw2 // 2, y, cx + cw2 // 2, y + 46 * S],
+        ccx = cx + cw2 // 2 if align == "left" else cx      # can le trai -> chip bam mep trai
+        d.rounded_rectangle([ccx - cw2 // 2, y, ccx + cw2 // 2, y + 46 * S],
                             radius=23 * S, fill=spcol)
-        d.text((cx - lw // 2, y + (2 if has_cjk else 6) * S), label,
+        d.text((ccx - lw // 2, y + (2 if has_cjk else 6) * S), label,
                font=cf, fill=(255, 255, 255))
         y += chip_h
 
     if mode == "ruby":
         y += _draw_ruby(d, text, cx, y, zsize, pysize, max_w, cfg["ink"],
                         cfg["pinyin"], tone_map, tone=tone, dark=dark,
-                        reveal_t=reveal_t, t_now=t_now)
+                        reveal_t=reveal_t, t_now=t_now, align=align, shadow=shadow)
     else:
-        y += _draw_pinyin(d, text, cx, y, int(W * S * 0.9), cfg["pinyin"], tone_map,
-                          tone=tone, size=pysize)
+        y += _draw_pinyin(d, text, cx, y, max_w if zone else int(W * S * 0.9),
+                          cfg["pinyin"], tone_map, tone=tone, size=pysize,
+                          align=align, italic=bool(cfg.get("py_italic")))
         y += int(22 * S)
         y += _draw_hanzi(d, text, cx, y, zsize, max_w, cfg["ink"], dark,
-                         reveal_t=reveal_t, t_now=t_now)
+                         reveal_t=reveal_t, t_now=t_now, align=align, shadow=shadow)
 
     # --- nghia Viet ---
+    band_rect = None
     if vwraps:
-        if cfg["viet_style"] == "band":
-            vy = H * S - 150 * S - (len(vwraps) - 1) * (vsz + 10 * S)
+        vband = (cfg["viet_style"] == "band")
+        vcx = W * S // 2 if vband else cx           # dai nghia luon can giua man hinh
+        valign = "center" if vband else align
+        if vband:
+            # nam sat day nhung LUON tren thanh chan (neu co) -> khong bi cat chu
+            vy = H * S - 150 * S - bar_off - (len(vwraps) - 1) * (vsz + 10 * S)
         else:
             vy = y + 26 * S
         if hide_viet:
@@ -675,13 +1107,25 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
             hf = SP.font("sans", 32 * S)
             hw = SP.text_w(d, hint, hf)
             col = (220, 222, 232, 180) if dark else (120, 110, 100, 200)
-            d.text((cx - hw // 2, vy + 4 * S), hint, font=hf, fill=col)
+            d.text((vcx - hw // 2 if valign != "left" else vcx, vy + 4 * S), hint,
+                   font=hf, fill=col)
         else:
+            if cfg.get("vietband"):                  # dai mo sau dong nghia (kieu Chinese Daily)
+                bh = len(vwraps) * (vsz + 10 * S)
+                band_rect = (0, vy - 22 * S, W * S, vy + bh + 12 * S)
             for ln in vwraps:
                 tw = SP.text_w(d, ln, vf)
-                _shadow_text(d, (cx - tw // 2, vy), ln, vf, cfg["viet"], dark)
+                vx = vcx if valign == "left" else vcx - tw // 2
+                _shadow_text(d, (vx, vy), ln, vf, cfg["viet"], dark, shadow)
+                if cfg.get("viet_bold"):     # net day them (buu thiep: nghia Viet in dam)
+                    d.text((vx + int(1.6 * S), vy), ln, font=vf, fill=cfg["viet"])
                 vy += vsz + 10 * S
 
+    if band_rect:      # ve TRUOC lop chu -> chu nam tren dai, khong bi glow an
+        bl = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
+        ImageDraw.Draw(bl).rectangle(list(band_rect),
+                                     fill=tuple(cfg["vietband"]) + (150,))
+        im.alpha_composite(bl)
     _glow_behind(im, ov, cfg["halo"])
     d = ImageDraw.Draw(im, "RGBA")
 
@@ -689,13 +1133,17 @@ def _render_free(seg, ctx, path, cfg, reveal_t=None, t_now=BIG):
     if cfg.get("seal") and ctx.get("seal", True) and ctx.get("podcast_frame", True):
         st = _seal_text(ctx)
         ssz = 40 * S
-        _draw_seal(im, d, st, 40 * S, H * S - 40 * S - ssz * max(1, len(st)), ssz)
+        _draw_seal(im, d, st, 40 * S,
+                   H * S - 40 * S - bar_off - ssz * max(1, len(st)), ssz)
     bar_h = _draw_bottom_bar(im, d, ctx)
     if ctx.get("show_progress", True):
         _draw_counter(d, seg, dark)
         _draw_progress(d, seg, off=bar_h)
 
-    out = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    if ctx.get("_transparent"):        # giu RGBA -> overlay len video (panel co mau, ria trong suot)
+        out = im.resize((W, H), Image.LANCZOS)
+    else:
+        out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
 
@@ -797,7 +1245,9 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
 
     # 1) nen
     bgimg = ctx.get("bg_image")
-    if bgimg and os.path.exists(bgimg):
+    if ctx.get("_transparent"):        # nen VIDEO dong -> canvas trong suot (chi ve panel+chu)
+        im = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
+    elif bgimg and os.path.exists(bgimg):
         im = _cover_bg_2x(bgimg).convert("RGBA")
     else:
         base = tuple(cfg.get("bgfill") or ((18, 20, 28) if dark else SP.BG))
@@ -820,6 +1270,8 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
     # 2) panel / scrim
     alpha = ctx.get("panel_alpha")
     alpha = cfg["alpha"] if alpha is None else int(alpha)
+    if ctx.get("_transparent") and alpha > 0:     # nen video -> hop kem DAM hon cho chu ro
+        alpha = min(240, max(215, alpha + 70))
     if cfg.get("slats"):
         _draw_slats(im, ImageDraw.Draw(im, "RGBA"), (x0, y0, x1, y1), cfg["panel"])
     elif cfg["scrim"]:
@@ -897,7 +1349,7 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
     pinyin_top = bool(ctx.get("pinyin_top", True))   # pinyin TREN chu Han (chuan kenh lon)
     cx = (x0 + x1) // 2
     box_w = x1 - x0
-    max_w = int(box_w * 0.90)
+    max_w = int(box_w * 0.86)          # margin trong panel -> câu dài tự thu nhỏ, không sát viền
 
     sp_name = seg.get("_sp")
     chips = CHIP_DARK if dark else CHIP_LIGHT
@@ -957,20 +1409,22 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
 
     tone = bool(ctx.get("tone_colors", True))
     tone_map = TONE_DARK if dark else TONE_LIGHT
+    # trong panel co lop nen rieng -> bong chi can khi panel trong suot (thay anh nen xuyen qua)
+    shadow = _shadow_on(ctx) and alpha < 235
     hl = cfg.get("highlight")
     if ruby_mode:
         y += _draw_ruby(d, text, cx, y, zsize, pysize, max_w, cfg["ink"], cfg["pinyin"],
                         tone_map, tone=tone, dark=dark, col_gap=16 * S,
-                        reveal_t=reveal_t, t_now=t_now, hl=hl)
+                        reveal_t=reveal_t, t_now=t_now, hl=hl, shadow=shadow)
     elif pinyin_top:
         y += _draw_pinyin(d, text, cx, y, int(box_w * 0.94), cfg["pinyin"], tone_map,
                           tone=tone, size=pysize)
         y += int(gap1 * 0.55)
         y += _draw_hanzi(d, text, cx, y, zsize, max_w, cfg["ink"], dark,
-                         reveal_t=reveal_t, t_now=t_now, hl=hl)
+                         reveal_t=reveal_t, t_now=t_now, hl=hl, shadow=shadow)
     else:
         y += _draw_hanzi(d, text, cx, y, zsize, max_w, cfg["ink"], dark,
-                         reveal_t=reveal_t, t_now=t_now, hl=hl)
+                         reveal_t=reveal_t, t_now=t_now, hl=hl, shadow=shadow)
         y += gap1
         y += _draw_pinyin(d, text, cx, y, int(box_w * 0.94), cfg["pinyin"], tone_map,
                           tone=tone, size=pysize)
@@ -988,7 +1442,7 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
         else:
             for ln in vwraps:
                 tw = SP.text_w(d, ln, vf)
-                _shadow_text(d, (cx - tw // 2, y), ln, vf, cfg["viet"], dark)
+                _shadow_text(d, (cx - tw // 2, y), ln, vf, cfg["viet"], dark, shadow)
                 y += vsz + 12 * S
 
     bar_h = _draw_bottom_bar(im, d, ctx)
@@ -996,7 +1450,10 @@ def render(seg, ctx, path, reveal_t=None, t_now=BIG):
         _draw_counter(d, seg, dark)
         _draw_progress(d, seg, off=bar_h)
 
-    out = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    if ctx.get("_transparent"):        # giu RGBA -> overlay len video (panel co mau, ria trong suot)
+        out = im.resize((W, H), Image.LANCZOS)
+    else:
+        out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
 
@@ -1031,10 +1488,14 @@ def render_section(seg, ctx, path):
     d.rounded_rectangle([cx - pw // 2, cy - ph // 2, cx + pw // 2, cy + ph // 2],
                         radius=24 * S, outline=cfg["border"] + (200,), width=3 * S)
     ink = cfg["ink"]
-    _shadow_text(d, (cx - tw // 2, cy - (108 * S) // 2 - 12 * S), lbl, lf, ink, dark)
+    _shadow_text(d, (cx - tw // 2, cy - (108 * S) // 2 - 12 * S), lbl, lf, ink, dark,
+                 _shadow_on(ctx))
     _divider(d, cx, cy + (108 * S) // 2 + 26 * S, div_style, cfg["border"])
     _draw_bottom_bar(im, d, ctx)
-    out = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    if ctx.get("_transparent"):        # giu RGBA -> overlay len video (panel co mau, ria trong suot)
+        out = im.resize((W, H), Image.LANCZOS)
+    else:
+        out = im.convert("RGB").resize((W, H), Image.LANCZOS)
     out.save(path)
     return out
 

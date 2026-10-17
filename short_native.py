@@ -35,6 +35,23 @@ PAPER, INK, VIET, HOOK, BORDER, FOOT, PC = BG_TOP, IVORY, AMBER, GOLD, GOLD, MUT
 
 # ---- Ngon ngu chu co dinh tren video (hook/nut/quiz) — theo lua chon nguoi dung ----
 UI_LANG = "vi"                            # "vi" | "en"; make_*() dat theo tham so lang
+PY_MONO = None                            # None = pinyin tô thanh điệu; (r,g,b) = pinyin 1 màu
+
+_PY_COLORS = {"white": (246, 246, 240), "gold": (255, 212, 120), "cyan": (150, 222, 236),
+              "green": (150, 226, 150), "amber": (255, 196, 96), "grey": (200, 196, 190)}
+def _parse_color(v):
+    """v: 'tone'/None -> None (tô thanh điệu); tên/hex -> (r,g,b)."""
+    if not v or str(v).lower() in ("tone", "auto", ""):
+        return None
+    v = str(v).strip().lower()
+    if v in _PY_COLORS:
+        return _PY_COLORS[v]
+    if v.startswith("#") and len(v) == 7:
+        try:
+            return tuple(int(v[i:i+2], 16) for i in (1, 3, 5))
+        except ValueError:
+            pass
+    return None
 _STRINGS = {
     "vi": {
         "cta_save":   "Lưu lại để học mỗi ngày",
@@ -47,6 +64,19 @@ _STRINGS = {
         "lbl_vocab":  "TỪ MỚI HÔM NAY",
         "lbl_pattern":"MẪU CÂU HAY DÙNG",
         "lbl_example":"Ví dụ",
+        # --- SEO title/desc/hashtag (theo ngôn ngữ dòng nghĩa) ---
+        "brand":      "Tiếng Trung mỗi ngày",
+        "t_quiz":     "{hz} nghĩa là gì? Đoán thử!",
+        "t_meaning":  "{hz} nghĩa là gì?",
+        "t_vocab":    "{word} = {mean} | Từ mới tiếng Trung",
+        "t_pattern":  "{pat} | Mẫu câu tiếng Trung",
+        "t_combine":  "{n} câu tiếng Trung: {topic}",
+        "t_combine_plain": "{n} câu tiếng Trung ai cũng cần",
+        "d_quiz":     "Đố bạn: {hz} nghĩa là gì?\n{py}\nĐáp án: {vi}",
+        "tags_quiz":  "#hoctiengtrung #dovuitiengtrung #shorts #tiengtrung #chinese",
+        "tags_vocab": "#hoctiengtrung #tuvungtiengtrung #tumoi #shorts #tiengtrung",
+        "tags_patt":  "#hoctiengtrung #maucau #ngucaptiengtrung #shorts #tiengtrung",
+        "tags_def":   "#hoctiengtrung #tiengtrung #shorts #chinese #learnchinese",
     },
     "en": {
         "cta_save":   "Save it & learn daily",
@@ -59,6 +89,18 @@ _STRINGS = {
         "lbl_vocab":  "WORD OF THE DAY",
         "lbl_pattern":"USEFUL SENTENCE PATTERN",
         "lbl_example":"Example",
+        "brand":      "Learn Chinese Daily",
+        "t_quiz":     "What does {hz} mean? Can you guess?",
+        "t_meaning":  "What does {hz} mean?",
+        "t_vocab":    "{word} = {mean} | Chinese Word of the Day",
+        "t_pattern":  "{pat} | Useful Chinese Sentence Pattern",
+        "t_combine":  "{n} Chinese Sentences: {topic}",
+        "t_combine_plain": "{n} Chinese Sentences You Should Know",
+        "d_quiz":     "Quiz: what does {hz} mean?\n{py}\nAnswer: {vi}",
+        "tags_quiz":  "#LearnChinese #ChineseQuiz #Shorts #Chinese #Mandarin",
+        "tags_vocab": "#LearnChinese #ChineseVocab #WordOfTheDay #Shorts #Chinese",
+        "tags_patt":  "#LearnChinese #ChineseGrammar #SentencePattern #Shorts #Chinese",
+        "tags_def":   "#LearnChinese #Chinese #Shorts #Mandarin #HSK",
     },
 }
 
@@ -66,6 +108,10 @@ def _t(key):
     """Tra chuoi UI theo UI_LANG hien tai (fallback tieng Viet)."""
     lang = UI_LANG if UI_LANG in _STRINGS else "vi"
     return _STRINGS[lang].get(key, _STRINGS["vi"][key])
+
+def _tf(key, **kw):
+    """Nhu _t nhung format placeholder ({hz},{vi}...)."""
+    return _t(key).format(**kw)
 
 # ky tu rieng cua tieng Viet (dau + chu dac biet) -> phan biet Viet/Anh cho dong nghia
 _VN_CHARS = set("ăâđêôơưÀÁẢÃẠẰẮẲẴẶẦẤẨẪẬÈÉẺẼẸỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌỒỐỔỖỘỜỚỞỠỢÙÚỦŨỤỪỨỬỮỰỲÝỶỸỴàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ")
@@ -138,12 +184,28 @@ SKINS = {
     "grid": dict(label="Giấy ô ly caro", light=True, glow=False, decor="grid",
                  bg=[(250, 252, 255), (240, 246, 253)], accent=(58, 120, 196), main=(36, 48, 72),
                  meaning=(214, 84, 72), seal=(230, 104, 92), muted=(130, 140, 158), tone=_TONE_LIGHT),
+    "comic": dict(label="Comic pop-art", light=True, glow=False, decor="comic",
+                  bg=[(255, 247, 222), (255, 235, 188)], accent=(228, 60, 68), main=(30, 30, 38),
+                  meaning=(228, 60, 68), seal=(42, 96, 200), muted=(146, 134, 116), tone=_TONE_LIGHT),
+    "candy": dict(label="Kẹo ngọt pastel", light=True, glow=False, decor="candy",
+                  bg=[(255, 242, 248), (243, 231, 255)], accent=(236, 118, 170), main=(92, 72, 112),
+                  meaning=(150, 108, 210), seal=(236, 118, 170), muted=(180, 162, 192), tone=_TONE_LIGHT),
+    "memphis": dict(label="Memphis 80s", light=True, glow=False, decor="memphis",
+                    bg=[(250, 248, 244), (242, 238, 230)], accent=(255, 88, 118), main=(38, 38, 46),
+                    meaning=(36, 164, 196), seal=(255, 88, 118), muted=(152, 148, 142), tone=_TONE_LIGHT),
+    "kawaii": dict(label="Kawaii mây cầu vồng", light=True, glow=False, decor="kawaii",
+                   bg=[(255, 247, 250), (236, 246, 255)], accent=(255, 136, 172), main=(92, 80, 104),
+                   meaning=(150, 118, 210), seal=(255, 136, 172), muted=(188, 172, 198), tone=_TONE_LIGHT),
+    "neon": dict(label="Neon synthwave", light=False, glow=True, glow_col=(0, 255, 220), decor="neon",
+                 bg=[(18, 16, 36), (34, 20, 52)], accent=(0, 232, 204), main=(240, 244, 255),
+                 meaning=(255, 118, 210), seal=(255, 88, 150), muted=(150, 150, 196), tone=_TONE_DARK),
 }
 CUR_SKIN = "ink"
 
 def _apply_skin(name):
     """Dat bang mau global theo skin (cac ham render dung GOLD/IVORY/AMBER/... nhu cu)."""
-    global CUR_SKIN, BG_TOP, BG_BOT, GOLD, IVORY, AMBER, SEAL_RED, MUTED, TONE_BRIGHT
+    global CUR_SKIN, BG_TOP, BG_BOT, GOLD, IVORY, AMBER, SEAL_RED, MUTED, TONE_BRIGHT, PY_MONO
+    PY_MONO = None                        # reset: mỗi short tự đặt lại (chống rò rỉ giữa các format)
     CUR_SKIN = name if name in SKINS else "ink"
     s = SKINS[CUR_SKIN]
     BG_TOP, BG_BOT = s["bg"]
@@ -535,20 +597,116 @@ def _decor_grid(im, d, wm_ch):
         if i % 5 == 0: d.line([(x, 150), (x, SH-60)], fill=G2, width=2)
     for i, y in enumerate(range(150, SH-60, step)):
         if i % 5 == 0: d.line([(60, y), (SW-60, y)], fill=G2, width=2)
-    # washi + doodle
+    # washi + doodle (tránh vùng pinyin/chữ giữa y~700-1150)
     _washi(d, SW-330, 96, 140, 50, (170, 206, 236))
-    _spark(d, 180, 470, 17, (250, 196, 90))
-    _heart(d, SW-160, 760, 20, (240, 150, 162))
-    _star(d, 200, 1300, 14, (120, 180, 235))
-    _spark(d, SW-180, 1520, 15, (140, 200, 150))
+    _spark(d, 176, 470, 17, (250, 196, 90))
+    _heart(d, SW-150, 470, 20, (240, 150, 162))
+    _star(d, 190, 1380, 14, (120, 180, 235))
+    _spark(d, SW-170, 1400, 15, (140, 200, 150))
     d.rectangle([40, 40, SW-40, SH-40], outline=(150, 178, 214), width=3)
     _watermark(im, wm_ch, (150, 172, 205), 10)
+
+def _halftone(d, x0, y0, x1, y1, col, r=8, gap=30):
+    for j, yy in enumerate(range(y0, y1, gap)):
+        off = 0 if j % 2 == 0 else gap // 2
+        for xx in range(x0 + off, x1, gap):
+            d.ellipse([xx-r, yy-r, xx+r, yy+r], fill=col)
+
+def _burst(d, cx, cy, r, col, spikes=12):
+    pts = []
+    for k in range(spikes*2):
+        rr = r if k % 2 == 0 else r*0.55
+        a = k*math.pi/spikes
+        pts.append((cx+math.cos(a)*rr, cy+math.sin(a)*rr))
+    d.polygon(pts, fill=col)
+
+def _decor_comic(im, d, wm_ch):
+    _halftone(d, 66, SH-330, 360, SH-80, (255, 196, 70), r=9, gap=34)
+    _halftone(d, SW-360, 130, SW-70, 380, (120, 180, 255), r=8, gap=34)
+    _burst(d, 150, SH-160, 74, (255, 214, 84)); _burst(d, 150, SH-160, 60, (255, 176, 60))
+    _burst(d, SW-150, 470, 58, (255, 120, 150)); _burst(d, SW-150, 470, 46, (255, 160, 180))
+    _watermark(im, wm_ch, (0, 0, 0), 7)
+    d.rounded_rectangle([32, 32, SW-32, SH-32], radius=30, outline=(26, 26, 32), width=9)
+
+def _sprinkle(d, cx, cy, col, ang):
+    dx, dy = math.cos(ang)*13, math.sin(ang)*13
+    d.line([(cx-dx, cy-dy), (cx+dx, cy+dy)], fill=col, width=10)
+
+def _decor_candy(im, d, wm_ch):
+    cols = [(255, 150, 190), (150, 210, 255), (190, 240, 150), (255, 220, 120), (200, 170, 255)]
+    pts = [(150, 300, .5), (SW-160, 380, 1.2), (200, 900, 2.0), (SW-120, 1000, .3), (160, 1400, 1.6),
+           (SW-200, 1500, .9), (120, 650, 2.4), (SW-140, 1720, 1.1), (300, 1650, .2), (SW-260, 720, 1.9)]
+    for i, (x, y, a) in enumerate(pts):
+        _sprinkle(d, x, y, cols[i % len(cols)], a)
+    for bx, by, br in [(180, 500, 30), (SW-170, 700, 22), (SW-230, 1300, 18), (150, 1150, 24)]:
+        d.ellipse([bx-br, by-br, bx+br, by+br], outline=(255, 178, 210), width=5)
+    d.rounded_rectangle([34, 34, SW-34, SH-34], radius=56, outline=(240, 158, 200), width=6)
+
+def _decor_memphis(im, d, wm_ch):
+    C1, C2, C3, C4 = (255, 88, 118), (36, 182, 200), (255, 200, 60), (40, 40, 48)
+    for x, y, r, c in [(150, 320, 26, C2), (SW-160, 1520, 30, C1), (SW-150, 660, 20, C3)]:
+        d.ellipse([x-r, y-r, x+r, y+r], fill=c)
+    def tri(cx, cy, s, c):
+        d.polygon([(cx, cy-s), (cx-s, cy+s), (cx+s, cy+s)], fill=c)
+    tri(SW-150, 340, 26, C3); tri(180, 1560, 24, C1)
+    def zig(x, y, c):
+        pts = [(x+i*20, y+(11 if i % 2 else -11)) for i in range(6)]
+        d.line(pts, fill=c, width=7, joint="curve")
+    zig(110, 720, C1); zig(SW-270, 920, C2)
+    for x, y, c in [(SW-160, 1150, C4), (200, 1250, C4)]:
+        d.line([(x-15, y), (x+15, y)], fill=c, width=7); d.line([(x, y-15), (x, y+15)], fill=c, width=7)
+    d.rounded_rectangle([34, 34, SW-34, SH-34], radius=24, outline=C4, width=5)
+
+def _cloud_face(d, cx, cy, s, body=(255, 255, 255), cheek=(255, 182, 202)):
+    for ox, oy, r in [(-s*.7, s*.1, s*.55), (s*.7, s*.1, s*.55), (0, -s*.3, s*.72), (0, s*.22, s*.6)]:
+        d.ellipse([cx+ox-r, cy+oy-r, cx+ox+r, cy+oy+r], fill=body)
+    d.ellipse([cx-s*.34-6, cy-6, cx-s*.34+6, cy+9], fill=(80, 66, 92))
+    d.ellipse([cx+s*.34-6, cy-6, cx+s*.34+6, cy+9], fill=(80, 66, 92))
+    d.ellipse([cx-s*.52-8, cy+8, cx-s*.52+8, cy+22], fill=cheek)
+    d.ellipse([cx+s*.52-8, cy+8, cx+s*.52+8, cy+22], fill=cheek)
+    d.arc([cx-13, cy+4, cx+13, cy+24], 20, 160, fill=(80, 66, 92), width=3)
+
+def _rainbow(d, cx, cy, r0, cols):
+    for i, c in enumerate(cols):
+        rr = r0 + i*13
+        d.arc([cx-rr, cy-rr, cx+rr, cy+rr], 180, 360, fill=c, width=9)
+
+def _decor_kawaii(im, d, wm_ch):
+    _rainbow(d, SW-170, 300, 34,
+             [(255, 120, 140), (255, 180, 110), (255, 226, 120), (150, 216, 150), (130, 190, 240), (182, 150, 232)])
+    _cloud_face(d, 172, 320, 66)
+    for sx, sy, sr in [(SW-210, 720, 14), (176, 1040, 12), (SW-150, 1460, 15), (250, 1650, 12)]:
+        _star(d, sx, sy, sr, (255, 206, 120))
+    _heart(d, SW-180, 1150, 20, (255, 150, 182))
+    d.rounded_rectangle([34, 34, SW-34, SH-34], radius=52, outline=(255, 180, 206), width=6)
+
+def _decor_neon(im, d, wm_ch):
+    _watermark(im, wm_ch, (120, 92, 200), 14)
+    hor = (48, 224, 214)
+    gy = SH-330
+    dd = ImageDraw.Draw(im)
+    for i in range(10):
+        y = gy + int(3.4*i*i) + 8*i
+        if y > SH-44:
+            break
+        dd.line([(56, y), (SW-56, y)], fill=hor, width=2)
+    for vx in range(60, SW-40, 118):
+        dd.line([(vx, gy), (int(SW/2 + (vx-SW/2)*2.6), SH-44)], fill=(40, 150, 150), width=1)
+    for sx, sy, sr in [(180, 300, 11), (SW-200, 430, 9), (240, 900, 8), (SW-160, 1000, 10), (150, 1250, 7)]:
+        _spark(d, sx, sy, sr, (255, 110, 200))
+    # vien neon phat sang
+    layer = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle([42, 42, SW-42, SH-42], radius=44, outline=(0, 235, 205, 255), width=6)
+    im.paste(Image.alpha_composite(im.convert("RGBA"), layer.filter(ImageFilter.GaussianBlur(12))).convert("RGB"), (0, 0))
+    ImageDraw.Draw(im).rounded_rectangle([42, 42, SW-42, SH-42], radius=44, outline=(150, 255, 240), width=3)
 
 _DECOR = {"ink": _decor_ink, "gradient": _decor_gradient, "cute": _decor_cute,
           "paper": _decor_paper, "white": _decor_white, "sakura": _decor_sakura,
           "night": _decor_night, "ocean": _decor_ocean, "sunset": _decor_sunset,
           "bamboo": _decor_bamboo, "royal": _decor_royal, "chalk": _decor_chalk,
-          "notebook": _decor_notebook, "grid": _decor_grid}
+          "notebook": _decor_notebook, "grid": _decor_grid, "comic": _decor_comic,
+          "candy": _decor_candy, "memphis": _decor_memphis, "kawaii": _decor_kawaii,
+          "neon": _decor_neon}
 
 
 def _canvas_v2(watermark_ch=None, bg_image=None):
@@ -591,12 +749,37 @@ def _glow_text(im, xy, text, font, fill, glow=None, radius=16, anchor=None):
         ImageDraw.Draw(im).text(xy, text, font=font, fill=fill, anchor=anchor)
 
 
-def _pinyin_over_hanzi(im, d, zlines, zf, zsize, py_size, gap, cx, y):
-    """Ve pinyin DUNG TREN TUNG CHU HAN (khong phai ca cau don 1 dong).
-    Moi chu Han co 1 "o" rong = max(be rong chu Han, be rong am tiet pinyin) de tranh
-    chong lan khi pinyin dai hon chu Han. Tra ve tong chieu cao da chiem (cong don y ben ngoai)."""
+def _extract_hl(hanzi):
+    """Bóc marker [từ] -> (disp sạch, set index chữ Hán được highlight trong disp)."""
+    words = re.findall(r"\[([^\]]+)\]", hanzi or "")
+    clean = re.sub(r"[\[\]]", "", hanzi or "")
+    disp = _strip_punct(clean)
+    hl = set()
+    for w in words:
+        w = _strip_punct(w)
+        st = 0
+        while w:
+            idx = disp.find(w, st)
+            if idx < 0:
+                break
+            for k in range(len(w)):
+                hl.add(idx + k)
+            st = idx + len(w)
+    return disp, hl
+
+def _hl_box(im, x0, y0, x1, y1, col=(255, 206, 92)):
+    """Vệt highlighter mềm (bo góc, trong suốt) sau chữ — kiểu bút dạ quang."""
+    ov = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    ImageDraw.Draw(ov).rounded_rectangle([x0, y0, x1, y1], radius=12, fill=col + (78,))
+    im.paste(Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB"), (0, 0))
+
+def _pinyin_over_hanzi(im, d, zlines, zf, zsize, py_size, gap, cx, y, hl=None):
+    """Ve pinyin TREN TUNG CHU HAN. hl: set index chu Han duoc highlight (bút dạ quang).
+    Pinyin: PY_MONO (1 mau) neu dat, khong thi to thanh dieu."""
+    hl = hl or set()
     pf = sp.font("pinyin", py_size)
     line_h = py_size + 16 + zsize + 28
+    ci = 0
     for ln in zlines:
         cells = []
         for ch, p, h in sp.flatten(ln):
@@ -605,15 +788,39 @@ def _pinyin_over_hanzi(im, d, zlines, zf, zsize, py_size, gap, cx, y):
             cells.append((ch, p, w_ch, w_py, max(w_ch, w_py)))
         total = sum(c[4] for c in cells) + gap * (len(cells) - 1) if cells else 0
         x = cx - total // 2
+        boxes = []                                          # gom vùng highlight vẽ trước
+        cx2 = x
+        for ch, p, w_ch, w_py, cellw in cells:
+            if ci in hl and ("一" <= ch <= "鿿"):
+                boxes.append((cx2 - 8, y + py_size + 10, cx2 + cellw + 8, y + py_size + 16 + zsize + 6))
+            cx2 += cellw + gap; ci += 1
+        # nối các ô highlight liền nhau thành 1 vệt dài
+        for bx0, by0, bx1, by1 in _merge_boxes(boxes):
+            _hl_box(im, bx0, by0, bx1, by1)
+        d = ImageDraw.Draw(im)
+        ci -= len(cells)                                    # tua lại để vẽ chữ
         for ch, p, w_ch, w_py, cellw in cells:
             if p:
-                d.text((x + (cellw - w_py) // 2, y), p, font=pf,
-                       fill=TONE_BRIGHT[sp._tone_of(p)])
+                col = PY_MONO if PY_MONO else TONE_BRIGHT[sp._tone_of(p)]
+                d.text((x + (cellw - w_py) // 2, y), p, font=pf, fill=col)
             _glow_text(im, (x + (cellw - w_ch) // 2, y + py_size + 16), ch, zf, IVORY)
-            x += cellw + gap
+            x += cellw + gap; ci += 1
         d = ImageDraw.Draw(im)
         y += line_h
     return line_h * len(zlines)
+
+def _merge_boxes(boxes):
+    """Nối các ô highlight sát nhau (cùng dòng) thành 1 vệt liền."""
+    if not boxes:
+        return []
+    boxes = sorted(boxes)
+    out = [list(boxes[0])]
+    for b in boxes[1:]:
+        if b[0] <= out[-1][2] + 24:                         # gần nhau -> gộp
+            out[-1][2] = max(out[-1][2], b[2])
+        else:
+            out.append(list(b))
+    return out
 
 
 def _lighten(col, f=0.22):
@@ -663,8 +870,9 @@ def _pill(im, d, cx, cy, text, fill=None, txt=None, fsize=40, icon=True):
 
 
 def render_frame(hanzi, viet, hook, path, footer="", note="", bg=None):
-    """Frame flashcard v2 — nen toi/anh + vang kim, chu Han glow, pinyin sang, an toan safe-zone."""
-    disp = _strip_punct(hanzi)
+    """Frame flashcard v2 — nen toi/anh + vang kim, chu Han glow, pinyin sang, an toan safe-zone.
+    hanzi co the chua marker [tu] -> highlight tu do (bút dạ quang)."""
+    disp, hl = _extract_hl(hanzi)
     im, d = _canvas_v2(watermark_ch=(disp[0] if disp else None), bg_image=bg)
     _seal(d)
 
@@ -681,13 +889,13 @@ def render_frame(hanzi, viet, hook, path, footer="", note="", bg=None):
     line_h = py_size + 16 + zsize + 28          # pinyin + chu Han tinh chung 1 dong
     vf = sp.font("viet", 62)
     vlines = sp.wrap_text(d, viet, vf, max_w)[:3] if viet else []
-    nf = sp.font("sans", 40)
+    nf = sp.font("note", 40)     # font phu chu Han -> ghi chu co the chua 我的/这是... khong tofu
     nlines = sp.wrap_text(d, note, nf, max_w)[:2] if note else []
     block_h = len(zlines) * line_h + 42 + len(vlines) * (vf.size + 12) \
               + (len(nlines) * (nf.size + 8) + 26 if nlines else 0)
     y = max(430, (SH - block_h) // 2 - 20)
 
-    y += _pinyin_over_hanzi(im, d, zlines, zf, zsize, py_size, gap, SW // 2, y)
+    y += _pinyin_over_hanzi(im, d, zlines, zf, zsize, py_size, gap, SW // 2, y, hl=hl)
     d = ImageDraw.Draw(im)
     y += 30
     for ln in vlines:                                       # nghia Viet — ho phach sang
@@ -964,9 +1172,19 @@ def _compose_frames(items, audio, out):
             os.remove(lst)
 
 
+def _clean_voice(voice):
+    """Bo tien to engine ('azure:'/'edge:'/...) NHUNG giu tên giọng có nhiều dấu ':'
+    (vd zh-CN-Xiaoyue:DragonHDOmniLatestNeural). Truoc day .split(':')[-1] lam vo tên HD."""
+    v = (voice or "zh-CN-XiaoxiaoNeural").strip()
+    for p in ("azure:", "edge:", "eleven:", "gemini:", "chattts:"):
+        if v.startswith(p):
+            return v[len(p):]
+    return v
+
+
 def make_quiz_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None,
                         out_dir=None, cta=None, rate="-8%", name=None, count_from=3,
-                        lang="auto", bg=None, skin="ink"):
+                        lang="auto", bg=None, skin="ink", azure=None):
     """Sinh Short QUIZ do nghia: hoi (an nghia) -> dem nguoc -> lo dap an. Tu TTS (edge free)."""
     import generate
     hanzi = (hanzi or "").strip()
@@ -975,7 +1193,7 @@ def make_quiz_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None,
     viet = (viet or "").strip()
     _set_lang(lang, viet)                                  # 'auto' -> doan theo dong nghia
     _apply_skin("ink" if bg else skin)                     # anh nen -> palette sang tren nen toi
-    voice = (voice or "zh-CN-XiaoxiaoNeural").split(":")[-1]
+    voice = _clean_voice(voice)
     py = pinyin_str(hanzi)
     out_dir = out_dir or "."
     os.makedirs(out_dir, exist_ok=True)
@@ -990,7 +1208,7 @@ def make_quiz_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None,
     tmp = [raw, sent, audio, fq, fr, *fcs]
     gap, tail = 0.4, 1.0
     try:
-        generate.synth(hanzi, voice, raw, rate=rate)          # edge free
+        generate.synth(hanzi, voice, raw, rate=rate, azure=azure)          # edge free
         _to_wav(raw, sent)
         d_sent = _dur(sent)
         # audio: doc cau (khi hoi) + gap + [dem nguoc: im lang] + doc lai cau (khi lo dap an) + tail
@@ -1009,9 +1227,8 @@ def make_quiz_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None,
             if os.path.exists(f):
                 os.remove(f)
 
-    title = f"{_strip_punct(hanzi)} nghĩa là gì? Đoán thử! | Tiếng Trung mỗi ngày #Shorts"
-    desc = (f"Đố bạn: {hanzi} nghĩa là gì?\n{py}\nĐáp án: {viet}\n\n"
-            "#hoctiengtrung #dovuitiengtrung #shorts #tiengtrung #chinese")
+    title = f"{_tf('t_quiz', hz=_strip_punct(hanzi))} | {_t('brand')} #Shorts"
+    desc = _tf("d_quiz", hz=hanzi, py=py, vi=viet) + "\n\n" + _t("tags_quiz")
     return {"file": out, "title": title, "desc": desc, "hook": hook or _t("quiz_q"),
             "hanzi": hanzi, "pinyin": py, "viet": viet, "dur": round(_dur(out), 2)}
 
@@ -1111,7 +1328,7 @@ def make_short(video, out_dir=None, cta=None, at=None, reads=2, lang="auto", ski
             if os.path.exists(f):
                 os.remove(f)
 
-    title = f"{_strip_punct(hanzi)} nghĩa là gì? | {viet[:40]} | Tiếng Trung mỗi ngày #Shorts"
+    title = f"{_tf('t_meaning', hz=_strip_punct(hanzi))} | {viet[:40]} | {_t('brand')} #Shorts"
     desc = (f"{hanzi}\n{py}\n{viet}\n\n"
             f"🎧 Bài đầy đủ ({viet_title}) có trên kênh!\n"
             "#hoctiengtrung #tuvungtiengtrung #shorts #tiengtrung #chinese")
@@ -1122,7 +1339,7 @@ def make_short(video, out_dir=None, cta=None, at=None, reads=2, lang="auto", ski
 
 def make_short_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None,
                          out_dir=None, cta=None, reads=2, rate="-8%", name=None, note="",
-                         lang="auto", bg=None, skin="ink"):
+                         lang="auto", bg=None, skin="ink", azure=None, py_color=None):
     """Sinh 1 Short DOC native TRUC TIEP tu 1 cau (KHONG can video dai).
     Tu tong hop giong bang generate.synth (edge free mac dinh). Tra ve dict giong make_short."""
     import generate
@@ -1132,7 +1349,8 @@ def make_short_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None
     viet = (viet or "").strip()
     _set_lang(lang, viet)                                  # 'auto' -> doan theo dong nghia
     _apply_skin("ink" if bg else skin)
-    voice = (voice or "zh-CN-XiaoxiaoNeural").split(":")[-1]   # bo tien to 'edge:' neu co
+    global PY_MONO; PY_MONO = _parse_color(py_color)       # sau _apply_skin (skin reset PY_MONO)
+    voice = _clean_voice(voice)   # bo tien to 'edge:' neu co
     hook = hook or _hook_for({"type": "sentence"})
     py = pinyin_str(hanzi)
 
@@ -1145,7 +1363,7 @@ def make_short_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None
     sent = os.path.join(out_dir, f"_sa_{base}.wav")
     audio = os.path.join(out_dir, f"_saud_{base}.wav")
     try:
-        generate.synth(hanzi, voice, raw, rate=rate)          # edge-tts (khong can key)
+        generate.synth(hanzi, voice, raw, rate=rate, azure=azure)          # edge-tts (khong can key)
         _to_wav(raw, sent)
         _build_audio(sent, audio, reads=reads)
         render_frame(hanzi, viet, hook, frame,
@@ -1156,7 +1374,7 @@ def make_short_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None
             if os.path.exists(f):
                 os.remove(f)
 
-    title = f"{_strip_punct(hanzi)} nghĩa là gì? | {viet[:40]} | Tiếng Trung mỗi ngày #Shorts"
+    title = f"{_tf('t_meaning', hz=_strip_punct(hanzi))} | {viet[:40]} | {_t('brand')} #Shorts"
     desc = (f"{hanzi}\n{py}\n{viet}\n\n"
             "#hoctiengtrung #tuvungtiengtrung #shorts #tiengtrung #chinese")
     return {"file": out, "title": title, "desc": desc, "hook": hook,
@@ -1165,7 +1383,7 @@ def make_short_from_text(hanzi, viet="", voice="zh-CN-XiaoxiaoNeural", hook=None
 
 def make_vocab_from_text(word, meaning="", example="", ex_viet="", voice="zh-CN-XiaoxiaoNeural",
                          out_dir=None, cta=None, reads=2, rate="-8%", name=None, lang="auto",
-                         bg=None, skin="ink", label=None):
+                         bg=None, skin="ink", label=None, azure=None):
     """Short TU MOI: tu KHONG LO + pinyin + nghia + o vi du. Audio: doc tu 'reads' lan + vi du 1 lan."""
     import generate
     word = (word or "").strip()
@@ -1174,7 +1392,7 @@ def make_vocab_from_text(word, meaning="", example="", ex_viet="", voice="zh-CN-
     meaning = (meaning or "").strip(); example = (example or "").strip()
     _set_lang(lang, meaning)
     _apply_skin("ink" if bg else skin)
-    voice = (voice or "zh-CN-XiaoxiaoNeural").split(":")[-1]
+    voice = _clean_voice(voice)
     py = pinyin_str(word)
     out_dir = out_dir or "."; os.makedirs(out_dir, exist_ok=True)
     base = name or ("vocab_" + hashlib.md5((word + voice).encode("utf-8")).hexdigest()[:10])
@@ -1185,12 +1403,12 @@ def make_vocab_from_text(word, meaning="", example="", ex_viet="", voice="zh-CN-
     audio = os.path.join(out_dir, f"_va_{base}.wav")
     tmp = [frame, wr, ws, er, es, audio]
     try:
-        generate.synth(word, voice, wr, rate=rate); _to_wav(wr, ws)
+        generate.synth(word, voice, wr, rate=rate, azure=azure); _to_wav(wr, ws)
         parts = []
         for i in range(max(1, reads)):
             parts += [("clip", ws), ("sil", 0.45)]
         if _strip_punct(example):
-            generate.synth(_strip_punct(example), voice, er, rate=rate); _to_wav(er, es)
+            generate.synth(_strip_punct(example), voice, er, rate=rate, azure=azure); _to_wav(er, es)
             parts += [("sil", 0.3), ("clip", es), ("sil", 0.8)]
         else:
             parts += [("sil", 0.5)]
@@ -1202,16 +1420,16 @@ def make_vocab_from_text(word, meaning="", example="", ex_viet="", voice="zh-CN-
         for f in tmp:
             if os.path.exists(f):
                 os.remove(f)
-    title = f"{word} = {meaning[:30]} | Từ mới tiếng Trung | Tiếng Trung mỗi ngày #Shorts"
+    title = f"{_tf('t_vocab', word=word, mean=meaning[:30])} | {_t('brand')} #Shorts"
     desc = (f"{word}\n{py}\n{meaning}\n" + (f"例：{example}\n" if example else "") +
-            "\n#hoctiengtrung #tuvungtiengtrung #tumoi #shorts #tiengtrung")
+            "\n" + _t("tags_vocab"))
     return {"file": out, "title": title, "desc": desc, "hook": label or _t("lbl_vocab"),
             "hanzi": word, "pinyin": py, "viet": meaning, "dur": round(_dur(out), 2)}
 
 
 def make_pattern_from_text(pattern, meaning="", examples=None, voice="zh-CN-XiaoxiaoNeural",
                            out_dir=None, cta=None, rate="-8%", name=None, lang="auto",
-                           bg=None, skin="ink", label=None):
+                           bg=None, skin="ink", label=None, azure=None):
     """Short MAU CAU: mau cau (khung) + nghia + 2-3 vi du. examples: list (han, viet).
     Audio: doc lan luot cac cau vi du (1 lan/cau)."""
     import generate
@@ -1222,7 +1440,7 @@ def make_pattern_from_text(pattern, meaning="", examples=None, voice="zh-CN-Xiao
     examples = [(h.strip(), (v or "").strip()) for h, v in (examples or []) if _strip_punct(h)]
     _set_lang(lang, meaning or (examples[0][1] if examples else ""))
     _apply_skin("ink" if bg else skin)
-    voice = (voice or "zh-CN-XiaoxiaoNeural").split(":")[-1]
+    voice = _clean_voice(voice)
     out_dir = out_dir or "."; os.makedirs(out_dir, exist_ok=True)
     base = name or ("patt_" + hashlib.md5((pattern + voice).encode("utf-8")).hexdigest()[:10])
     out = os.path.join(out_dir, base + ".mp4")
@@ -1234,7 +1452,7 @@ def make_pattern_from_text(pattern, meaning="", examples=None, voice="zh-CN-Xiao
         for i, (han, _v) in enumerate(examples[:3]):
             r = os.path.join(out_dir, f"_pr_{base}_{i}.mp3"); s = os.path.join(out_dir, f"_ps_{base}_{i}.wav")
             tmp += [r, s]
-            generate.synth(_strip_punct(han), voice, r, rate=rate); _to_wav(r, s)
+            generate.synth(_strip_punct(han), voice, r, rate=rate, azure=azure); _to_wav(r, s)
             parts += [("clip", s), ("sil", 0.6)]
         if len(parts) == 1:
             parts += [("sil", 2.0)]
@@ -1246,16 +1464,16 @@ def make_pattern_from_text(pattern, meaning="", examples=None, voice="zh-CN-Xiao
             if os.path.exists(f):
                 os.remove(f)
     ex_txt = "\n".join(f"{h}  {v}" for h, v in examples)
-    title = f"{pattern} | Mẫu câu tiếng Trung | Tiếng Trung mỗi ngày #Shorts"
+    title = f"{_tf('t_pattern', pat=pattern)} | {_t('brand')} #Shorts"
     desc = (f"{pattern}\n{meaning}\n{ex_txt}\n\n"
-            "#hoctiengtrung #maucau #ngucaptiengtrung #shorts #tiengtrung")
+            + _t("tags_patt"))
     return {"file": out, "title": title, "desc": desc, "hook": label or _t("lbl_pattern"),
             "hanzi": pattern, "pinyin": "", "viet": meaning, "dur": round(_dur(out), 2)}
 
 
 def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
                           out_dir=None, cta=None, reads=2, rate="-8%", name=None,
-                          lang="auto", bg=None, skin="ink"):
+                          lang="auto", bg=None, skin="ink", title=None, azure=None, py_color=None):
     """GOP nhieu cau thanh 1 Short: cau 1 doc 'reads' lan -> next cau 2 ... -> het.
     lines: list ('汉字','nghia') hoac ('汉字','nghia','ghi chu'). Moi cau 1 khung + audio rieng,
     noi lai thanh 1 video duy nhat (frame tinh, loop muot)."""
@@ -1274,7 +1492,8 @@ def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
         raise ValueError("khong co cau nao")
     _set_lang(lang, norm[0][1])
     _apply_skin("ink" if bg else skin)
-    voice = (voice or "zh-CN-XiaoxiaoNeural").split(":")[-1]
+    global PY_MONO; PY_MONO = _parse_color(py_color)       # sau _apply_skin (skin reset PY_MONO)
+    voice = _clean_voice(voice)
 
     out_dir = out_dir or "."
     os.makedirs(out_dir, exist_ok=True)
@@ -1291,7 +1510,7 @@ def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
             sent  = os.path.join(out_dir, f"_ms_{base}_{i}.wav")
             aud   = os.path.join(out_dir, f"_ma_{base}_{i}.wav")
             tmp += [frame, raw, sent, aud]
-            generate.synth(hz, voice, raw, rate=rate)
+            generate.synth(hz, voice, raw, rate=rate, azure=azure)
             _to_wav(raw, sent)
             _build_audio(sent, aud, reads=reads)
             render_frame(hz, vi, hk, frame, footer=cta or _t("cta_save"), note=nt, bg=bg)
@@ -1306,10 +1525,15 @@ def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
             if os.path.exists(f):
                 os.remove(f)
 
-    head = _strip_punct(norm[0][0])
-    title = f"{head}… | {len(norm)} câu tiếng Trung | Tiếng Trung mỗi ngày #Shorts"
-    desc = "\n".join(f"{h}  {pinyin_str(h)}  {v}" for h, v, _ in norm) + \
-           "\n\n#hoctiengtrung #tuvungtiengtrung #shorts #tiengtrung #chinese"
+    # TIÊU ĐỀ: ưu tiên CHỦ ĐỀ (hook, vd "Starting the interview") cho tò mò; không có -> generic
+    topic = _strip_emoji(hook or "").strip().rstrip(".…")
+    if title:
+        pass
+    elif topic:
+        title = f"{_tf('t_combine', n=len(norm), topic=topic)} | {_t('brand')} #Shorts"
+    else:
+        title = f"{_tf('t_combine_plain', n=len(norm))} | {_t('brand')} #Shorts"
+    desc = "\n".join(f"{h}  {pinyin_str(h)}  {v}" for h, v, _ in norm) + "\n\n" + _t("tags_def")
     return {"file": out, "title": title, "desc": desc,
             "count": len(norm), "dur": round(_dur(out), 2)}
 

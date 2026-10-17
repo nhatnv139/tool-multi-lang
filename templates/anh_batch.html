@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lấy ảnh batch</title>
+<style>
+  :root { --ac:#6c5ce7; --bg:#f6f5ff; --ink:#2d2b3a; --soft:#847f9c; --line:#e4e0f7; --ok:#1f9d55; --warn:#c77d0a; --bad:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:1040px; margin:0 auto; padding:24px 20px 70px; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  .sub { color:var(--soft); margin:0 0 18px; font-size:14px; }
+  a { color:var(--ac); text-decoration:none; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 4px 18px rgba(108,92,231,.07); margin-bottom:16px; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  select { border:1.5px solid var(--line); border-radius:10px; padding:9px 12px; font-size:14px; background:#fff; max-width:420px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:13px; font-weight:600; padding:8px 12px; background:#eeeafd; color:var(--ac); }
+  button:hover { background:#e4defb; }
+  button.go { background:var(--ac); color:#fff; }
+  button.go:hover { background:#5b4bd6; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:12px; color:var(--soft); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:11px 8px; border-bottom:1px solid #f0edfb; vertical-align:middle; font-size:14px; }
+  tr:last-child td { border-bottom:none; }
+  .tap { font-weight:600; }
+  .tap small { display:block; font-weight:400; color:var(--soft); font-size:12px; }
+  .prog { height:8px; background:#eeeafd; border-radius:6px; overflow:hidden; width:120px; margin-top:5px; }
+  .prog i { display:block; height:100%; background:var(--ac); }
+  .prog.full i { background:var(--ok); }
+  .st { font-size:13px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--soft); }
+  .acts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  #msg { font-size:13px; color:var(--soft); min-height:18px; }
+  .modal { position:fixed; inset:0; background:rgba(30,25,60,.55); display:none; align-items:flex-start; justify-content:center; overflow:auto; padding:30px 16px; z-index:10; }
+  .modal.on { display:flex; }
+  .modal .box { background:#fff; border-radius:16px; padding:18px; max-width:980px; width:100%; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:12px; }
+  .grid figure { margin:0; }
+  .grid img { width:100%; aspect-ratio:3/2; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:zoom-in; }
+  .grid figcaption { font-size:11px; color:var(--soft); text-align:center; margin-top:2px; }
+  .big { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; z-index:20; cursor:zoom-out; }
+  .big.on { display:flex; }
+  .big img { max-width:94vw; max-height:94vh; border-radius:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/film">← Film Studio</a>
+  <h1>📥 Lấy ảnh batch về</h1>
+  <p class="sub">Kiểm batch đã gửi, lấy ảnh về thư mục từng tập trước. Lúc dựng phim chỉ cần bấm <b>“📂 Nạp ảnh đã lấy”</b> ở trang Film.</p>
+
+  <div class="card">
+    <div class="bar">
+      <select id="topic" onchange="load(this.value)"></select>
+      <button onclick="load(document.getElementById('topic').value)">🔄 Làm mới</button>
+      <button onclick="checkAll()">🔎 Kiểm tra tất cả</button>
+      <button class="go" onclick="fetchAll()">⬇️ Lấy tất cả tập đã xong</button>
+      <span id="msg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="bar" style="margin-bottom:8px">
+      <b>Batch đã gửi từ trang Film</b>
+      <span class="muted" style="font-size:13px">chọn tập đích rồi lấy về — ảnh lưu vào thư mục tập thành 01.jpg, 02.jpg…</span>
+      <span style="flex:1"></span>
+      <button onclick="regCheckAll()">🔎 Kiểm tra</button>
+    </div>
+    <table>
+      <thead><tr><th>Phim</th><th>Gửi lúc</th><th>Trạng thái</th><th>Lưu vào tập</th><th></th></tr></thead>
+      <tbody id="reg"><tr><td colspan="5" class="muted">Đang tải…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="bar" style="margin-bottom:8px"><b>Các tập</b>
+      <span class="muted" style="font-size:13px">tick tập cần ảnh rồi gửi batch ngay tại đây — không cần sang trang Film</span></div>
+    <div class="bar" style="margin-bottom:10px;padding:10px;background:#faf9ff;border:1px solid var(--line);border-radius:12px">
+      <span class="muted" style="font-size:13px">Từ tập</span>
+      <input id="fromTap" type="number" value="18" min="1" style="width:70px;border:1.5px solid var(--line);border-radius:8px;padding:7px">
+      <button onclick="pickFrom()">Chọn các tập chưa có ảnh</button>
+      <button onclick="SENDSEL.clear();draw()">Bỏ chọn</button>
+      <span style="flex:1"></span>
+      <select id="sModel"><option value="gpt-image-1-mini">gpt-image-1-mini (rẻ nhất)</option><option value="gpt-image-2">gpt-image-2</option></select>
+      <select id="sQual"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option></select>
+      <button class="go" id="sendBtn" onclick="sendSelected()" disabled>📤 Gửi batch (0 tập)</button>
+    </div>
+    <table>
+      <thead><tr><th style="width:28px"></th><th>Tập</th><th>Ảnh trong thư mục</th><th>Batch</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="4" class="muted">Đang tải…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal" id="modal" onclick="if(event.target===this)this.classList.remove('on')">
+  <div class="box">
+    <div class="bar"><b id="mTitle"></b><span style="flex:1"></span><button onclick="document.getElementById('modal').classList.remove('on')">Đóng</button></div>
+    <div class="grid" id="grid"></div>
+  </div>
+</div>
+<div class="big" id="big" onclick="this.classList.remove('on')"><img id="bigImg"></div>
+
+<script>
+let ROWS = [];
+let LIVE = {};
+const $ = id => document.getElementById(id);
+const key = r => r.topic + '|' + r.tap;
+const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const say = t => { $('msg').textContent = t || ''; };
+
+async function post(url, body) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const j = await r.json().catch(() => ({error:'Phản hồi không đọc được'}));
+  if (!r.ok && !j.error) j.error = 'Lỗi ' + r.status;
+  return j;
+}
+
+async function load(topic) {
+  const r = await fetch('/anh-batch/api/list' + (topic ? '?topic=' + encodeURIComponent(topic) : ''));
+  const j = await r.json();
+  const sel = $('topic');
+  sel.innerHTML = j.topics.map(t => '<option value="' + esc(t) + '"' + (t === j.topic ? ' selected' : '') + '>' + esc(t) + '</option>').join('');
+  ROWS = j.rows; LIVE = {};
+  draw();
+  loadReg();
+  checkAll(true);
+}
+
+let REG = [], REGSEL = {}, REGLIVE = {};
+async function loadReg() {
+  const j = await (await fetch('/anh-batch/api/registry')).json();
+  REG = j.items || [];
+  REG.forEach(x => {
+    if (REGSEL[x.id] === undefined)
+      REGSEL[x.id] = x.lay_ve ? x.lay_ve.topic + '|' + x.lay_ve.tap : (x.suggest ? x.suggest.topic + '|' + x.suggest.tap : '');
+  });
+  drawReg();
+}
+
+function regState(x) {
+  const live = REGLIVE[x.id];
+  if (live && live.error) return {cls:'bad', txt:'✗ ' + live.error};
+  const st = live ? live.status : x.status;
+  const n = live ? ' ' + live.completed + '/' + live.total : '';
+  const got = x.lay_ve ? ' · đã lấy về tập ' + x.lay_ve.tap.slice(0, 2) + ' lúc ' + x.lay_ve.luc : '';
+  if (st === 'completed') return {cls:'ok', txt:'✓ xong' + n + got};
+  if (['validating','in_progress','finalizing'].includes(st)) return {cls:'warn', txt:'⏳ đang chạy' + n};
+  return {cls:'muted', txt:(st || '?') + n + got};
+}
+
+function drawReg() {
+  if (!REG.length) { $('reg').innerHTML = '<tr><td colspan="5" class="muted">Chưa gửi batch nào từ trang Film.</td></tr>'; return; }
+  $('reg').innerHTML = REG.map((x, i) => {
+    const s = regState(x);
+    const opts = ['<option value="">— chọn tập —</option>'];
+    let has = false;
+    ROWS.forEach(r => { const v = r.topic + '|' + r.tap; if (v === REGSEL[x.id]) has = true;
+      opts.push('<option value="' + esc(v) + '"' + (v === REGSEL[x.id] ? ' selected' : '') + '>' + esc(r.tap.slice(0, 2) + ' · ' + r.tap.slice(3).replace(/-/g, ' ')) + '</option>'); });
+    if (REGSEL[x.id] && !has) opts.push('<option value="' + esc(REGSEL[x.id]) + '" selected>' + esc(REGSEL[x.id].split('|')[1] || '') + '</option>');
+    return '<tr><td class="tap">' + esc((x.title || '(không tên)').slice(0, 58)) + '<small>' + esc(x.id.slice(-8)) + ' · ' + x.n + ' ảnh · ' + esc(x.model || '') + ' ' + esc(x.quality || '') + '</small></td>'
+      + '<td class="muted">' + esc(x.sent || '') + '</td>'
+      + '<td class="st ' + s.cls + '">' + esc(s.txt) + '</td>'
+      + '<td><select onchange="REGSEL[\'' + x.id + '\']=this.value">' + opts.join('') + '</select></td>'
+      + '<td><div class="acts"><button onclick="regCheck(' + i + ')">Kiểm tra</button>'
+      + '<button class="go" onclick="regFetch(' + i + ')">⬇️ Lấy về</button></div></td></tr>';
+  }).join('');
+}
+
+async function regCheck(i, quiet) {
+  const x = REG[i];
+  REGLIVE[x.id] = await post('/anh-batch/api/reg_check', {id:x.id});
+  if (!quiet) drawReg();
+}
+
+async function regCheckAll() {
+  say('Đang kiểm tra batch…');
+  for (let i = 0; i < REG.length; i++) { await regCheck(i, true); drawReg(); }
+  say('Đã kiểm tra xong.');
+}
+
+async function regFetch(i) {
+  const x = REG[i];
+  const v = REGSEL[x.id];
+  if (!v) { say('Chọn tập đích trước đã.'); return; }
+  const [topic, tap] = v.split('|');
+  say('⏳ Đang tải ảnh về tập ' + tap.slice(0, 2) + '…');
+  let j = await post('/anh-batch/api/reg_fetch', {id:x.id, topic, tap});
+  if (j.mismatch) {
+    if (!confirm(j.error + '\n\nẢnh sẽ lẫn sang tập này. Vẫn lưu?')) { say('Đã huỷ, không lưu gì.'); return; }
+    j = await post('/anh-batch/api/reg_fetch', {id:x.id, topic, tap, ep:true});
+  }
+  if (j.error) { REGLIVE[x.id] = {error:j.error}; say('✗ ' + j.error); drawReg(); return; }
+  if (j.pending) { REGLIVE[x.id] = j; say('Batch chưa xong (' + j.completed + '/' + j.total + ').'); drawReg(); return; }
+  say('✓ Tập ' + tap.slice(0, 2) + ': lưu ' + j.saved + ' ảnh' + (j.skipped ? ', bỏ qua ' + j.skipped + ' ảnh đã có' : '')
+      + (j.failed && j.failed.length ? ', hỏng ' + j.failed.length : '') + '.');
+  delete REGLIVE[x.id];
+  const k = ROWS.findIndex(r => r.topic === topic && r.tap === tap);
+  if (k >= 0 && j.row) ROWS[k] = j.row;
+  await loadReg();
+  draw();
+}
+
+function stateOf(r) {
+  const live = LIVE[key(r)];
+  if (r.have >= r.total && r.total > 0) return {cls:'ok', txt:'✓ đủ ' + r.total + ' ảnh', canFetch:false};
+  if (!r.batch) return {cls:'muted', txt:r.cu ? 'batch cũ (đã lấy từ trước, định dạng cũ)' : 'chưa gửi batch', canFetch:false};
+  const sent = 'gửi ' + (r.batch.gui_luc || '?') + ' · ' + (r.batch.model || '') + ' ' + (r.batch.quality || '');
+  if (!live) return {cls:'muted', txt:'chưa kiểm tra · ' + sent, canFetch:true};
+  if (live.error) return {cls:'bad', txt:'✗ ' + live.error, canFetch:true};
+  const n = live.completed + '/' + live.total;
+  if (live.status === 'completed') return {cls:'ok', txt:'✓ xong ' + n + ' — bấm Lấy về · ' + sent, canFetch:true};
+  if (['validating','in_progress','finalizing'].includes(live.status)) return {cls:'warn', txt:'⏳ đang chạy ' + n + ' · ' + sent, canFetch:false};
+  return {cls:'bad', txt:'✗ ' + live.status + ' ' + n + (live.fail_n ? ' · hỏng ' + live.fail_n : ''), canFetch:true};
+}
+
+const SENDSEL = new Set();
+const canSend = r => r.have < r.total && !r.batch;
+function toggleSend(tap, on) { if (on) SENDSEL.add(tap); else SENDSEL.delete(tap); updSend(); }
+function updSend() {
+  const b = $('sendBtn'); if (!b) return;
+  b.textContent = '📤 Gửi batch (' + SENDSEL.size + ' tập)';
+  b.disabled = SENDSEL.size === 0;
+}
+function pickFrom() {
+  const from = parseInt($('fromTap').value, 10) || 1;
+  ROWS.forEach(r => { if (canSend(r) && parseInt(r.tap.slice(0, 2), 10) >= from) SENDSEL.add(r.tap); });
+  draw();
+}
+async function sendSelected() {
+  const taps = [...SENDSEL];
+  if (!taps.length) return;
+  const body = {topic:$('topic').value, taps, model:$('sModel').value, quality:$('sQual').value};
+  say('Đang tính chi phí…');
+  const e = await post('/anh-batch/api/estimate', body);
+  if (e.error) { say('✗ ' + e.error); return; }
+  const skip = e.items.filter(x => x.skip);
+  const go = e.items.filter(x => !x.skip);
+  if (!go.length) { say('Không tập nào gửi được: ' + skip.map(x => x.tap.slice(0, 2) + ' (' + x.skip + ')').join('; ')); return; }
+  const msg = 'Gửi batch cho ' + go.length + ' tập: ' + go.map(x => x.tap.slice(0, 2) + ' (' + x.n + ' ảnh)').join(', ')
+    + '\n\nTổng ' + e.total + ' ảnh · ' + body.model + ' · ' + body.quality + '\nƯớc tính ≈ $' + e.usd.toFixed(2) + ' (đã giảm 50% của Batch)'
+    + (skip.length ? '\n\nBỏ qua: ' + skip.map(x => x.tap.slice(0, 2) + ' — ' + x.skip).join('; ') : '')
+    + '\n\nĐây là tiền thật. Gửi?';
+  if (!confirm(msg)) { say('Đã huỷ, chưa gửi gì.'); return; }
+  say('⏳ Đang gửi lên OpenAI…');
+  $('sendBtn').disabled = true;
+  const r = await post('/anh-batch/api/send', body);
+  if (r.error) { say('✗ ' + r.error); updSend(); return; }
+  const ok = r.results.filter(x => x.ok), bad = r.results.filter(x => !x.ok);
+  say('✓ Đã gửi ' + ok.length + ' tập' + (bad.length ? ' · lỗi/bỏ qua: ' + bad.map(x => x.tap.slice(0, 2) + ' (' + x.why + ')').join('; ') : '') + '. Quay lại bấm “Lấy tất cả tập đã xong” sau.');
+  SENDSEL.clear();
+  await load($('topic').value);
+}
+
+function draw() {
+  if (!ROWS.length) { $('rows').innerHTML = '<tr><td colspan="5" class="muted">Không có tập nào.</td></tr>'; updSend(); return; }
+  $('rows').innerHTML = ROWS.map((r, i) => {
+    const s = stateOf(r);
+    const pct = r.total ? Math.round(100 * r.have / r.total) : 0;
+    return '<tr><td>' + (canSend(r) ? '<input type="checkbox" ' + (SENDSEL.has(r.tap) ? 'checked ' : '') + 'onchange="toggleSend(\'' + r.tap + '\', this.checked)">' : '') + '</td>'
+      + '<td class="tap">' + esc(r.tap.slice(0, 2)) + '<small>' + esc(r.tap.slice(3).replace(/-/g, ' ')) + '</small></td>'
+      + '<td>' + r.have + ' / ' + r.total + '<div class="prog' + (pct >= 100 ? ' full' : '') + '"><i style="width:' + pct + '%"></i></div>'
+      + (r.dup && r.dup.length ? '<div class="bad" style="font-size:12px;margin-top:4px">⚠ ảnh giống hệt tập ' + r.dup.join(', ') + '</div>' : '') + '</td>'
+      + '<td class="st ' + s.cls + '">' + esc(s.txt) + '</td>'
+      + '<td><div class="acts">'
+      + (r.batch ? '<button onclick="check(' + i + ')">Kiểm tra</button>' : '')
+      + (r.batch ? '<button class="go" ' + (s.canFetch ? '' : 'disabled') + ' onclick="fetchOne(' + i + ')">⬇️ Lấy về</button>' : '')
+      + '<button ' + (r.have ? '' : 'disabled') + ' onclick="view(' + i + ')">🖼 Xem</button>'
+      + '<button onclick="openDir(' + i + ')">📂 Mở</button>'
+      + '</div></td></tr>';
+  }).join('');
+  updSend();
+}
+
+async function check(i, quiet) {
+  const r = ROWS[i];
+  if (!r.batch) return;
+  const j = await post('/anh-batch/api/check', {topic:r.topic, tap:r.tap});
+  LIVE[key(r)] = j;
+  if (!quiet) draw();
+}
+
+async function checkAll(quiet) {
+  say('Đang kiểm tra batch…');
+  for (let i = 0; i < ROWS.length; i++) {
+    if (ROWS[i].batch && ROWS[i].have < ROWS[i].total) { await check(i, true); draw(); }
+  }
+  say(quiet ? '' : 'Đã kiểm tra xong.');
+}
+
+async function fetchOne(i) {
+  const r = ROWS[i];
+  say('⏳ Đang tải ảnh tập ' + r.tap.slice(0, 2) + '…');
+  const j = await post('/anh-batch/api/fetch', {topic:r.topic, tap:r.tap});
+  if (j.error) { LIVE[key(r)] = {error:j.error}; say('✗ Tập ' + r.tap.slice(0, 2) + ': ' + j.error); draw(); return j; }
+  if (j.pending) { LIVE[key(r)] = j; say('Tập ' + r.tap.slice(0, 2) + ' chưa xong (' + j.completed + '/' + j.total + ').'); draw(); return j; }
+  if (j.row) ROWS[i] = j.row;
+  delete LIVE[key(r)];
+  say('✓ Tập ' + r.tap.slice(0, 2) + ': lưu ' + j.saved + ' ảnh' + (j.skipped ? ', bỏ qua ' + j.skipped + ' ảnh đã có' : '')
+      + (j.failed && j.failed.length ? ', hỏng ' + j.failed.length : '') + '.');
+  draw();
+  return j;
+}
+
+async function fetchAll() {
+  let n = 0;
+  for (let i = 0; i < ROWS.length; i++) {
+    const r = ROWS[i];
+    if (!r.batch || r.have >= r.total) continue;
+    const live = LIVE[key(r)];
+    if (live && live.status && live.status !== 'completed') continue;
+    const j = await fetchOne(i);
+    if (j && j.saved) n++;
+  }
+  say(n ? '✓ Đã lấy ảnh của ' + n + ' tập.' : 'Chưa có tập nào xong để lấy.');
+}
+
+async function openDir(i) {
+  const r = ROWS[i];
+  await post('/anh-batch/api/open', {topic:r.topic, tap:r.tap});
+}
+
+async function view(i) {
+  const r = ROWS[i];
+  const j = await (await fetch('/anh-batch/api/images?topic=' + encodeURIComponent(r.topic) + '&tap=' + encodeURIComponent(r.tap))).json();
+  $('mTitle').textContent = r.tap + ' — ' + j.files.length + ' ảnh';
+  $('grid').innerHTML = j.files.map(f => {
+    const u = '/anh-batch/img/' + encodeURIComponent(r.topic) + '/' + encodeURIComponent(r.tap) + '/' + f + '?t=' + Date.now();
+    return '<figure><img loading="lazy" src="' + u + '" onclick="big(this.src)"><figcaption>' + f + '</figcaption></figure>';
+  }).join('');
+  $('modal').classList.add('on');
+}
+
+function big(src) { $('bigImg').src = src; $('big').classList.add('on'); }
+
+load('');
+</script>
+</body>
+</html>

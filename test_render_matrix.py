@@ -6,9 +6,34 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 import style_podcast, style_pastel
 
-OUTD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ref", "matrix")
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUTD = os.path.join(HERE, "ref", "matrix")
 os.makedirs(OUTD, exist_ok=True)
-BG = "/Users/nhatnv/project/tool-multi-lang/uploads/bg_1782793711602.png"
+
+
+def _find_bg():
+    """Anh nen de test: lay anh dau tien trong uploads/; khong co thi tu ve 1 anh
+       gradient + vai khoi mau -> test chay duoc tren MAY BAT KY (khong hardcode path)."""
+    up = os.path.join(HERE, "uploads")
+    if os.path.isdir(up):
+        for f in sorted(os.listdir(up)):
+            if f.lower().endswith((".png", ".jpg", ".jpeg")):
+                return os.path.join(up, f)
+    from PIL import Image, ImageDraw
+    p = os.path.join(OUTD, "_synthetic_bg.png")
+    im = Image.new("RGB", (1920, 1080), (226, 232, 226))
+    d = ImageDraw.Draw(im)
+    for y in range(1080):                       # troi -> dat
+        t = y / 1080.0
+        d.line([(0, y), (1920, y)],
+               fill=(int(238 - 40 * t), int(232 - 26 * t), int(214 - 6 * t)))
+    d.ellipse([1180, 520, 1860, 1200], fill=(196, 206, 190))   # "nhan vat" ben phai
+    d.ellipse([60, 620, 520, 1180], fill=(206, 198, 180))      # khoi trang tri ben trai
+    im.save(p)
+    return p
+
+
+BG = _find_bg()
 
 SEGS = {
     "normal":   {"type": "sentence", "hanzi": "学语言，最重要的是每天都听一点。",
@@ -38,6 +63,8 @@ MODES = ["", "ruby", "line"]
 def base_ctx(v, bg=True):
     return {"podcast_layout": True, "podcast_variant": v, "channel": "Lạc Học Đường",
             "id": 1, "title": "Mỗi ngày nghe một chút", "hsk": "HSK2",
+            "hanzi_title": "用跑步学中文", "show_word": "Podcast",
+            "tagline": "Nghe mỗi ngày, giỏi mỗi ngày",
             "seal_text": "乐学", "bg_image": (BG if bg else ""), "tone_colors": True,
             "panel_alpha": 150, "_speaker_colors": {"小雨": (40, 96, 196), "Host": (1, 2, 3)}}
 
@@ -124,6 +151,42 @@ try:
     assert generate._waveform_conf({"podcast_layout": False, "waveform": "top"}) is None
 except Exception as e:
     fails.append(("waveconf no-podcast", e))
+
+# 6) NHOM LAYOUT KENH LON: cac o chu dau trang bi trong / qua dai / thieu tieu de Han
+NEW_V = ["postcard", "showhead", "halfleft", "stage"]
+NEW_CASES = {
+    "full":     {},
+    "empty":    {"title": "", "hanzi_title": "", "show_word": "", "tagline": "",
+                 "bar_left": "", "channel": ""},
+    "longtitle": {"title": "HSK2 · Bài 14: Cuối tuần bạn thường làm gì ở nhà và đi đâu chơi?",
+                  "hanzi_title": "用跑步学中文每天进步一点点",
+                  "tagline": "Enjoy Story, Get Motivated and Learn Chinese mỗi ngày"},
+    "bar":      {"bottom_bar": True, "bar_left": "Feeling stuck? Start running",
+                 "bar_badge": "PODCAST", "bar_bg": "#f4f1ea"},
+    "nobg":     {"bg_image": ""},
+    "colors":   {"zh_color": "#8b1a1a", "py_color": "#7a4fc0", "vi_color": "#1f6feb"},
+    "px":       {"zh_px": 150, "py_px": 46, "vi_px": 52},
+}
+for v in NEW_V:
+    for cname, patch in NEW_CASES.items():
+        for m in ["", "ruby", "line"]:
+            n += 1
+            ctx = base_ctx(v); ctx.update(patch); ctx["pinyin_mode"] = m
+            try:
+                style_pastel.render_slide(dict(SEGS["normal"]), ctx,
+                                          f"{OUTD}/n_{v}_{cname}_{m or 'auto'}.png")
+            except Exception as e:
+                fails.append((f"new variant={v} {cname} mode={m}", e)); traceback.print_exc()
+    # hieu ung chu hien dan (reveal) + cau dai + khong nghia
+    for sname in ("long", "short", "noviet", "hideviet", "no_hanzi"):
+        n += 1
+        seg = dict(SEGS[sname])
+        try:
+            import style_podcast as _sp
+            _sp.render(seg, base_ctx(v), f"{OUTD}/n_{v}_seg_{sname}.png",
+                       reveal_t=[0.1 * i for i in range(200)], t_now=0.5)
+        except Exception as e:
+            fails.append((f"new reveal variant={v} seg={sname}", e)); traceback.print_exc()
 
 print(f"\n===== {n} case, {len(fails)} FAIL =====")
 for name, e in fails:
