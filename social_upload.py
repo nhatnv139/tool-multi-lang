@@ -6,7 +6,7 @@
    - social_tokens/<yt_channel_id>/<platform>.json : token rieng tung nen tang
    - social_secrets/<platform>.json            : app credentials dung chung (optional)
 
-   Giai doan 1: chi Facebook (Page) duoc cai dat that. X / TikTok / Instagram = stub.
+   Da chay that: Facebook (Page), TikTok (Content Posting API). X / Instagram = stub.
 """
 import os, json, glob, time
 
@@ -44,7 +44,7 @@ def _chan_dir(cid):
 def _default_platform(p):
     # TikTok mac dinh tat: chua audit thi bi ep private, khong phuc vu organic public.
     return {"enabled": p != "tiktok", "connected": False, "name": "",
-            "account_id": "", "mode": "link" if p == "x" else "native",
+            "account_id": "", "mode": {"x": "link", "tiktok": "inbox"}.get(p, "native"),
             "content_style": "video_promo", "custom_prompt": ""}
 
 
@@ -86,7 +86,7 @@ def set_enabled(cid, platform, enabled):
 
 def set_mode(cid, platform, mode):
     idx = load_index(cid)
-    if mode in ("native", "link"):
+    if mode in ("native", "link", "direct", "inbox"):
         idx["platforms"][platform]["mode"] = mode
         save_index(cid, idx)
     return idx
@@ -111,7 +111,10 @@ def public_links(cid, yt_name=""):
         st = idx["platforms"][pl]
         warn = ""
         if pl == "tiktok":
-            warn = "Chưa duyệt app → chỉ đăng được private. Bật public sau khi qua audit."
+            sec = tt_secrets()
+            if not sec.get("audited"):
+                warn = ("App chưa qua audit → Direct Post bị ép 'Chỉ mình tôi'. "
+                        "Chọn chế độ 'Gửi nháp vào app' để tự bấm Public trên điện thoại.")
         if pl == "instagram":
             warn = "Cần video public URL + IG Business. (giai đoạn sau)"
         out[pl] = {"enabled": st["enabled"], "connected": st["connected"],
@@ -126,7 +129,10 @@ def public_links(cid, yt_name=""):
 def _is_configured(platform):
     if platform == "facebook":
         return True  # FB co the dung token dan tay, khong bat buoc app secret
-    return False     # x / tiktok / instagram: giai doan sau
+    if platform == "tiktok":
+        s = tt_secrets()
+        return bool(s.get("client_key") and s.get("client_secret"))
+    return False
 
 
 def disconnect(cid, platform):
@@ -135,6 +141,12 @@ def disconnect(cid, platform):
     if os.path.exists(tok):
         os.remove(tok)
     idx["platforms"][platform].update(connected=False, name="", account_id="")
+    return save_index(cid, idx)
+
+
+def set_connected(cid, platform, name, account_id):
+    idx = load_index(cid)
+    idx["platforms"][platform].update(connected=True, name=name, account_id=account_id)
     return save_index(cid, idx)
 
 
@@ -261,11 +273,202 @@ def _fb_err(j):
     return {"ok": False, "error": f"Facebook: {msg}", "permanent": permanent, "hint": hint}
 
 
+# ======================= TIKTOK =======================
+TT_AUTH = "https://www.tiktok.com/v2/auth/authorize/"
+TT_API = "https://open.tiktokapis.com/v2"
+TT_SCOPES = "user.info.basic,video.upload,video.publish"
+TT_MIN_CHUNK = 5 * 1024 * 1024
+TT_CHUNK = 10 * 1024 * 1024
+
+
+def tt_secrets():
+    p = os.path.join(SECRETS_DIR, "tiktok.json")
+    if os.path.exists(p):
+        return json.load(open(p, encoding="utf-8"))
+    return {}
+
+
+def tt_redirect_uri():
+    return tt_secrets().get("redirect_uri") or "http://localhost:5001/social/tiktok/callback"
+
+
+def tt_auth_url(state, code_verifier):
+    import hashlib
+    from urllib.parse import urlencode
+    sec = tt_secrets()
+    challenge = hashlib.sha256(code_verifier.encode()).hexdigest()
+    return TT_AUTH + "?" + urlencode({
+        "client_key": sec["client_key"], "scope": TT_SCOPES, "response_type": "code",
+        "redirect_uri": tt_redirect_uri(), "state": state,
+        "code_challenge": challenge, "code_challenge_method": "S256"})
+
+
+def _tt_token_path(cid):
+    return os.path.join(_chan_dir(cid), "tiktok.json")
+
+
+def _tt_save_token(cid, j, extra=None):
+    tok = {"access_token": j["access_token"], "refresh_token": j.get("refresh_token", ""),
+           "open_id": j.get("open_id", ""), "scope": j.get("scope", ""),
+           "expires_at": time.time() + int(j.get("expires_in", 86400)) - 120,
+           "refresh_expires_at": time.time() + int(j.get("refresh_expires_in", 31536000)),
+           "saved_at": _now()}
+    if extra:
+        tok.update(extra)
+    _write(_tt_token_path(cid), json.dumps(tok, ensure_ascii=False, indent=2))
+    return tok
+
+
+def tt_exchange_code(cid, code, code_verifier):
+    import requests
+    sec = tt_secrets()
+    r = requests.post(f"{TT_API}/oauth/token/", data={
+        "client_key": sec["client_key"], "client_secret": sec["client_secret"],
+        "code": code, "grant_type": "authorization_code",
+        "redirect_uri": tt_redirect_uri(), "code_verifier": code_verifier},
+        headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=30)
+    j = r.json()
+    if not j.get("access_token"):
+        raise RuntimeError("TikTok: " + (j.get("error_description") or j.get("error") or str(j)))
+    tok = _tt_save_token(cid, j)
+    name = tok["open_id"]
+    try:
+        u = requests.get(f"{TT_API}/user/info/", params={"fields": "open_id,display_name"},
+                         headers={"Authorization": "Bearer " + tok["access_token"]}, timeout=30).json()
+        name = u.get("data", {}).get("user", {}).get("display_name") or name
+    except Exception:
+        pass
+    tok["display_name"] = name
+    _write(_tt_token_path(cid), json.dumps(tok, ensure_ascii=False, indent=2))
+    set_connected(cid, "tiktok", name, tok["open_id"])
+    return {"name": name, "open_id": tok["open_id"]}
+
+
+def _tt_creds(cid):
+    import requests
+    p = _tt_token_path(cid)
+    if not os.path.exists(p):
+        raise RuntimeError("TikTok chưa được kết nối cho kênh này.")
+    tok = json.load(open(p, encoding="utf-8"))
+    if time.time() < tok.get("expires_at", 0):
+        return tok
+    sec = tt_secrets()
+    r = requests.post(f"{TT_API}/oauth/token/", data={
+        "client_key": sec["client_key"], "client_secret": sec["client_secret"],
+        "grant_type": "refresh_token", "refresh_token": tok["refresh_token"]},
+        headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=30)
+    j = r.json()
+    if not j.get("access_token"):
+        raise RuntimeError("TikTok: refresh token hết hạn — bấm Kết nối lại.")
+    return _tt_save_token(cid, j, {"display_name": tok.get("display_name", "")})
+
+
+def _tt_chunks(size):
+    if size <= TT_MIN_CHUNK:
+        return size, 1
+    n = max(1, size // TT_CHUNK)
+    return TT_CHUNK, n
+
+
+def tt_post(cid, caption, media, poll_timeout=600):
+    import requests
+    vp = media.get("video_path")
+    if not vp or not os.path.exists(vp):
+        return {"ok": False, "permanent": True,
+                "error": "TikTok chỉ nhận file video (không đăng link YouTube được)."}
+    try:
+        tok = _tt_creds(cid)
+    except RuntimeError as e:
+        return {"ok": False, "permanent": True, "error": str(e)}
+    H = {"Authorization": "Bearer " + tok["access_token"],
+         "Content-Type": "application/json; charset=UTF-8"}
+    size = os.path.getsize(vp)
+    chunk, count = _tt_chunks(size)
+    source = {"source": "FILE_UPLOAD", "video_size": size,
+              "chunk_size": chunk, "total_chunk_count": count}
+    inbox = media.get("tt_mode", "inbox") == "inbox"
+    try:
+        if inbox:
+            r = requests.post(f"{TT_API}/post/publish/inbox/video/init/", headers=H,
+                              json={"source_info": source}, timeout=60)
+        else:
+            ci = requests.post(f"{TT_API}/post/publish/creator_info/query/", headers=H,
+                               timeout=30).json()
+            if ci.get("error", {}).get("code") not in (None, "ok"):
+                return _tt_err(ci)
+            opts = ci.get("data", {}).get("privacy_level_options") or ["SELF_ONLY"]
+            want = "PUBLIC_TO_EVERYONE" if tt_secrets().get("audited") else "SELF_ONLY"
+            privacy = want if want in opts else opts[-1]
+            r = requests.post(f"{TT_API}/post/publish/video/init/", headers=H, json={
+                "post_info": {"title": caption[:2200], "privacy_level": privacy,
+                              "disable_comment": False, "disable_duet": False,
+                              "disable_stitch": False},
+                "source_info": source}, timeout=60)
+        j = r.json()
+        if j.get("error", {}).get("code") not in (None, "ok"):
+            return _tt_err(j)
+        upload_url = j["data"]["upload_url"]
+        publish_id = j["data"]["publish_id"]
+        with open(vp, "rb") as fh:
+            for i in range(count):
+                start = i * chunk
+                end = size - 1 if i == count - 1 else start + chunk - 1
+                fh.seek(start)
+                body = fh.read(end - start + 1)
+                pr = requests.put(upload_url, data=body, timeout=600, headers={
+                    "Content-Type": "video/mp4", "Content-Length": str(len(body)),
+                    "Content-Range": f"bytes {start}-{end}/{size}"})
+                if pr.status_code not in (200, 201, 206):
+                    return {"ok": False, "permanent": False,
+                            "error": f"TikTok upload chunk {i+1}/{count} lỗi HTTP {pr.status_code}"}
+        deadline = time.time() + poll_timeout
+        status = ""
+        while time.time() < deadline:
+            s = requests.post(f"{TT_API}/post/publish/status/fetch/", headers=H,
+                              json={"publish_id": publish_id}, timeout=30).json()
+            d = s.get("data", {})
+            status = d.get("status", "")
+            if status == "FAILED":
+                return {"ok": False, "permanent": False,
+                        "error": "TikTok xử lý video thất bại: " + d.get("fail_reason", "")}
+            if status in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
+                break
+            time.sleep(5)
+        if inbox:
+            return {"ok": True, "kind": "inbox", "id": publish_id, "post_url": "",
+                    "note": "Đã gửi nháp vào hộp thư TikTok — mở app để bấm Đăng."}
+        ids = d.get("publicaly_available_post_id") or []
+        url = (f"https://www.tiktok.com/@{tok.get('display_name','')}/video/{ids[0]}"
+               if ids else "")
+        return {"ok": True, "kind": "direct", "id": publish_id, "post_url": url,
+                "note": "" if status == "PUBLISH_COMPLETE" else f"Trạng thái: {status or 'đang xử lý'}"}
+    except requests.exceptions.RequestException as e:
+        return {"ok": False, "error": f"Lỗi mạng: {e}", "permanent": False}
+
+
+def _tt_err(j):
+    err = j.get("error", {})
+    code = err.get("code", "")
+    hint = ""
+    if code in ("access_token_invalid", "scope_not_authorized"):
+        hint = "Token/quyền TikTok không hợp lệ — bấm Kết nối lại."
+    elif code == "unaudited_client_can_only_post_to_private_accounts":
+        hint = "App chưa audit: tài khoản TikTok phải để Riêng tư, hoặc dùng chế độ 'Gửi nháp'."
+    elif code == "spam_risk_too_many_posts":
+        hint = "Đăng quá nhiều trong 24h — thử lại sau."
+    return {"ok": False, "permanent": code != "rate_limit_exceeded",
+            "error": f"TikTok: {err.get('message') or code}", "hint": hint}
+
+
 # ======================= dispatch (orchestration mini) =======================
 def post_to(cid, platform, caption, media):
-    """Dispatch theo nen tang. Giai doan 1: chi facebook that."""
     if platform == "facebook":
         return fb_post(cid, caption, media)
+    if platform == "tiktok":
+        idx = load_index(cid)
+        m = dict(media)
+        m["tt_mode"] = "direct" if idx["platforms"]["tiktok"].get("mode") == "direct" else "inbox"
+        return tt_post(cid, caption, m)
     return {"ok": False, "permanent": True,
             "error": f"{platform}: chưa hỗ trợ (giai đoạn sau).",
-            "hint": "Hiện chỉ Facebook đã sẵn sàng."}
+            "hint": "Hiện chỉ Facebook và TikTok đã sẵn sàng."}

@@ -7,7 +7,8 @@ Tu dong tao video bai hoc tieng Trung (HSK) tu file JSON.
 - Ghep slide + audio dong bo bang FFmpeg
 Cach dung:  python generate.py data/lesson01.json
 """
-import os, sys, json, subprocess, shutil, asyncio, time
+import io, os
+import time as _time, sys, json, subprocess, shutil, asyncio, time
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -495,7 +496,15 @@ def _ssml_escape_giu_the(t):
     t = t.replace("<", "&lt;").replace(">", "&gt;")
     return _re.sub(r"\x00(\d+)\x00", lambda m: holes[int(m.group(1))], t)
 
-def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None):
+def _la_mp3(data):
+    """Than tra ve co phai mp3 that khong: du dai + dung chu ky ID3 hoac frame sync."""
+    if not data or len(data) < 600:
+        return False
+    return data[:3] == b"ID3" or (data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+
+
+def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None,
+                rate_ngoai=False):
     """Azure TTS (giong HD/Multilingual tu nhien hon). Ghi mp3 ra path.
        mood -> mstts:express-as style; emo (tu detect_emotion) -> style + do manh +
        cao do theo cam xuc cau. HTTP 400 -> fallback SSML thuong."""
@@ -509,7 +518,12 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
     if la_ssml(text):
         # SSML viet tay: nguoi viet cam het num — khong boc prosody/express-as cua tool
         # de len nua (rate toan video KHONG ap vao dong nay).
+        # rate_ngoai=True: VAN boc mot lop prosody ngoai cung de thanh "Toc do doc"
+        # tren giao dien con tac dung; the rate viet tay ben trong van thang o pham vi
+        # cua no (prosody long nhau: lop trong de len lop ngoai). (them 2026-09-13)
         inner_user = _ssml_escape_giu_the(text)
+        if rate_ngoai and rate:
+            inner_user = f'<prosody rate="{_norm_rate(rate)}">{inner_user}</prosody>' 
         ssml_x = (f'<speak version="1.0" '
                   f'xmlns="http://www.w3.org/2001/10/synthesis" '
                   f'xmlns:mstts="https://www.w3.org/2001/mstts" '
@@ -521,11 +535,27 @@ def synth_azure(text, voice, path, key, region, rate="-8%", mood=None, emo=None)
                    "User-Agent": "chinese-youtube"}
         req = urllib.request.Request(url, data=ssml_x.encode("utf-8"),
                                      headers=headers, method="POST")
-        try:
-            data = urllib.request.urlopen(req, timeout=60).read()
-        except urllib.error.HTTPError as e:
-            # the viet sai -> boc sach the, doc thuong, KHONG vo job
-            print(f"[DEBUG-TTS] SSML tay loi {e.code} -> boc the doc thuong")
+        data = None
+        for lan in range(3):
+            try:
+                data = urllib.request.urlopen(req, timeout=60).read()
+            except urllib.error.HTTPError as e:
+                if e.code in (429, 500, 503) and lan < 2:      # bi chan toc do -> cho roi thu lai
+                    print(f"[DEBUG-TTS] Azure {e.code}, cho {1.5*(lan+1):.1f}s roi thu lai")
+                    _time.sleep(1.5 * (lan + 1)); continue
+                # the viet sai -> boc sach the, doc thuong, KHONG vo job
+                print(f"[DEBUG-TTS] SSML tay loi {e.code} -> boc the doc thuong")
+                return synth_azure(_strip_ssml(text), voice, path, key, region,
+                                   rate=rate, mood=mood, emo=emo)
+            if _la_mp3(data):
+                break
+            # 200 nhung than RONG/CUT (hay gap khi goi don dap) -> nghi roi goi lai.
+            # Truoc day ghi thang xuong file -> ffmpeg vo o buoc sau, bao loi mu mit.
+            print(f"[DEBUG-TTS] Azure tra ve {len(data or b'')} byte khong phai mp3 -> thu lai")
+            data = None
+            _time.sleep(1.5 * (lan + 1))
+        if not _la_mp3(data):
+            print("[DEBUG-TTS] SSML that bai 3 lan -> boc the doc thuong")
             return synth_azure(_strip_ssml(text), voice, path, key, region,
                                rate=rate, mood=mood, emo=emo)
         with open(path, "wb") as f:
@@ -1078,7 +1108,7 @@ def synth_vbee(text, voice_code, path, rate="-8%"):
 
 
 def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
-          gemini=None, emo=None, fpt=None, role=None):
+          gemini=None, emo=None, fpt=None, role=None, rate_ngoai=False):
     """Giong doc co cache. chattts -> ChatTTS local; eleven=key -> ElevenLabs;
        gemini=key -> Gemini TTS; azure=(key,region) -> Azure; con lai -> edge-tts.
        emo (detect_emotion): doc bieu cam theo cam xuc cau — doi toc do/cao do/style.
@@ -1096,8 +1126,22 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
     # ElevenLabs: chen <break> trong cau (chi engine nay) -> text khac -> key khac
     text_el = _eleven_breaks(text, _expressive) if eleven else text
     key_text = text_el if eleven else text
+    # rate_ngoai LAM DOI AM THANH (boc them prosody ngoai) -> phai vao khoa cache,
+    # khong thi lan doi toc do sau lay nham ban cu. (sua 2026-09-13)
     c = os.path.join(TTS_CACHE,
-                     _tts_key(eng + key_text, voice, rate, _expressive, eng) + ".mp3")
+                     _tts_key(eng + key_text + ("|rn" if rate_ngoai else ""),
+                              voice, rate, _expressive, eng) + ".mp3")
+    # Cache HONG van >0 byte (vd Azure tra ve than loi XML) -> ffmpeg vo o buoc sau,
+    # bao loi mu mit. Xoa truoc de vong duoi sinh lai. (them 2026-09-13)
+    try:
+        if os.path.exists(c):
+            n = os.path.getsize(c)
+            if n and n < 400:
+                os.remove(c)
+            elif n and io.open(c, "rb").read(1) == b"<":
+                os.remove(c)
+    except Exception:
+        pass
     print(f"[DEBUG-TTS] synth() eng={eng!r} voice={voice!r} chattts={bool(chattts)} "
           f"gemini={bool(gemini)} eleven={bool(eleven)} azure={bool(azure)} "
           f"cache_hit={os.path.exists(c) and os.path.getsize(c) > 0} -> path={path!r}")
@@ -1134,7 +1178,8 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
         elif eleven:
             synth_eleven(_strip_ssml(text_el), voice, c, eleven, rate, emo=emo)
         elif azure:
-            synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo)
+            synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo,
+                        rate_ngoai=rate_ngoai)
         else:
             _synth_edge(_strip_ssml(text), _edge_voice(voice), c, rate,
                         pitch=emo["pitch"] if emo else None)
@@ -1143,7 +1188,7 @@ def synth(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
     shutil.copyfile(c, path)
 
 def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven=None,
-                gemini=None, emo=None):
+                gemini=None, emo=None, rate_ngoai=False):
     """Ghi mp3 + tra ve list (start,end) cac cau. Co cache. emo: doc bieu cam theo cau.
        chattts/azure/eleven/gemini: khong co moc cau -> [] (fallback rai deu chu)."""
     eng = "vn3" if _is_vieneu(voice) else \
@@ -1156,7 +1201,10 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
     # ElevenLabs: chen <break> trong cau (chi engine nay) -> text khac -> key khac
     text_el = _eleven_breaks(text, _expressive) if eleven else text
     key_text = text_el if eleven else text
-    key = _tts_key(eng + key_text, voice, rate, _expressive, eng)
+    # rate_ngoai LAM DOI AM THANH (boc them prosody ngoai) -> phai vao khoa cache,
+    # khong thi doi thanh "Toc do doc" se tra ve file cu. (cung bug da va o synth())
+    key = _tts_key(eng + key_text + ("|rn" if rate_ngoai else ""),
+                   voice, rate, _expressive, eng)
     c = os.path.join(TTS_CACHE, key + ".mp3")
     cj = os.path.join(TTS_CACHE, key + ".sents.json")
     if os.path.exists(c) and os.path.getsize(c) > 0 and os.path.exists(cj):
@@ -1194,7 +1242,8 @@ def synth_timed(text, voice, path, rate="-8%", azure=None, chattts=False, eleven
         elif eleven:
             synth_eleven(text_el, voice, c, eleven, rate, emo=emo)
         else:
-            synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo)
+            synth_azure(text, voice, c, azure[0], azure[1], rate, emo=emo,
+                        rate_ngoai=rate_ngoai)
         json.dump([], open(cj, "w", encoding="utf-8"))
         shutil.copyfile(c, path)
         return []
@@ -1929,21 +1978,23 @@ def _split_points(path, weights):
     for w in weights[:-1]:
         cum += w
         want.append(total * cum / acc)
-    used, pts = set(), []
-    for wt in want:
-        best, best_score = None, -1e9
-        for k, (a, b) in enumerate(sil):
-            if k in used:
-                continue
+    # PHAI CHON TU TRAI SANG PHAI. Truoc day moi `want` lay khoang lang tot nhat trong
+    # TOAN BO file roi sort() o cuoi -> moc thu k co the khong phai cua cau thu k, cau nay
+    # bi cat thua cau kia bi cat thieu. (do 2026-09-12)
+    pts, tu = [], 0                                # tu = chi so khoang lang toi thieu
+    for j, wt in enumerate(want):
+        con = len(want) - j                        # con bao nhieu moc phai chon nua
+        best, bk = None, None
+        for k in range(tu, len(sil) - con + 1):
+            a, b = sil[k]
             mid, ln = (a + b) / 2, (b - a)
-            score = ln * 2.0 - abs(mid - wt)        # dai thi tot, lech xa thi tru
-            if score > best_score:
-                best, best_score, bk = mid, score, k
+            score = ln * 2.0 - abs(mid - wt)       # dai thi tot, lech xa thi tru
+            if best is None or score > best[0]:
+                best, bk = (score, mid), k
         if best is None:
             continue
-        used.add(bk)
-        pts.append(best)
-    return sorted(pts)
+        pts.append(best[1]); tu = bk + 1
+    return pts
 
 
 def _block_one(blk, segs, ctx):
@@ -1957,7 +2008,7 @@ def _block_one(blk, segs, ctx):
         synth(" ".join(texts), voice, big, rate=ctx.get("rate", "-8%"),
               azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
               eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
-        pts = _split_points(big, [max(1, len(t)) for t in texts])
+        pts = _split_points(big, [max(1, len(_strip_ssml(t))) for t in texts])
         if len(pts) != len(blk) - 1:
             print(f"  [block-tts] khoi {blk[0]}: doi {len(blk)-1} moc, do duoc {len(pts)}"
                   f" -> bo qua khoi nay, doc tung cau nhu cu")
@@ -2031,7 +2082,7 @@ def pretts_blocks(segs, ctx):
                   rate=ctx.get("rate", "-8%"),
                   azure=ctx.get("_azure"), chattts=ctx.get("_chattts", False),
                   eleven=ctx.get("_eleven"), gemini=ctx.get("_gemini"))
-            pts = _split_points(big, [max(1, len(t)) for t in texts])
+            pts = _split_points(big, [max(1, len(_strip_ssml(t))) for t in texts])
             if len(pts) != len(blk) - 1:
                 print(f"  [block-tts] khoi {blk[0]}: doi {len(blk)-1} moc, do duoc {len(pts)}"
                       f" -> bo qua khoi nay, doc tung cau nhu cu")

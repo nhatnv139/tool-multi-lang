@@ -187,13 +187,17 @@
   <div id="status"></div>
   <div id="socialStatus" class="mt"></div>
 
-  {% if short %}
   <!-- DANG SHORT (video doc 9:16) -->
   <div class="card" id="shortCard" style="border-color:#f3c6d1;margin-top:22px">
     <div class="lblrow"><label style="margin:0">⚡ Đăng Short <span class="hint">(video dọc 9:16 — 1 câu đắt: chữ Hán to + pinyin tô thanh điệu + nghĩa, đọc 2 lần, loop)</span></label></div>
-    <video id="shortVideo" controls src="/video/{{ short }}" style="max-width:300px;display:block;margin:8px 0"></video>
+    <video id="shortVideo" controls {% if short %}src="/video/{{ short }}"{% endif %} style="max-width:300px;display:block;margin:8px 0"></video>
 
-    <label style="margin:0">🎯 Chọn câu làm Short <span class="hint">nhập mốc mm:ss để lấy câu gần đó{% if video_len %} — video dài {{ video_len }}{% endif %} (để trống = tự chọn câu đắt nhất)</span></label>
+    <label style="margin:0">📚 Bộ Short của bài <span class="hint">5–6 Short/video: 1 từ mới · 1 ngữ pháp + ví dụ · 3 đoạn hay — dựng cái nào đăng cái đó, không đè nhau</span></label>
+    <div id="lessonShortRow" class="mt">
+      <span class="muted">— đang tải bộ Short… —</span>
+    </div>
+
+    <label class="mt" style="margin-top:14px">🎯 Hoặc chọn câu bất kỳ <span class="hint">nhập mốc mm:ss để lấy câu gần đó{% if video_len %} — video dài {{ video_len }}{% endif %} (để trống = tự chọn câu đắt nhất)</span></label>
     <div class="titlerow mt">
       <input type="text" id="shortAt" placeholder="vd 02:15" style="max-width:140px">
       <button class="btn-ghost" id="regenShortBtn" onclick="regenShort()">🔁 Đổi câu khác</button>
@@ -238,7 +242,6 @@
     <button class="btn-go" id="uploadBtnShort" style="margin-top:16px;background:#c0392b" onclick="doUploadShort()">⚡ Đăng Short</button>
     <div id="statusShort" class="mt"></div>
   </div>
-  {% endif %}
 </div>
 
 <script>
@@ -453,6 +456,59 @@ function onWhenChangeShort(){
 function getSelectedChannelsShort(){
   return [...document.querySelectorAll('.chanChkShort:checked')].map(c=>({id:c.value, name:c.dataset.name}));
 }
+const NHAN_LOAI={tu:"📚 Từ mới",mau:"🧩 Ngữ pháp",doan:"✨ Đoạn hay"};
+let BO_SHORT=[], DA_DANG={};
+async function taiBoShort(){
+  const row=document.getElementById('lessonShortRow'); if(!row) return;
+  try{
+    const r=await fetch('/yt/lesson_shorts/'+JOB); const j=await r.json();
+    if(j.error){ row.innerHTML='<span class="muted">'+j.error+'</span>'; return; }
+    BO_SHORT=j.shorts; veBoShort();
+  }catch(e){ row.innerHTML='<span class="muted">Lỗi tải bộ Short: '+e+'</span>'; }
+}
+function veBoShort(){
+  const row=document.getElementById('lessonShortRow'); row.innerHTML='';
+  BO_SHORT.forEach((x,i)=>{
+    const d=document.createElement('div');
+    d.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid #f6e6ea';
+    const ten=document.createElement('span');
+    ten.style.cssText='flex:1;min-width:230px;font-size:13px';
+    ten.innerHTML='<b>'+(NHAN_LOAI[x.loai]||'▶')+'</b> — '+x.nhan;
+    const b1=document.createElement('button'); b1.className='btn-ghost';
+    b1.textContent=x.co_san?'▶ Xem / chọn':'🎬 Dựng';
+    b1.onclick=()=>dungLessonShort(x.ma,b1);
+    const tt=document.createElement('span'); tt.className='muted'; tt.id='st_'+x.ma;
+    tt.style.fontSize='12px';
+    tt.textContent=DA_DANG[x.ma]?'✅ đã đăng':(x.co_san?'đã dựng':'');
+    d.appendChild(ten); d.appendChild(b1); d.appendChild(tt);
+    row.appendChild(d);
+  });
+}
+async function dungLessonShort(ma,btn){
+  const tt=document.getElementById('st_'+ma);
+  btn.disabled=true; if(tt) tt.textContent='⏳ đang dựng…';
+  try{
+    const r=await fetch('/yt/lesson_shorts/'+JOB,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({ma})});
+    const j=await r.json();
+    if(j.error){ if(tt) tt.textContent='❌ '+j.error; }
+    else{
+      document.getElementById('shortVideo').src='/video/'+j.short+'?t='+Date.now();
+      document.getElementById('shortTitle').value=j.title||'';
+      document.getElementById('shortDesc').value=j.description||'';
+      SHORT_DANG_CHON=ma;
+      if(j.shorts){ BO_SHORT=j.shorts; }
+      veBoShort();
+      const t2=document.getElementById('st_'+ma);
+      if(t2) t2.textContent='👇 đang xem — bấm ⚡ Đăng Short ở dưới';
+      document.getElementById('shortVideo').scrollIntoView({behavior:'smooth',block:'center'});
+    }
+  }catch(e){ if(tt) tt.textContent='❌ '+e; }
+  btn.disabled=false;
+}
+let SHORT_DANG_CHON=null;
+taiBoShort();
+
 async function regenShort(){
   const at = document.getElementById('shortAt').value.trim();
   if(at && !/^\d{1,2}:\d{2}$/.test(at)){
@@ -590,6 +646,9 @@ function seoForm(p, st, f){
   const modeRow = (p==='facebook') ? `<div class="modes">
       <label class="switch"><input type="radio" name="mode_${p}" value="native" ${st.mode!=='link'?'checked':''} onchange="modePlat('${p}','native')"> Đăng kèm video (native)</label>
       <label class="switch"><input type="radio" name="mode_${p}" value="link" ${st.mode==='link'?'checked':''} onchange="modePlat('${p}','link')"> Chỉ đăng link YouTube</label>
+    </div>` : (p==='tiktok') ? `<div class="modes">
+      <label class="switch"><input type="radio" name="mode_${p}" value="inbox" ${st.mode!=='direct'?'checked':''} onchange="modePlat('${p}','inbox')"> Gửi nháp vào app (tự bấm Public)</label>
+      <label class="switch"><input type="radio" name="mode_${p}" value="direct" ${st.mode==='direct'?'checked':''} onchange="modePlat('${p}','direct')"> Đăng thẳng (cần app đã audit)</label>
     </div>` : '';
   return `<div class="cap-box seo-form">
       <label>📌 Tiêu đề / Hook</label>
@@ -642,6 +701,16 @@ function addTag(p, tag){
 }
 
 async function connectPlat(p){
+  if(p==='tiktok'){
+    window.open('/social/tiktok/connect/'+encodeURIComponent(SOCIAL.cid),'_blank');
+    document.getElementById('extra_tiktok').innerHTML='<div class="muted mt">Đăng nhập TikTok ở tab mới, xong quay lại — tự cập nhật.</div>';
+    const t0=Date.now();
+    const iv=setInterval(async()=>{
+      const j=await (await fetch('/social/links/'+SOCIAL.cid)).json();
+      if((j.platforms||{}).tiktok?.connected || Date.now()-t0>180000){ clearInterval(iv); loadSocial(SOCIAL.cid); }
+    },3000);
+    return;
+  }
   if(p!=='facebook'){ alert('Nền tảng này sẽ có ở giai đoạn sau.'); return; }
   const token = prompt('Dán Facebook User Access Token (từ Graph API Explorer, có quyền pages_show_list + pages_manage_posts):');
   if(!token) return;

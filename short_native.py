@@ -1255,6 +1255,13 @@ def _to_wav(src, out):
                    check=True, capture_output=True)
 
 
+def _to_mp3(src, out):
+    """Chuyen doi hoac chuan hoa audio -> mp3 192k mono."""
+    subprocess.run(["ffmpeg", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "44100",
+                    "-c:a", "libmp3lame", "-b:a", "192k", out],
+                   check=True, capture_output=True)
+
+
 def _build_audio(sent_wav, out, reads=2, lead=0.7, gap=0.55, tail=0.9):
     """lead-silence + (cau + gap)*reads + tail-silence -> loop-friendly."""
     inputs, labels, idx = [], [], 0
@@ -1490,6 +1497,13 @@ def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
             norm.append((hz, vi, nt))
     if not norm:
         raise ValueError("khong co cau nao")
+    if any(generate.la_ssml(h) for h, _, _ in norm) and not azure:
+        # SSML chi Azure hieu; engine khac se doc tho hoac bo the -> mat het cam xuc
+        print("  [short] CANH BAO: co SSML nhung khong truyen azure=(key,region) "
+              "-> the SSML se bi bo, giong doc phang.")
+    voice, _ghi = _keo_ve_giong_an_style(voice, [h for h, _, _ in norm])
+    if _ghi:
+        print("  [short] " + _ghi)
     _set_lang(lang, norm[0][1])
     _apply_skin("ink" if bg else skin)
     global PY_MONO; PY_MONO = _parse_color(py_color)       # sau _apply_skin (skin reset PY_MONO)
@@ -1510,10 +1524,14 @@ def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
             sent  = os.path.join(out_dir, f"_ms_{base}_{i}.wav")
             aud   = os.path.join(out_dir, f"_ma_{base}_{i}.wav")
             tmp += [frame, raw, sent, aud]
-            generate.synth(hz, voice, raw, rate=rate, azure=azure)
+            # SSML (neu co) CHI danh cho TTS; frame va pinyin phai dung chu SACH,
+            # khong thi the <prosody> bi ve thang len anh. (sua 2026-09-13)
+            hz_doc  = re.sub(r"[\[\]]", "", hz)              # giu SSML, bo marker highlight
+            hz_hien = generate._strip_ssml(hz)                # giu marker, bo SSML
+            generate.synth(hz_doc, voice, raw, rate=rate, azure=azure, rate_ngoai=True)
             _to_wav(raw, sent)
             _build_audio(sent, aud, reads=reads)
-            render_frame(hz, vi, hk, frame, footer=cta or _t("cta_save"), note=nt, bg=bg)
+            render_frame(hz_hien, vi, hk, frame, footer=cta or _t("cta_save"), note=nt, bg=bg)
             items.append((frame, _dur(aud)))
             audio_parts.append(("clip", aud))
         full_a = os.path.join(out_dir, f"_mfull_{base}.wav")
@@ -1533,7 +1551,9 @@ def make_short_from_lines(lines, voice="zh-CN-XiaoxiaoNeural", hook=None,
         title = f"{_tf('t_combine', n=len(norm), topic=topic)} | {_t('brand')} #Shorts"
     else:
         title = f"{_tf('t_combine_plain', n=len(norm))} | {_t('brand')} #Shorts"
-    desc = "\n".join(f"{h}  {pinyin_str(h)}  {v}" for h, v, _ in norm) + "\n\n" + _t("tags_def")
+    # mo ta YouTube phai la chu SACH — truoc day dan ca the SSML vao mo ta
+    _sach = [(generate._strip_ssml(h), v) for h, v, _ in norm]
+    desc = "\n".join(f"{h}  {pinyin_str(h)}  {v}" for h, v in _sach) + "\n\n" + _t("tags_def")
     return {"file": out, "title": title, "desc": desc,
             "count": len(norm), "dur": round(_dur(out), 2)}
 
@@ -1557,3 +1577,372 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ===========================================================================
+# LAYOUT "HOITHOAI" — dung cho Short hoc tieng (chu de 16), dung kieu kenh
+# doi thu: DINH = cap do + ten kenh · GIUA = chu Han + pinyin CA CAU ·
+# DUOI = nghia Viet. Khong trien, khong hook chip, khong nut CTA, khong ghi chu.
+# Tieng doc LIEN MACH: moi cau doc MOT lan, khe rat ngan -> nghe nhu mot doan
+# hoi thoai that, khong phai the tu vung doc di doc lai. (2026-09-13)
+# ===========================================================================
+
+def pinyin_cau(hanzi):
+    """Pinyin theo TU (jieba) chu khong tach tung chu — 'Jintian, wo nanpengyou...'."""
+    import generate
+    txt = generate._strip_ssml(hanzi or "")
+    txt = re.sub(r"[\[\]]", "", txt)
+    try:
+        import jieba
+        tu = [w for w in jieba.cut(txt) if w.strip()]
+    except Exception:
+        tu = list(txt)
+    ra = []
+    for w in tu:
+        if re.search(r"[一-鿿]", w):
+            am = _py(w, style=_PyStyle.TONE, errors=lambda x: [c for c in x])
+            ra.append("".join(a[0] for a in am))
+        elif w in "，,":
+            if ra: ra[-1] += ","
+        elif w in "。！？!?":
+            if ra: ra[-1] += "."
+        elif w.strip():
+            ra.append(w)
+    cau = " ".join(ra)
+    return cau[:1].upper() + cau[1:] if cau else ""
+
+
+def _vien(d, xy, txt, f, mau=(255, 255, 255), vien=(0, 0, 0), day=6, anchor="ma"):
+    """Chu trang vien den day — kieu phu de video hoc tieng, doc ro tren moi anh nen."""
+    d.text(xy, txt, font=f, fill=mau, anchor=anchor, stroke_width=day, stroke_fill=vien)
+
+
+def render_frame_hoithoai(hanzi, viet, path, cap_do="", ten_kenh="", bg=None, ten_bai=""):
+    """Frame layout hoi thoai. Nen KHONG lam toi manh — anh nen la mot phan cua bai."""
+    import generate
+    if bg and os.path.exists(bg):
+        im = _bg_hoithoai(bg)
+    else:
+        im = _grad_bg(BG_TOP, BG_BOT)
+    d = ImageDraw.Draw(im)
+    disp = re.sub(r"[\[\]]", "", generate._strip_ssml(hanzi or "")).strip()
+
+    # --- DINH: cap do (to) + ten kenh + TEN BAI ---
+    # Day khoi chu xuong (150 -> 250) cho thoang mep tren, tranh dinh nut cua trinh phat.
+    y = 250
+    if cap_do:
+        cf = sp.font("sansb", 92)
+        while sp.text_w(d, cap_do, cf) > SW - 120 and cf.size > 52:
+            cf = sp.font("sansb", cf.size - 4)
+        _vien(d, (SW // 2, y), cap_do, cf, day=8)
+        y += cf.size + 10
+    if ten_kenh:
+        kf = sp.font("viet", 52)
+        _vien(d, (SW // 2, y), ten_kenh, kf, day=5)
+        y += kf.size + 34
+    if ten_bai:                            # TEN BAI — mau vang ho phach cho noi bat (2026-09-16)
+        bf = sp.font("sansb", 76)
+        while sp.text_w(d, ten_bai, bf) > SW - 120 and bf.size > 42:
+            bf = sp.font("sansb", bf.size - 3)
+        _vien(d, (SW // 2, y), ten_bai, bf, mau=(255, 206, 84), day=8)
+
+    # --- GIUA: chu Han + pinyin ca cau ---
+    max_w = SW - 110
+    zf = sp.font("zh", 96)
+    while sp.text_w(d, disp, zf) > max_w and zf.size > 52:
+        zf = sp.font("zh", zf.size - 3)
+    zy = int(SH * 0.46)
+    _vien(d, (SW // 2, zy), disp, zf, day=7)
+    py = pinyin_cau(hanzi)
+    if py:
+        pf = sp.font("viet", 46)
+        while sp.text_w(d, py, pf) > max_w and pf.size > 28:
+            pf = sp.font("viet", pf.size - 2)
+        _vien(d, (SW // 2, zy + zf.size + 26), py, pf, mau=(238, 238, 238), day=5)
+
+    # --- DUOI: nghia Viet ---
+    if viet:
+        vf = sp.font("sansb", 64)
+        dong = sp.wrap_text(d, viet, vf, max_w)[:3]
+        while len(dong) > 2 and vf.size > 40:
+            vf = sp.font("sansb", vf.size - 3)
+            dong = sp.wrap_text(d, viet, vf, max_w)[:3]
+        vy = SH - 470 - (len(dong) - 1) * (vf.size + 14)   # keo nghia Viet LEN (330 -> 470)
+        for ln in dong:
+            _vien(d, (SW // 2, vy), ln, vf, day=7)
+            vy += vf.size + 14
+    im.save(path)
+    return path
+
+
+def _bg_hoithoai(path):
+    """Nen cho layout hoi thoai: cover-fit, mo RAT nhe, toi deu vua du de chu noi."""
+    src = Image.open(path).convert("RGB")
+    sw, sh = src.size
+    sc = max(SW / sw, SH / sh)
+    src = src.resize((max(1, int(sw * sc)), max(1, int(sh * sc))), Image.LANCZOS)
+    nw, nh = src.size
+    src = src.crop(((nw - SW) // 2, (nh - SH) // 2, (nw - SW) // 2 + SW, (nh - SH) // 2 + SH))
+    src = src.filter(ImageFilter.GaussianBlur(2))
+    return Image.blend(src, Image.new("RGB", (SW, SH), (0, 0, 0)), 0.18)
+
+
+def _tach_vai(hz):
+    """Ai dang noi? DUNG LAI dung co che cua trang chinh (lesson_parser.parse_speaker):
+    'A: 你好' · '小明：你好' -> ('A'/'小明', cau thoai). Khong co nhan -> ('', nguyen dong).
+    Truoc day o day co regex tu che chi nhan 1 chu cai hoa — thua, va lech voi trang chinh.
+    Nhan nguoi noi KHONG duoc doc len; SSML nam sau dau hai cham nen duoc giu nguyen. (2026-09-13)"""
+    import lesson_parser as lp
+    sp, con = lp.parse_speaker(hz or "")
+    return (sp, con) if sp else ("", hz or "")
+
+
+# Ban dien khac gioi CUNG HANG — giu chat luong giong nguoi dung da chon.
+# Thu tu ban dien: HD Flash len DAU (an 7/7 style). MAI-2 xuong cuoi — do that cho thay
+# no chi an 'sad' va 'fearful', 5 style con lai Azure tra 502. (2026-09-13)
+_AZ_NU  = ["azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural",
+           "azure:zh-CN-Xiaoyi:DragonHDFlashLatestNeural",
+           "azure:zh-CN-Xiaoyue:DragonHDOmniLatestNeural", "azure:zh-CN-Mei:MAI-Voice-2"]
+_AZ_NAM = ["azure:zh-CN-Yunxi:DragonHDFlashLatestNeural",
+           "azure:zh-CN-Yunye:DragonHDFlashLatestNeural",
+           "azure:zh-CN-Yunqi:DragonHDOmniLatestNeural", "azure:zh-CN-Wei:MAI-Voice-2"]
+
+
+def _la_nu(v):
+    return any(x in (v or "") for x in ("Xiao", "Mei", "Lan", "Mai"))
+
+
+def _cast_azure(ai, giong_chon):
+    """Vai dau = giong nguoi dung chon; cac vai sau = ban dien khac gioi, cung ho giong."""
+    ho = "MAI-Voice-2" if "MAI-Voice" in (giong_chon or "") else \
+         "DragonHDOmni" if "DragonHDOmni" in (giong_chon or "") else "DragonHDFlash"
+    def _chon(ds):
+        cung_ho = [v for v in ds if ho in v]
+        return (cung_ho or ds)[0]
+    ra, nu = {}, _la_nu(giong_chon)
+    for i, sp in enumerate(ai):
+        if i == 0:
+            ra[sp] = giong_chon
+        else:
+            ra[sp] = _chon(_AZ_NAM if nu else _AZ_NU)
+            nu = not nu
+    return ra
+
+
+
+# ---------------------------------------------------------------------------
+# GIONG NAO AN STYLE NAO — do that ngay 2026-09-13 tren key cua du an:
+#   ho Dragon (HD / HD Flash / HD Omni): 7/7 style  -> dung thoai mai
+#   MAI-Voice-2                        : CHI 'sad' va 'fearful'; con lai tra 502
+# Azure loi -> generate.synth_azure tu boc the doc lai, nen KHONG he bao gi,
+# chi am tham mat sach bieu cam. Vi the phai keo ve giong an duoc tu day.
+# ---------------------------------------------------------------------------
+_MAI_CHO_PHEP = {"sad", "fearful"}
+_THAY_MAI = {"nu": "azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural",
+             "nam": "azure:zh-CN-Yunxi:DragonHDFlashLatestNeural"}
+
+
+def _style_dung(texts):
+    """Tap style express-as xuat hien trong noi dung."""
+    ra = set()
+    for t in texts:
+        ra.update(re.findall(r'style="([a-zA-Z-]+)"', t or ""))
+    return ra
+
+
+def _keo_ve_giong_an_style(voice, texts):
+    """MAI-2 + style no khong ho tro -> doi sang Dragon cung gioi. Tra (voice, ghi_chu)."""
+    v = voice or ""
+    if "MAI-Voice" not in v:
+        return voice, ""
+    thieu = _style_dung(texts) - _MAI_CHO_PHEP
+    if not thieu:
+        return voice, ""
+    moi = _THAY_MAI["nu" if _la_nu(v) else "nam"]
+    return moi, ("giọng MAI-2 không nhận style %s (Azure trả 502) → đã kéo về %s"
+                 % (", ".join(sorted(thieu)), moi.split(":", 1)[1]))
+
+
+
+def tron_nhac(video, nhac, vol=0.14, ra=None):
+    """Tron nhac nen duoi giong doc cho Short. vol thap (0.14) vi Short nghe bang loa dien thoai,
+    nhac to hon mot chut la nuot mat tieng. Fade in 1,2s, fade out 1,8s cuoi.
+    Dung lai cach cua generate.mix_music (amix + stream_loop) cho nhat quan."""
+    if not nhac or not os.path.exists(nhac):
+        return video
+    d = _dur(video)
+    ra = ra or (os.path.splitext(video)[0] + "_m.mp4")
+    fc = ("[1:a]volume=%.3f,afade=t=in:st=0:d=1.2,afade=t=out:st=%.2f:d=1.8[m];"
+          "[0:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
+          % (vol, max(0.1, d - 1.8)))
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", video, "-stream_loop", "-1", "-i", nhac,
+                    "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", ra],
+                   check=True, capture_output=True)
+    os.replace(ra, video)
+    return video
+
+
+def make_short_hoithoai(lines, voice="zh-CN-XiaoxiaoNeural", out_dir=None, name=None,
+                        cap_do="Tiếng Trung Sơ Cấp", ten_kenh="", bg=None, azure=None,
+                        rate="-4%", khe=0.15, title=None, giong_vai=None, nhac=None, nhac_vol=0.14,
+                        ten_bai=""):
+    """Mot doan hoi thoai LIEN MACH.
+    - Moi cau doc DUNG MOT LAN, khe 0,15s — khong phai the tu vung doc di doc lai.
+    - HAI NGUOI hai giong: dat nhan 'A:' / 'B:' dau ve chu Han, truyen giong_vai={'A':..,'B':..}.
+      Do thuc te: mot giong doc ca hai vai nghe nhu hoi cung. (sua 2026-09-13)
+    Tra ve {file,title,desc,count,dur}."""
+    import generate as _g
+    import lesson_parser as _lp
+    giong_vai = dict(giong_vai or {})
+    # chua chi dinh giong -> TU CHIA theo nhan vat nhu trang chinh (1 nam + 1 nu).
+    # KHAC trang chinh mot diem: GIU DUNG giong nguoi dung da chon lam vai thu nhat,
+    # roi ghep BAN DIEN khac gioi CUNG HANG (HD/MAI) — truoc day de bi de bang
+    # giong Azure thuong, nguoi dung chon 'Mai MAI-2' ma nghe ra Xiaoxiao. (2026-09-13)
+    _raw = "\n".join((it[0] if isinstance(it, (list, tuple)) else str(it)) or "" for it in lines)
+    _ai = _lp.detect_speakers(_raw)
+    if _ai and not giong_vai:
+        if azure:
+            giong_vai = _cast_azure(_ai, voice)
+        else:
+            giong_vai = {k: "edge:" + v for k, v in _lp.assign_speaker_voices(_ai).items()}
+    norm = []
+    for it in lines:
+        hz = (it[0] or "").strip() if isinstance(it, (list, tuple)) else str(it).strip()
+        vi = (it[1].strip() if isinstance(it, (list, tuple)) and len(it) > 1 and it[1] else "")
+        vai, hz = _tach_vai(hz)
+        if _strip_punct(_g._strip_ssml(hz)):
+            norm.append((hz, vi, vai))
+    if not norm:
+        raise ValueError("khong co cau nao")
+    # CHI AZURE hieu SSML. Engine khac boc sach the -> doc phang li, MAT HET bieu cam
+    # ma khong bao loi. Chu de hoi thoai song bang express-as nen phai chan tu day.
+    _co_ssml = any(_g.la_ssml(h) for h, _, _ in norm)
+    if _co_ssml and not azure:
+        raise RuntimeError(
+            "Nội dung có SSML (biểu cảm) nhưng chưa có key Azure. "
+            "Giọng edge/vbee/gemini sẽ bóc sạch thẻ và đọc phẳng lì — "
+            "vào phần cấu hình nhập key Azure, hoặc bỏ hết thẻ SSML rồi dựng lại.")
+    if azure and not str(voice or "").startswith("azure:"):
+        cu = voice
+        voice = "azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural"
+        print("  [short] giong %r khong phai Azure -> doi sang %r de SSML an." % (cu, voice))
+    voice, _ghi = _keo_ve_giong_an_style(voice, [h for h, _, _ in norm])
+    if _ghi:
+        print("  [short] " + _ghi)
+    out_dir = out_dir or "."
+    os.makedirs(out_dir, exist_ok=True)
+    base = name or ("ht_" + hashlib.md5(("|".join(h for h, _, _ in norm) + voice).encode()).hexdigest()[:10])
+    out = os.path.join(out_dir, base + ".mp4")
+    tmp, items, phan = [], [], []
+    try:
+        # GOM cac cau LIEN TIEP cung mot vai thanh MOT lan goi TTS, roi dung
+        # generate._split_points do diem lang de tach moc phu de — dung dung cach
+        # trang chinh lam cho khoi 'dialogue'. Goi rieng tung cau lam ngu dieu
+        # reset moi dong -> nghe khung, day la loi nguoi dung chi ra. (2026-09-13)
+        luot, cur = [], None
+        for i, (hz, vi, vai) in enumerate(norm):
+            if cur is None or cur[0] != vai:
+                cur = (vai, []); luot.append(cur)
+            cur[1].append((hz, vi))
+        for k, (vai, cau) in enumerate(luot):
+            giong = giong_vai.get(vai) or voice        # moi vai mot giong
+            raw = os.path.join(out_dir, "_hr_%s_%d.mp3" % (base, k))
+            wav = os.path.join(out_dir, "_hw_%s_%d.wav" % (base, k))
+            tmp += [raw, wav]
+            noi = "".join(re.sub(r"[\[\]]", "", h) for h, _ in cau)
+            _g.synth(noi, _clean_voice(giong), raw, rate=rate, azure=azure,
+                     rate_ngoai=True)   # thanh "Toc do doc" phai an ca dong co SSML tay
+            _to_wav(raw, wav)
+            tong = _dur(wav)
+            if len(cau) > 1:
+                nang = [max(1, len(re.findall(r"[一-鿿]", _g._strip_ssml(h)))) for h, _ in cau]
+                moc = _g._split_points(wav, nang) or []
+            else:
+                moc = []
+            bien = [0.0] + list(moc) + [tong]
+            for j, (hz, vi) in enumerate(cau):
+                frame = os.path.join(out_dir, "_hf_%s_%d_%d.png" % (base, k, j))
+                tmp.append(frame)
+                render_frame_hoithoai(hz, vi, frame, cap_do=cap_do, ten_kenh=ten_kenh, bg=bg,
+                                      ten_bai=ten_bai)
+                d = max(0.35, bien[j + 1] - bien[j])
+                items.append((frame, d + (khe if j == len(cau) - 1 else 0.0)))
+            phan.append(("clip", wav)); phan.append(("sil", khe))
+        full = os.path.join(out_dir, "_hfull_%s.wav" % base)
+        tmp.append(full)
+        _silence_concat(phan, full)
+        _compose_frames(items, full, out)
+        if nhac:
+            tron_nhac(out, nhac, vol=nhac_vol)
+    finally:
+        for f in tmp:
+            if os.path.exists(f):
+                os.remove(f)
+    sach = [(_g._strip_ssml(h), v) for h, v, _ in norm]
+    desc = "\n".join("%s  %s  %s" % (h, pinyin_cau(h), v) for h, v in sach) + "\n\n" + _t("tags_def")
+    return {"file": out, "title": title or (cap_do + " | #Shorts"), "desc": desc,
+            "count": len(norm), "dur": round(_dur(out), 2)}
+
+
+
+def make_short_lien_mach(lines, voice="zh-CN-XiaoxiaoNeural", out_dir=None, name=None,
+                         cap_do="Tiếng Trung Sơ Cấp", ten_kenh="", ten_bai="", bg=None,
+                         azure=None, rate="-8%", title=None, nhac=None, nhac_vol=0.14):
+    """QUY TRÌNH 4 BƯỚC — audio LIỀN MẠCH, phụ đề khớp tuyệt đối.
+
+      1. kịch bản có SSML  -> gộp cả đoạn thoại thành MỘT <speak>, đổi <voice> theo vai
+      2. gen audio          -> MỘT lần gọi Azure (không ghép, không chèn khoảng lặng)
+      3. timeline           -> <bookmark> của chính Azure (không dùng WhisperX)
+      4. ghép phụ đề        -> dựng frame theo đúng mốc đó
+
+    Khác `make_short_hoithoai`: hàm kia gọi TTS N lần rồi nối, mốc phụ đề ĐOÁN bằng
+    dò khoảng lặng. Hàm này gọi 1 lần, mốc do Azure báo. (2026-09-16)
+    """
+    import generate as _g, lesson_parser as _lp, timeline_azure as _tz
+    if not azure:
+        raise RuntimeError("Quy trình liền mạch cần key Azure (bookmark chỉ có ở Azure SDK).")
+    dong, hien = [], []
+    for it in lines:
+        hz = (it[0] or "").strip() if isinstance(it, (list, tuple)) else str(it).strip()
+        vi = (it[1].strip() if isinstance(it, (list, tuple)) and len(it) > 1 and it[1] else "")
+        sp_, con = _lp.parse_speaker(hz)
+        hz2 = con if sp_ else hz
+        if not _strip_punct(_g._strip_ssml(hz2)):
+            continue
+        ghi = (it[2].strip() if isinstance(it, (list, tuple)) and len(it) > 2 and it[2] else "")
+        dong.append((hz2, sp_ or "", ghi)); hien.append((hz2, vi))
+    if not dong:
+        raise ValueError("khong co cau nao")
+
+    ai = _lp.detect_speakers("\n".join(("%s: %s" % (d[1], d[0])) if d[1] else d[0] for d in dong))
+    cast = {k: "azure:" + v for k, v in _lp.assign_speaker_voices(ai).items()} if ai else {}
+    out_dir = out_dir or "."
+    os.makedirs(out_dir, exist_ok=True)
+    base = name or ("lm_" + hashlib.md5(("|".join(d[0] for d in dong) + voice).encode()).hexdigest()[:10])
+    out = os.path.join(out_dir, base + ".mp4")
+    mp3 = os.path.join(out_dir, "_lm_%s.mp3" % base)
+    wav = os.path.join(out_dir, "_lm_%s.wav" % base)
+    tmp = [mp3, wav]
+    try:
+        ssml, ten = _tz.dung_ssml(dong, cast, _clean_voice(voice), rate=rate)
+        dur, moc = _tz.sinh_lien_mach(ssml, ten, azure[0], azure[1], mp3)
+        _to_wav(mp3, wav)
+        kh = _tz.khoang(moc, ten, dur)
+        items = []
+        for i, (hz, vi) in enumerate(hien):
+            fr = os.path.join(out_dir, "_lf_%s_%d.png" % (base, i))
+            tmp.append(fr)
+            render_frame_hoithoai(hz, vi, fr, cap_do=cap_do, ten_kenh=ten_kenh,
+                                  bg=bg, ten_bai=ten_bai)
+            items.append((fr, max(0.25, kh[i][1] - kh[i][0])))
+        _compose_frames(items, wav, out)
+        if nhac:
+            tron_nhac(out, nhac, vol=nhac_vol)
+    finally:
+        for f in tmp:
+            if os.path.exists(f):
+                os.remove(f)
+    sach = [(_g._strip_ssml(h), v) for h, v in hien]
+    desc = "\n".join("%s  %s  %s" % (h, pinyin_cau(h), v) for h, v in sach) + "\n\n" + _t("tags_def")
+    return {"file": out, "title": title or (cap_do + " | #Shorts"), "desc": desc,
+            "count": len(hien), "dur": round(_dur(out), 2)}

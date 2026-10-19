@@ -83,7 +83,8 @@
           {% for v,lbl in edge_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
           </optgroup>
           {% if azure_ready %}<optgroup label="Azure HD / Omni / MAI (xịn — cần key)">
-          {% for v,lbl in azure_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
+            {# mac dinh Hieu Hieu HD Flash — do that: an 7/7 style express-as, MAI-2 chi an sad+fearful (con lai Azure tra 502). 2026-09-13 #}
+          {% for v,lbl in azure_voices %}<option value="{{v}}"{% if v == "azure:zh-CN-Xiaoxiao:DragonHDFlashLatestNeural" %} selected{% endif %}>{{lbl}}</option>{% endfor %}
           </optgroup>{% endif %}
           <optgroup label="🇻🇳 Tiếng Việt — VieNeu local (offline free)">
           {% for v,lbl in vieneu_voices %}<option value="{{v}}">{{lbl}}</option>{% endfor %}
@@ -98,6 +99,20 @@
         <input type="text" id="hook" placeholder="vd: Câu này ai cũng cần">
         <span id="hookAuto" class="hint" style="display:block;margin-top:2px;color:#2e7d32"></span>
       </div>
+      <div>
+        <label>🐢 Tốc độ đọc: <span id="rateLbl" class="hint">Vừa (-8%)</span></label>
+        <input type="range" id="rate" min="-40" max="20" step="2" value="-8" style="width:100%"
+               oninput="rateLbl2(this.value)">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#9a8c90">
+          <span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
+      </div>
+        <div>
+          <label>🎵 Nhạc nền <span class="hint">(để trống = không nhạc)</span></label>
+          <select id="musicFile"><option value="">— không nhạc —</option></select>
+          <label style="margin-top:6px">🔉 Âm lượng nhạc: <span id="mvolLbl" class="hint">0.12</span></label>
+          <input type="range" id="musicVol" min="0" max="40" step="1" value="12" style="width:100%"
+                 oninput="document.getElementById('mvolLbl').textContent=(this.value/100).toFixed(2)">
+        </div>
       <div style="flex:0 0 150px" id="readsWrap">
         <label>🔁 Đọc mấy lần</label>
         <select id="reads"><option value="2" selected>2 lần</option><option value="1">1 lần</option><option value="3">3 lần</option></select>
@@ -108,9 +123,9 @@
       </div>
     </div>
     <div class="mt">
-      <label>🎨 Phong cách layout <span class="hint">— bấm chọn 1 mẫu (bỏ qua nếu có ảnh nền riêng)</span></label>
+      <!-- Thư viện skin ĐÃ ẨN 2026-09-16: layout hội thoại/liền mạch không dùng skin, chỉ dùng ảnh nền + lớp chữ riêng. Giữ input hidden để đường flashcard cũ vẫn chạy. -->
       <input type="hidden" id="skin" value="ink">
-      <div id="skinGallery" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px"></div>
+      <div id="skinGallery" style="display:none"></div>
     </div>
     <div class="mt" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
       <label style="margin:0">🎨 Màu pinyin</label>
@@ -302,6 +317,9 @@ async function genShorts(){
       py_color:document.getElementById('pyColor').value,
       skin:document.getElementById('skin').value,
       link:document.getElementById('promoLink').value,
+      rate:document.getElementById('rate').value,
+      music_file:document.getElementById('musicFile').value,
+      music_vol:(parseInt(document.getElementById('musicVol').value,10)/100),
       bg:BG_PATH};
     const r=await fetch('/shorts/make',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json();

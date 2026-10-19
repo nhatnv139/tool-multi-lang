@@ -20,7 +20,9 @@ import style_pastel
 from seo import split_title
 
 SW, SH = 1080, 1920
-TARGET, MIN_D, MAX_D = 38.0, 25.0, 58.0
+# TARGET nang 38 -> 42s (2026-09-12): Shorts giu chan tot nhat o 35-45s, va doan dai hon
+# thi hook + cao trao + CTA deu lot vao mot clip.
+TARGET, MIN_D, MAX_D = 42.0, 30.0, 58.0
 
 
 def _mmss_to_sec(s):
@@ -94,15 +96,25 @@ def pick_windows(segs, n, at=None):
     return out
 
 
-def make_overlay(hook, cta, path):
-    """PNG 1080x1920 trong suot: hook tren (nen toi mo), CTA duoi."""
+def make_overlay(hook, cta, path, ten_bai=""):
+    """PNG 1080x1920 trong suot: ten bai o DINH, hook duoi no, CTA duoi cung."""
     im = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
+    y0 = 46
+    if ten_bai:                                  # dinh khung: ten bai (2026-09-13)
+        tf = style_pastel.font("sansb", 40)
+        while style_pastel.text_w(d, ten_bai, tf) > SW - 200 and tf.size > 26:
+            tf = style_pastel.font("sansb", tf.size - 2)
+        tw = style_pastel.text_w(d, ten_bai, tf)
+        d.rounded_rectangle([(SW - tw) // 2 - 30, y0, (SW + tw) // 2 + 30, y0 + tf.size + 30],
+                            radius=20, fill=(12, 14, 20, 168))
+        d.text(((SW - tw) // 2, y0 + 15), ten_bai, font=tf, fill=(236, 226, 206))
+        y0 += tf.size + 46
     hf = style_pastel.font("viet", 64)
     lines = style_pastel.wrap_text(d, hook, hf, SW - 120)[:3]
     bh = len(lines) * (hf.size + 12) + 70
-    d.rounded_rectangle([30, 90, SW - 30, 90 + bh], radius=28, fill=(15, 15, 22, 175))
-    y = 90 + 34
+    d.rounded_rectangle([30, y0, SW - 30, y0 + bh], radius=28, fill=(15, 15, 22, 175))
+    y = y0 + 34
     for ln in lines:
         tw = style_pastel.text_w(d, ln, hf)
         d.text(((SW - tw) // 2, y), ln, font=hf, fill=(255, 255, 255))
@@ -150,7 +162,7 @@ def make_short(video, out_dir=None, cta="Xem bài đầy đủ trên kênh 👆"
     out = os.path.join(out_dir, f"{base}_short.mp4")
     ovl = os.path.join(out_dir, f"_ovl_{base}.png")
     hook = (seg.get("viet") or viet_title or "").strip()
-    make_overlay(hook, cta, ovl)
+    make_overlay(hook, cta, ovl, ten_bai=viet_title)
     try:
         cut_short(video, st, dur, ovl, out)
     finally:
@@ -186,7 +198,7 @@ def main():
     for i, (st, dur, seg) in enumerate(wins, 1):
         hook = (seg.get("viet") or viet_title or "").strip()
         ovl = os.path.join(out_dir, f"_ovl{i}.png")
-        make_overlay(hook, args.cta, ovl)
+        make_overlay(hook, args.cta, ovl, ten_bai=viet_title)
         out = os.path.join(out_dir, f"{base}_short{i}.mp4")
         print(f"  short {i}: {st:7.1f}s +{dur:.0f}s — {hook[:50]}")
         cut_short(video, st, dur, ovl, out)

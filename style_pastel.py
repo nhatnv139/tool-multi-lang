@@ -897,8 +897,132 @@ def make_thumbnail_ai(ctx, path):
     im.save(path, "JPEG", quality=92)
     return path
 
+# ---------------------------------------------------------------------------
+# THUMBNAIL v3 — cong thuc "3 KHONG - 1 CO" (2026-09-12)
+#   3 KHONG: khong qua 4 chu Viet · khong anh tinh phang li · khong vien den stroke
+#   1 CO   : tuong phan cao (chu vang/trang tren xanh dem hoac nau am)
+#            + MOT chu Han DON DOC co lon gay to mo (vd 累 "Met?", 算了 "Thoi vay")
+# Ly do: ban v2 ve 4 TANG CHU va tao tuong phan bang vien den w=5 — dung thu
+# quy tac moi cam. CTR hien 2-2,5%, muc tieu 6-8%.
+# Kich hoat bang chi thi trong content.md:  @thumb 累 | Mệt?
+# Khong co chi thi -> van dung make_thumbnail_ai nhu cu.
+# ---------------------------------------------------------------------------
+# (c0, c1, mau_chu_Han, mau_chu_Viet). Tong SANG la mac dinh tu 2026-09-13 theo yeu cau
+# nguoi dung: layout `showhead` cua chu de 15 ve chu phu de mau DAM tren dai sang
+# (ink=(34,42,40), halo trang) — nen toi vua nghich voi layout vua chim tren feed.
+_V3_NEN = {
+    "sang":     ((250, 243, 228), (226, 203, 170), ( 96,  58,  32), ( 62,  46,  34)),  # kem nga  -> chu nau muc
+    "sang_lam": ((238, 245, 250), (198, 216, 232), ( 26,  58,  96), ( 34,  52,  72)),  # lam nhat -> chu xanh muc
+    "sang_luc": ((240, 246, 238), (202, 222, 204), ( 34,  70,  54), ( 40,  58,  48)),  # luc nhat -> chu luc tham
+    # hai tong toi cu — giu de cac bai da san xuat khong doi bia
+    "dem":  (( 26,  40,  74), ( 58,  88, 140), (255, 220, 105), (255, 255, 255)),
+    "nau":  (( 62,  44,  30), (118,  82,  52), (255, 244, 222), (255, 255, 255)),
+}
+_V3_MAC_DINH = "sang"
+
+
+def _v3_scrim(im, goc, dam=0.42):
+    """Lam toi mot nua khung theo gradient de chu noi — thay cho vien den stroke."""
+    TW, TH = im.size
+    ov = Image.new("RGBA", (TW, TH), (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    for x in range(TW):
+        t = x / float(TW)
+        a = int(255 * dam * max(0.0, 1.0 - t / 0.78))
+        od.line([(x, 0), (x, TH)], fill=goc + (a,))
+    return Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB")
+
+
+def _v3_bong(im, xy, txt, f, mau, mo=10, dam=150):
+    """Do bong MEM (blur) roi ve chu len tren — KHONG dung stroke vien den.
+       Ban dau ham nay ve chu den lech vai pixel; do ra tren anh that thi no
+       thanh mot vien den day, dung thu quy tac '3 KHONG' cam. (sua 2026-09-12)"""
+    x, y = xy
+    lp = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    ImageDraw.Draw(lp).text((x, y + 3), txt, font=f, fill=(0, 0, 0, dam))
+    lp = lp.filter(ImageFilter.GaussianBlur(mo))
+    im = Image.alpha_composite(im.convert("RGBA"), lp)
+    ImageDraw.Draw(im).text((x, y), txt, font=f, fill=mau)
+    return im.convert("RGB")
+
+
+def _v3_hop(d, txt, f):
+    """Khung bao THAT cua chu (khong dung f.size — chu Han cao hon nhieu)."""
+    a, b, c, e = d.textbbox((0, 0), txt, font=f)
+    return c - a, e - b, b
+
+
+def make_thumbnail_v3(ctx, path):
+    """Anh bia v3: MOT chu Han don doc rat lon + toi da 4 chu Viet. Xem khoi chu tren."""
+    TW, TH = 1280, 720
+    han = (ctx.get("thumb_han") or "").strip()
+    viet = (ctx.get("thumb_viet") or "").strip()
+    if not han:
+        raise ValueError("thumbnail v3 can @thumb <chu Han> | <chu Viet>")
+    # Nguoi dung chot 2026-09-13: chu to tren bia la TEN BAI DAY DU, khong cat bot.
+    # Truoc day cat cung con 4 chu -> 'Mot Lan Cham Tay Vao Diu Dang' bi chem mat duoi.
+    # Co chu tu co lai o duoi cho vua khung, nen ten dai van doc duoc.
+    tone = (ctx.get("thumb_tone") or _V3_MAC_DINH).strip().lower()
+    c0, c1, chu, chu_v = _V3_NEN.get(tone, _V3_NEN[_V3_MAC_DINH])
+    sang = (c0[0] + c0[1] + c0[2]) / 3.0 > 150          # nen sang -> doi cach do bong
+
+    # NEN: anh AI theo chu de (khong phang li). Loi -> nen gradient hai mau.
+    prompt = (ctx.get("thumb_prompt") or ctx.get("image_prompt") or "").strip()
+    im = None
+    if prompt:
+        try:
+            them = (", bright airy illustration, luminous daylight, soft gentle shadows, "
+                    "high-key pastel palette, clean and fresh, no dark heavy areas, "
+                    "no text, no words, no letters") if sang else \
+                   (", cinematic illustration, deep shadows, strong single light source, "
+                    "rich colour, no text, no words, no letters")
+            im = _ai_thumb_bg(prompt + them, TW, TH)
+        except Exception:
+            im = None
+    if im is None:
+        im = Image.new("RGB", (TW, TH), c0)
+        gd = ImageDraw.Draw(im)
+        for y in range(TH):
+            t = y / float(TH)
+            gd.line([(0, y), (TW, y)],
+                    fill=tuple(int(c0[k] + (c1[k] - c0[k]) * t) for k in range(3)))
+    im = _v3_scrim(im, c0)   # chi lam toi NUA TRAI, giu nua phai sang
+    d = ImageDraw.Draw(im)
+
+    # 1 CO: chu Han DON DOC — thu to nhat khung, ~45% chieu cao
+    zf = font("zh", int(TH * 0.45) if len(han) <= 2 else int(TH * 0.30))
+    zw, zh, ztop = _v3_hop(d, han, zf)
+    vf = None
+    if viet:
+        vf = font("viet", 78)
+        while text_w(d, viet, vf) > TW * 0.82 and vf.size > 26:   # noi rong cho ten bai dai
+            vf = font("viet", vf.size - 3)
+    vh = _v3_hop(d, viet, vf)[1] if vf else 0
+    khe = 30                                   # khe giua hai khoi chu
+    zx = 72
+    zy = (TH - (zh + khe + vh)) // 2 - ztop    # can giua theo CHIEU CAO THAT
+    # nen sang: bong den 170 thanh quang mo duc quanh chu -> ha xuong cho sach
+    im = _v3_bong(im, (zx, zy), han, zf, chu, mo=14, dam=(105 if sang else 170))
+    if vf:
+        # dat duoi CHAN chu Han that su, khong lay f.size (truoc day chu Viet de len chan chu Han)
+        vy = zy + ztop + zh + khe
+        im = _v3_bong(im, (zx + 6, vy), viet, vf, chu_v, mo=9, dam=(90 if sang else 150))
+    d = ImageDraw.Draw(im)
+
+    lg = brand_logo(96)
+    if lg:
+        im.paste(lg, (TW - lg.width - 38, TH - lg.height - 32), lg)
+    im.save(path, "JPEG", quality=92)
+    return path
+
+
 def make_thumbnail(ctx, path):
-    """Uu tien anh bia AI (hook Viet lon); loi/thieu prompt -> fallback ban pastel."""
+    """@thumb co -> ban v3 (1 chu Han don doc). Khong co -> ban AI cu -> fallback pastel."""
+    if (ctx.get("thumb_han") or "").strip():
+        try:
+            return make_thumbnail_v3(ctx, path)
+        except Exception as e:
+            print("  [thumb v3] loi:", e, "-> quay ve ban cu")
     if ctx.get("thumb_ai", True):
         try:
             return make_thumbnail_ai(ctx, path)

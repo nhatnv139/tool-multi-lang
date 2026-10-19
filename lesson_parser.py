@@ -35,7 +35,9 @@ def generate_strip_ssml(t):
 
 def _section_type(name):
     u = name.upper()
-    if "VỰNG" in u or "VOCAB" in u or "TỪ" in u:        return "vocab"
+    # "TỪ" tran lan: tieu de bai co chu TỪ / TỪNG (vd "Người Từng Cùng Đi Dưới Mưa")
+    # bi coi la muc tu vung -> ca bai ra 0 segment cau, khong render duoc. (sua 2026-09-12)
+    if "VỰNG" in u or "VOCAB" in u or "TỪ VỰNG" in u:  return "vocab"
     if "HỘI" in u or "THOẠI" in u or "DIALOG" in u:     return "dialogue"
     if "LUYỆN" in u or "PRACTICE" in u or "TẬP" in u:   return "practice"
     if "MẪU" in u or "CÂU" in u or "SENTENCE" in u:     return "sentence"
@@ -385,6 +387,7 @@ def parse_lesson(text):
     """Tra ve ctx dict: title, hanzi_title, topic, hsk, segments[...]."""
     meta = {"title": "BÀI HỌC", "hanzi_title": "", "topic": "", "hsk": "HSK1",
             "objectives": [], "image_prompt": "", "header": "", "hsk_explicit": False,
+            "thumb_han": "", "thumb_viet": "", "thumb_tone": "",
             "voices": {}}
     sections = []           # [(label, type, [items])]
     cur = None
@@ -417,6 +420,13 @@ def parse_lesson(text):
             elif key == "image":       meta["image_prompt"] = val
             elif key == "header":      meta["header"] = val
             elif key == "voices":      meta["voices"] = _parse_voices(val)
+            elif key == "thumb":
+                # @thumb <chu Han don doc> | <toi da 4 chu Viet> [| dem|nau]
+                # -> bat anh bia v3 "3 KHONG - 1 CO" (style_pastel.make_thumbnail_v3)
+                ph = [x.strip() for x in val.split("|")]
+                meta["thumb_han"] = ph[0] if ph else ""
+                if len(ph) > 1: meta["thumb_viet"] = ph[1]
+                if len(ph) > 2: meta["thumb_tone"] = ph[2]
             continue
         if line.startswith("#"):
             label = line.lstrip("#").strip()
@@ -546,6 +556,9 @@ def parse_lesson(text):
         "id": 1, "hsk": meta["hsk"], "title": meta["title"],
         "topic": meta["topic"], "hanzi_title": meta["hanzi_title"],
         "image_prompt": meta["image_prompt"], "header": meta["header"],
+        "thumb_han": meta.get("thumb_han", ""),
+        "thumb_viet": meta.get("thumb_viet", ""),
+        "thumb_tone": meta.get("thumb_tone", ""),
         "hsk_explicit": meta["hsk_explicit"], "voices": meta.get("voices", {}),
         "segments": segs,
     }
