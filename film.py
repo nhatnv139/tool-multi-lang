@@ -21,17 +21,73 @@ from pypinyin import pinyin as _py, Style as _PyStyle
 # NEN_DUNG() mot lan de giet tien trinh con ngay khi nguoi dung bam Dung.
 # Ghi stdout/stderr ra FILE TAM thay vi pipe — khong bao gio ket ong dan.
 FF_TRAN_GIAY = 900          # tran cung cho MOT lenh ffmpeg (canh dai nhat ~1 phut)
+
+
+# WINDOWS HA TOC TIEN TRINH NEN (do 20/10): Win 11 bat "Power Throttling"/EcoQoS cho
+# tien trinh khong co cua so (ffmpeg, worker con) -> day sang nhan E cham, CPU chi ~26%.
+# Tat cho tung tien trinh con: worker sinh khung 22.6s -> 13.2s, 3 canh song song +
+# x264 54.8s -> 23.2s. Khong phai Windows / loi API -> bo qua im lang.
+def _khong_ha_toc(handle=None):
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PPTS(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG),
+                        ("StateMask", wintypes.ULONG)]
+        k32 = ctypes.windll.kernel32
+        h = handle if handle is not None else k32.GetCurrentProcess()
+        st = _PPTS(1, 0x1, 0x0)     # EXECUTION_SPEED: ControlMask bat, StateMask 0 = khong ha toc
+        k32.SetProcessInformation(wintypes.HANDLE(int(h)), 4,      # ProcessPowerThrottling
+                                  ctypes.byref(st), ctypes.sizeof(st))
+    except Exception:
+        pass
+
+
+def _popen(cmd, **kw):
+    """subprocess.Popen + tat ha toc nen cua Windows cho tien trinh con."""
+    pr = subprocess.Popen(cmd, **kw)
+    _khong_ha_toc(getattr(pr, "_handle", None))
+    return pr
+
+
+_khong_ha_toc()                 # ca tien trinh app (chay an qua .vbs cung bi ha toc)
 NEN_DUNG = None             # app.py gan: ham tra True khi nguoi dung bam Dung
 
 
-def _run(cmd, check=False, capture_output=False, timeout=None, **kw):
+def _run(cmd, check=False, capture_output=False, timeout=None, feed=None, **kw):
+    """feed: ham feed(stdin) ghi du lieu vao stdin ffmpeg (vd khung Ken Burns raw) —
+    chay o thread rieng de vong cho van nghe NEN_DUNG/tran thoi gian.
+    stdin=<pipe cua tien trinh khac>: dong ban sao cua cha NGAY sau khi ffmpeg chay, de
+    khi ffmpeg thoat (du khung -t) ben ghi nhan loi pipe va dung, khong treo cho."""
     han = timeout or FF_TRAN_GIAY
     fout = ferr = None
     if capture_output:
         fout = kw.pop("stdout", None) or tempfile.TemporaryFile()
         ferr = kw.pop("stderr", None) or tempfile.TemporaryFile()
         kw["stdout"], kw["stderr"] = fout, ferr
-    pr = subprocess.Popen(cmd, **kw)
+    if feed is not None:
+        kw["stdin"] = subprocess.PIPE
+    pr = _popen(cmd, **kw)
+    if feed is None and hasattr(kw.get("stdin"), "close"):
+        try: kw["stdin"].close()
+        except OSError: pass
+    loi_feed = []
+    if feed is not None:
+        def _ghi():
+            try:
+                feed(pr.stdin)
+            except (BrokenPipeError, OSError, ValueError):
+                pass                       # ffmpeg da du khung (-t) hoac bi giet -> thoi ghi
+            except Exception as e:         # loi that (doc anh, numpy...) -> bao ra ngoai
+                loi_feed.append(e)
+                pr.kill()
+            finally:
+                try: pr.stdin.close()
+                except OSError: pass
+        th = threading.Thread(target=_ghi, daemon=True); th.start()
     het = time.time() + han
     while pr.poll() is None:
         time.sleep(0.4)
@@ -42,6 +98,10 @@ def _run(cmd, check=False, capture_output=False, timeout=None, **kw):
             pr.kill(); pr.wait()
             raise RuntimeError("ffmpeg treo quá %d giây, đã giết. Lệnh: %s …"
                                % (han, " ".join(cmd[:8])))
+    if feed is not None:
+        th.join(5)
+        if loi_feed:
+            raise loi_feed[0]
     out = err = b""
     if capture_output:
         try:
@@ -95,6 +155,12 @@ X264 = ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
 # +faststart: day moov atom len dau file. Khong co no, trinh duyet phai tai duoi
 # file 78MB ve truoc moi doc duoc index -> vua tai vua tua = decode do dang.
 FASTSTART = ["-movflags", "+faststart"]
+# TIENG KHONG NEN O CAC BUOC TRUNG GIAN (20/10, user: "thi thoang con soi tieng"):
+# truoc day tieng bi nen AAC lai 5-6 lan (_ta_*.m4a -> scene mp4 -> ghep -> roomtone ->
+# voice_gain -> tron nhac), moi lan mat them -> tieng "soi"/luc buc, ro nhat o giong Vbee.
+# Nay file trung gian la .mkv (h264 + PCM 16-bit), chi nen AAC DUNG 1 LAN o buoc cuoi.
+SEG_EXT = ".mkv"
+PCM_A = ["-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2"]
 # Segment CANH/CARD la file TRUNG GIAN (bi re-encode lai o _join_video khi ghep + grade)
 # -> encode nhanh + crf thap hon de khong mat chat qua 2 lan nen. veryfast ~3x medium.
 X264_SEG = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
@@ -220,7 +286,10 @@ def ensure_ambience(kind):
 
 # ---------- THOAI (dialogue) — tach loi thoai ra khoi menh de tuong thuat ----------
 # '小明："你好!"'                (nhan truc tiep)
-_DLG_LABEL = re.compile(r'^([一-鿿A-Za-z]{1,8})\s*[:：]\s*[«"“「『]?(.+?)[»"”」』]?\s*$')
+# Ten nhan vat: chu Han, hoac chu Viet CO DAU 1-3 tu ('Khương', 'Bà Ngoan', 'Ông Đáo').
+# (20/10) Truoc chi nhan [A-Za-z] -> moi ten Viet co dau truot -> @voices phim Viet vo hieu.
+# An toan: chi tinh la thoai khi ten nam trong @voices (split_dialogue kiem tra).
+_DLG_LABEL = re.compile(r'^([一-鿿A-Za-zÀ-ỹĐđ]{1,8}(?: [A-Za-zÀ-ỹĐđ]{1,8}){0,2})\s*[:：]\s*[«"“「『]?(.+?)[»"”」』]?\s*$')
 # '小明高兴地说："你好!"'        (menh de + dong tu noi + trich dan)
 _DLG_SAY = re.compile(r'^(.{1,16}?[说问道喊叫答想])\s*[:：]\s*[«"“「『](.+?)[»"”」』]\s*$')
 
@@ -1055,9 +1124,14 @@ def _p_blit_alpha(fr, spr, cx, cy, a, col):
     fx1, fy1 = min(W, x0 + S), min(H, y0 + S)
     if fx1 <= fx0 or fy1 <= fy0:
         return
-    m = (spr[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0] * float(a))[:, :, None]
-    roi = fr[fy0:fy1, fx0:fx1].astype(_np.float32)
-    fr[fy0:fy1, fx0:fx1] = _np.clip(roi * (1.0 - m) + col * m, 0, 255).astype(_np.uint8)
+    # TOC DO (20/10): cv2.blendLinear tron uint8 voi trong so float32 tung pixel trong C.
+    # Ban numpy cu (astype float32 + clip + astype uint8 ca vung 350x350) ton 11-16ms/frame
+    # cho lop may/khoi -> nay ~2ms; sai khac <=2/255 (lam tron), mat khong thay.
+    m = spr[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0] * _np.float32(a)
+    roi = fr[fy0:fy1, fx0:fx1]
+    cimg = _np.empty_like(roi)
+    cimg[:] = _np.clip(_np.rint(col), 0, 255).astype(_np.uint8)
+    fr[fy0:fy1, fx0:fx1] = cv2.blendLinear(roi, cimg, 1.0 - m, m)
 
 
 def _p_draw_glow(fr, L, t):
@@ -1147,6 +1221,29 @@ def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
     particles=(pf, t0): lop hat bay YC2 — pf tu _particle_field (deterministic theo seed
       canh), t0 = offset giay (shot g>0 tiep noi quy dao shot truoc, hat KHONG nhay vi tri
       qua moi noi shot). Ve SAU fade/trans -> hat sang xuyen dip nhu video mau."""
+    cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+           "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
+           "-an", *X264_KB, "-pix_fmt", "yuv420p", out_path]
+    pr = _popen(cmd, stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for fr in _kb_frames(img_path, frames, zoom_in, zoom=zoom, trans_out=trans_out,
+                             cut_at=cut_at, head_black=head_black, cam=cam,
+                             particles=particles):
+            pr.stdin.write(fr.tobytes())
+    finally:
+        pr.stdin.close()
+    if pr.wait() != 0:
+        raise RuntimeError("ffmpeg encode _kb_video loi")
+    return out_path
+
+
+def _kb_frames(img_path, frames, zoom_in, zoom=0.05, trans_out=None, cut_at=None,
+               head_black=0, cam=None, particles=None, vig=False):
+    """Generator tung khung BGR cua 1 doan Ken Burns (tham so nhu _kb_video).
+    make_scene dung truc tiep: day khung qua pipe vao lenh ffmpeg cuoi (phu de + grade)
+    -> KHONG con file _kbv trung gian nen ultrafast + giai ma lai, va 2 buoc chay SONG
+    SONG thay vi noi tiep (20/10)."""
     im = _kb_norm2x(img_path)
     T = max(2, int(frames))
     end = min(T, int(cut_at)) if cut_at else T
@@ -1161,54 +1258,68 @@ def _kb_video(img_path, frames, zoom_in, out_path, zoom=0.05,
     if trans_out:
         tkind, tTf, tnsrc, tnz0, tnc0 = trans_out
         tTf = min(max(1, int(tTf)), end)         # (c9) dip khong dai hon phan hien thi
-    cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
-           "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-           "-an", *X264_KB, "-pix_fmt", "yuv420p", out_path]
-    pr = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        den = max(2, end) - 1                    # (b1) ease ve DICH tai cut_at, khong phai T
-        for n in range(T):
-            t = min(1.0, n / den)
-            e = t * t * (3 - 2 * t)              # smoothstep ease in-out
-            z = z0 + (z1 - z0) * e
-            cx = c0[0] + (c1[0] - c0[0]) * e     # CUNG easing cho zoom + pan (a6)
-            cy = c0[1] + (c1[1] - c0[1]) * e
-            fr = _kb_frame(im, z, cx, cy)
-            if head_black and n < head_black:    # sang dan tu den (gamma-correct, c2/c3)
-                k = n / head_black
-                ke = (k * k * (3 - 2 * k)) ** 1.6
+    den = max(2, end) - 1                    # (b1) ease ve DICH tai cut_at, khong phai T
+    for n in range(T):
+        t = min(1.0, n / den)
+        e = t * t * (3 - 2 * t)              # smoothstep ease in-out
+        z = z0 + (z1 - z0) * e
+        cx = c0[0] + (c1[0] - c0[0]) * e     # CUNG easing cho zoom + pan (a6)
+        cy = c0[1] + (c1[1] - c0[1]) * e
+        fr = _kb_frame(im, z, cx, cy)
+        if head_black and n < head_black:    # sang dan tu den (gamma-correct, c2/c3)
+            k = n / head_black
+            ke = (k * k * (3 - 2 * k)) ** 1.6
+            if FADE_FOCUS and subj is not None:
+                s = z / 2.0
+                fr = (fr * _focus_fade_mask(s * subj[0] + (W / 2 - s * cx),
+                                            s * subj[1] + (H / 2 - s * cy),
+                                            1.0 - ke)).astype(_np.uint8)
+            else:
+                fr = (fr * ke).astype(_np.uint8)
+        if tkind and end - tTf <= n < end:
+            p = (n - (end - tTf)) / max(1, tTf)
+            pe = p * p * (3 - 2 * p)
+            if tkind == "black":             # chim dan (gamma-correct; mask neu bat)
                 if FADE_FOCUS and subj is not None:
                     s = z / 2.0
                     fr = (fr * _focus_fade_mask(s * subj[0] + (W / 2 - s * cx),
                                                 s * subj[1] + (H / 2 - s * cy),
-                                                1.0 - ke)).astype(_np.uint8)
+                                                pe)).astype(_np.uint8)
                 else:
-                    fr = (fr * ke).astype(_np.uint8)
-            if tkind and end - tTf <= n < end:
-                p = (n - (end - tTf)) / max(1, tTf)
-                pe = p * p * (3 - 2 * p)
-                if tkind == "black":             # chim dan (gamma-correct; mask neu bat)
-                    if FADE_FOCUS and subj is not None:
-                        s = z / 2.0
-                        fr = (fr * _focus_fade_mask(s * subj[0] + (W / 2 - s * cx),
-                                                    s * subj[1] + (H / 2 - s * cy),
-                                                    pe)).astype(_np.uint8)
-                    else:
-                        fr = (fr * ((1.0 - pe) ** 1.6)).astype(_np.uint8)
-                elif tkind == "zoomblend" and tnsrc is not None:
-                    fa = _kb_frame(im, z * (1.0 + 0.06 * pe), cx, cy)   # A day zoom CUNG TAM (a7)
-                    fb = _kb_frame(tnsrc, tnz0 * (1.0 + 0.06 * (1.0 - pe)),
-                                   *(tnc0 or (float(W), float(H))))     # B ha canh ve frame 0
-                    fr = cv2.addWeighted(fa, 1.0 - pe, fb, pe, 0)
-            if pfield is not None:               # YC2: hat ve SAU fade -> khong chim theo dip
-                _particles_draw(fr, pfield, pt0 + n / FPS)
-            pr.stdin.write(fr.tobytes())
-    finally:
-        pr.stdin.close()
-    if pr.wait() != 0:
-        raise RuntimeError("ffmpeg encode _kb_video loi")
-    return out_path
+                    fr = (fr * ((1.0 - pe) ** 1.6)).astype(_np.uint8)
+            elif tkind == "zoomblend" and tnsrc is not None:
+                fa = _kb_frame(im, z * (1.0 + 0.06 * pe), cx, cy)   # A day zoom CUNG TAM (a7)
+                fb = _kb_frame(tnsrc, tnz0 * (1.0 + 0.06 * (1.0 - pe)),
+                               *(tnc0 or (float(W), float(H))))     # B ha canh ve frame 0
+                fr = cv2.addWeighted(fa, 1.0 - pe, fb, pe, 0)
+        if pfield is not None:               # YC2: hat ve SAU fade -> khong chim theo dip
+            _particles_draw(fr, pfield, pt0 + n / FPS)
+        if vig:
+            fr = _vig_apply(fr)
+        yield fr
+
+
+_VIG = [None]
+
+
+def _vig_apply(fr):
+    """Vignette GIONG HET filter 'vignette=PI/8' cua ffmpeg tren yuv420p, lam bang 2 phep
+    cv2 (~4ms). Mat na lay tu chinh ffmpeg (ve len khung trang, 1 lan, cache file).
+    ffmpeg nhan HE SO f vao Y (range 16-235) va keo chroma ve 127 -> tren BGR tuong duong
+    out = f*in - 16*255/219*(1-f). Do tren anh that: lech TB 0.9/255, goc 0.572 vs 0.578."""
+    if _VIG[0] is None:
+        mp = os.path.join(FILM, f"_vig_mask_{W}x{H}.png")
+        if not os.path.exists(mp):
+            os.makedirs(FILM, exist_ok=True)
+            _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=white:s={W}x{H}:d=1",
+                  "-frames:v", "1", "-vf", "format=gray,vignette=PI/8:dither=0", mp],
+                 check=True, capture_output=True)
+        m = cv2.imread(mp, 0).astype(_np.float32) / 255.0
+        f3 = cv2.merge([m, m, m])
+        _VIG[0] = (_np.clip(_np.rint(f3 * 255), 0, 255).astype(_np.uint8),
+                   _np.clip(_np.rint(255 / 219 * 16 * (1 - f3)), 0, 255).astype(_np.uint8))
+    m8, k8 = _VIG[0]
+    return cv2.subtract(cv2.multiply(fr, m8, scale=1 / 255.0), k8)
 
 
 def _next_kb_src(scene, j, opts):
@@ -1451,8 +1562,7 @@ def _concat_wav(files, out):
     with open(lst, "w") as f:
         for p in files:
             f.write(f"file '{p.replace(os.sep,'/')}'\n")
-    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out],
+    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, *PCM_A, out],
                    check=True, capture_output=True)
     try: os.remove(lst)
     except OSError: pass
@@ -1491,7 +1601,7 @@ def make_scene(scene, opts, i):
         tot = sum(wts)
         sub_dur = [adur * x / tot for x in wts]
         scene_dur = adur
-        ta = os.path.join(FILM, f"_ta_{i}.m4a"); _concat_wav([w], ta); tmp.append(ta)
+        ta = os.path.join(FILM, f"_ta_{i}.wav"); _concat_wav([w], ta); tmp.append(ta)
         scene_audio = ta
     elif narrate and subs:
         seg_wavs, sub_dur = [], []
@@ -1564,7 +1674,7 @@ def make_scene(scene, opts, i):
             durs[-1] += pad_end
             sub_dur.extend(durs)
         scene_dur = sum(sub_dur)
-        ta = os.path.join(FILM, f"_ta_{i}.m4a"); _concat_wav(seg_wavs, ta); tmp.append(ta)
+        ta = os.path.join(FILM, f"_ta_{i}.wav"); _concat_wav(seg_wavs, ta); tmp.append(ta)
         scene_audio = ta
     else:
         if is_vid:
@@ -1599,7 +1709,7 @@ def make_scene(scene, opts, i):
         sub_pngs.append(p); tmp.append(p)
 
     # 3) FFMPEG: base + overlay phu de timed + audio
-    vp = os.path.join(FILM, f"scene_{i:02d}.mp4")
+    vp = os.path.join(FILM, f"scene_{i:02d}{SEG_EXT}")
     inputs, fc = [], []
     # CHUYEN CANH bake vao duoi bg (plan_transitions da gan _trans_out/_head_black vao scene):
     _tk, _td = (scene.get("_trans_out") or (None, 0.0))
@@ -1638,6 +1748,9 @@ def make_scene(scene, opts, i):
                  and opts.get("film_mode", True))
     use_shots = (is_img and narrate and len(subs) >= 2 and opts.get("film_mode", True)
                  and not use_multi)
+    kb_parts = []          # cac doan Ken Burns -> day khung qua stdin vao lenh ffmpeg cuoi
+    RAW_IN = ["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}", "-r", str(FPS),
+              "-i", "-"]
     if use_multi:
         groups = _multi_groups(subs, sub_dur, len(clips_multi), scene_dur)
         order = _clip_alloc(len(groups), len(clips_multi))
@@ -1650,23 +1763,21 @@ def make_scene(scene, opts, i):
             fr = max(2, _f1 - _f0); _f0 = _f1    # lam tron TICH LUY -> tong frame chuan
             src = clips_multi[order[g]]
             last = (g == len(groups) - 1)
-            kv = os.path.join(FILM, f"_kbv_{i}_{g}.mp4")
             # moi anh di duong subject-focused Ken Burns YC1; scene["focus"] ep tay chi
             # ap cho ANH CHU DAO (anh phu detect rieng). Giua group: CUT thang (khong dip),
             # dip chi o ranh gioi CANH: trans bake group cuoi, head_black group dau.
             _cam = _cam_for(src, g + i, opts, scene=(scene if order[g] == 0 else None))
-            _kb_video(src, fr, zoom_in=((g + i) % 2 == 0), out_path=kv, zoom=0.05,
-                      cam=_cam,
-                      trans_out=(_trans if last else None), cut_at=(fr if last else None),
-                      head_black=(_hb_frames if g == 0 else 0),
-                      particles=((_pf, _pt) if _pf is not None else None))
+            kb_parts.append(dict(img_path=src, frames=fr, zoom_in=((g + i) % 2 == 0),
+                                 zoom=0.05, cam=_cam,
+                                 trans_out=(_trans if last else None),
+                                 cut_at=(fr if last else None),
+                                 head_black=(_hb_frames if g == 0 else 0),
+                                 particles=((_pf, _pt) if _pf is not None else None)))
             _pt += fr / FPS
-            tmp.append(kv)
-            inputs += ["-i", kv]
-            fc.append(f"[{g}:v]setpts=PTS-STARTPTS[sh{g}]")
-            segs.append(f"[sh{g}]")
-        fc.append("".join(segs) + f"concat=n={len(groups)}:v=1:a=0,format=yuv420p[bg]")
-        n_bg = len(groups)
+        # cac group noi tiep nhau tren CUNG 1 pipe raw (truoc: moi group 1 file + concat)
+        inputs += RAW_IN
+        fc.append("[0:v]format=yuv420p[bg]")
+        n_bg = 1
     elif use_shots:
         has_cut = any(s.get("cut") for s in subs)
         groups = [[0]]
@@ -1687,19 +1798,17 @@ def make_scene(scene, opts, i):
             fr = max(2, int(dd * FPS))
             if _HAVE_CV2:
                 # 2.5-3% (truoc 4%): zoom sau qua lam mat dau nhan vat o shot can
-                kv = os.path.join(FILM, f"_kbv_{i}_{g}.mp4")
                 last = (g == len(groups) - 1)
                 _rect = _shot_geom(_sj[3], _sj[4], g, i, sub=_sub)
                 _cam = _cam_for(clip, g + i, opts, scene=scene, shot_rect=_rect)   # (a10)
-                _kb_video(shot_imgs[g], fr, zoom_in=((g + i) % 2 == 0),
-                          out_path=kv, zoom=0.025, cam=_cam,
-                          trans_out=(_trans if last else None), cut_at=(fr if last else None),
-                          head_black=(_hb_frames if g == 0 else 0),
-                          particles=((_pf, _pt) if _pf is not None else None))
+                kb_parts.append(dict(img_path=shot_imgs[g], frames=fr,
+                                     zoom_in=((g + i) % 2 == 0), zoom=0.025, cam=_cam,
+                                     trans_out=(_trans if last else None),
+                                     cut_at=(fr if last else None),
+                                     head_black=(_hb_frames if g == 0 else 0),
+                                     particles=((_pf, _pt) if _pf is not None else None)))
                 _pt += fr / FPS
-                tmp.append(kv)
-                inputs += ["-i", kv]
-                fc.append(f"[{g}:v]setpts=PTS-STARTPTS[sh{g}]")
+                continue
             else:                                    # fallback zoompan (giat nhe)
                 # TODO (a15): zoompan x/y theo tam nhan vat (hien van zoom quanh tam)
                 # YC2: khong cv2 -> BO QUA lop hat (chi co o duong _kb_video)
@@ -1710,23 +1819,26 @@ def make_scene(scene, opts, i):
                           f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS},"
                           f"trim=end_frame={fr},setpts=PTS-STARTPTS[sh{g}]")
             segs.append(f"[sh{g}]")
-        fc.append("".join(segs) + f"concat=n={len(groups)}:v=1:a=0,format=yuv420p[bg]")
-        n_bg = len(groups)
+        if kb_parts:                                 # duong cv2: 1 pipe raw cho moi shot
+            inputs += RAW_IN
+            fc.append("[0:v]format=yuv420p[bg]")
+            n_bg = 1
+        else:
+            fc.append("".join(segs) + f"concat=n={len(groups)}:v=1:a=0,format=yuv420p[bg]")
+            n_bg = len(groups)
     else:
         kb = is_img and opts.get("kenburns", True)
         if is_vid:
             inputs += ["-stream_loop", "-1", "-i", clip]
         elif is_img and kb and _HAVE_CV2:
             # +1s du phong: bg video huu han (khong -loop) phai dai hon audio
-            kv = os.path.join(FILM, f"_kbv_{i}.mp4")
-            _kb_video(clip, int(scene_dur * FPS) + FPS, zoom_in=(i % 2 == 0),
-                      out_path=kv, zoom=0.05,
-                      cam=_cam_for(clip, i, opts, scene=scene),      # (a11) camera huong nhan vat
-                      trans_out=_trans, cut_at=int(scene_dur * FPS),
-                      head_black=_hb_frames,
-                      particles=((_pf, 0.0) if _pf is not None else None))
-            tmp.append(kv)
-            inputs += ["-i", kv]
+            kb_parts.append(dict(img_path=clip, frames=int(scene_dur * FPS) + FPS,
+                                 zoom_in=(i % 2 == 0), zoom=0.05,
+                                 cam=_cam_for(clip, i, opts, scene=scene),   # (a11)
+                                 trans_out=_trans, cut_at=int(scene_dur * FPS),
+                                 head_black=_hb_frames,
+                                 particles=((_pf, 0.0) if _pf is not None else None)))
+            inputs += RAW_IN
         elif is_img:
             inputs += ["-loop", "1", "-i", clip]     # khong cv2 -> bo qua hat (YC2)
         else:
@@ -1746,13 +1858,28 @@ def make_scene(scene, opts, i):
     # trong khi chinh canh do khong phu de chi mat 4.8s. Phu de KHONG BAO GIO chong nhau
     # (moc lien tiep) nen gom lai: moi PNG keo dai dung khoang cua no -> concat thanh MOT
     # duong phu de -> 1 lan overlay. Do lai canh 6 (12 cau): 72.5s -> 18.6s, PSNR 43dB.
+    # Duong Ken Burns pipe: PHU DE DAN LUON trong tien trinh sinh khung (_kb_stream) — chi
+    # blend dai chu o day khung (~1ms) thay vi ffmpeg overlay ca khung yuva 1080p, giu
+    # lenh ffmpeg cuoi chi con eq + x264 (20/10). Moc khung y het duong overlay ben duoi.
+    kb_subs = []
+    if kb_parts and sub_pngs and not SUB_FADE:
+        _f0 = _pos = 0
+        for k, p in enumerate(sub_pngs):
+            _f1 = int(round((starts[k] + sub_dur[k]) * FPS))
+            nfr = max(1, _f1 - _f0); _f0 = _f1
+            kb_subs.append((p, _pos, _pos + nfr)); _pos += nfr
+        sub_pngs = []
     if sub_pngs and not SUB_FADE:
         _f0 = 0
         for k, p in enumerate(sub_pngs):
             _f1 = int(round((starts[k] + sub_dur[k]) * FPS))   # lam tron TICH LUY -> khong troi
             nfr = max(1, _f1 - _f0); _f0 = _f1
-            inputs += ["-loop", "1", "-t", f"{nfr / FPS:.3f}", "-r", str(FPS), "-i", p]
-            fc.append(f"[{n_bg + k}:v]format=yuva420p,setpts=PTS-STARTPTS[su{k}]")
+            # TOC DO (20/10): "-loop 1" bat image2 doc + GIAI MA LAI PNG 1920x1080 MOI
+            # KHUNG (~10ms/khung/phu de) -> buoc nay ton 1.5x thoi luong canh. Nay doc PNG
+            # 1 lan, filter loop giu khung trong RAM va nhan ra dung nfr khung.
+            inputs += ["-i", p]
+            fc.append(f"[{n_bg + k}:v]format=yuva420p,loop=loop={nfr - 1}:size=1:start=0,"
+                      f"setpts=N/({FPS}*TB)[su{k}]")
         fc.append("".join(f"[su{k}]" for k in range(len(sub_pngs)))
                   + f"concat=n={len(sub_pngs)}:v=1:a=0[subs]")
         # eof_action=pass: duong phu de ngan hon nen (lam tron) -> tra khung nen,
@@ -1780,7 +1907,13 @@ def make_scene(scene, opts, i):
         cur = out
     if not sub_pngs_n:
         fc.append(f"[bg]null[v]")
-    _vc = _seg_vchain(opts)
+    # VIGNETTE trong khung Ken Burns (20/10): filter vignette cua ffmpeg ton ~13ms/khung,
+    # chiem 2/3 lenh cuoi; _vig_apply ~4ms va chay o tien trinh sinh khung (song song).
+    _vig_py = bool(kb_parts) and _pregrade(opts) and bool(opts.get("grade", True))
+    if _vig_py:
+        for part in kb_parts:
+            part["vig"] = True
+    _vc = _seg_vchain(opts, vig=not _vig_py)
     if _vc:
         fc.append(f"[v]{_vc}[vout]")
     filt = ";".join(fc)
@@ -1814,15 +1947,80 @@ def make_scene(scene, opts, i):
     cmd = ["ffmpeg", "-y", *inputs, "-t", f"{scene_dur:.2f}",
            "-filter_complex", filt + a_filt,
            "-map", ("[vout]" if _vc else "[v]"), "-map", amap,
-           *_seg_x264(opts), "-r", str(FPS), "-pix_fmt", "yuv420p",
-           "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+           *_seg_x264(opts), "-r", str(FPS), "-pix_fmt", "yuv420p", *PCM_A,
            "-shortest", vp]
-    _run(cmd, check=True, capture_output=True)
+    if kb_parts and KB_PROC:
+        _run_kb_proc(cmd, {"parts": kb_parts, "subs": kb_subs}, i, tmp)
+    else:
+        def _feed(stdin):
+            for fr in _kb_stream(kb_parts, kb_subs):
+                stdin.write(memoryview(fr).cast("B"))
+        _run(cmd, check=True, capture_output=True, feed=(_feed if kb_parts else None))
     for f in tmp:
         if os.path.exists(f):
             try: os.remove(f)
             except OSError: pass
     return vp, scene_dur
+
+
+# Sinh khung Ken Burns o TIEN TRINH RIENG (kb_worker.py) thay vi thread: vong sinh khung
+# giu GIL nen cac canh song song bang thread chi chay ~1 nhan. FILM_KB_PROC=0 -> thread.
+KB_PROC = _env_flag("FILM_KB_PROC", True)
+KB_WORKER = os.path.join(_HERE, "kb_worker.py")
+
+
+def _kb_stream(parts, subs=()):
+    """Noi cac doan Ken Burns cua 1 canh thanh 1 dong khung + dan phu de.
+    subs: [(png RGBA, khung bat dau, khung ket thuc)] tinh tren TOAN canh."""
+    sl = []
+    for p, _a, _b in subs:
+        im = cv2.imread(p, cv2.IMREAD_UNCHANGED)
+        if im is None or im.ndim < 3 or im.shape[2] < 4:
+            sl.append(None); continue
+        im = im[:H, :W]
+        ys, xs = _np.nonzero(im[..., 3])
+        if not len(ys):
+            sl.append(None); continue            # phu de trong (dau nghi '//')
+        y0, y1, x0, x1 = int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
+        al = im[y0:y1, x0:x1, 3].astype(_np.float32) / 255.0
+        sl.append((y0, y1, x0, x1, _np.ascontiguousarray(im[y0:y1, x0:x1, :3]), al, 1.0 - al))
+    n = k = 0
+    for part in parts:
+        for fr in _kb_frames(**part):
+            while k < len(subs) and n >= subs[k][2]:
+                k += 1
+            if k < len(subs) and subs[k][1] <= n and sl[k] is not None:
+                y0, y1, x0, x1, c, al, ial = sl[k]
+                fr[y0:y1, x0:x1] = cv2.blendLinear(fr[y0:y1, x0:x1], c, ial, al)
+            yield _np.ascontiguousarray(fr)
+            n += 1
+
+
+def _run_kb_proc(cmd, payload, i, tmp):
+    """kb_worker (stdout khung raw) -> stdin lenh ffmpeg cuoi cua canh i."""
+    import pickle, sys
+    pk = os.path.join(FILM, f"_kbparts_{i}.pkl")
+    with open(pk, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.append(pk)
+    werr = tempfile.TemporaryFile()
+    wk = _popen([sys.executable, KB_WORKER, pk], stdout=subprocess.PIPE, stderr=werr)
+    try:
+        _run(cmd, check=True, capture_output=True, stdin=wk.stdout)   # _run dong wk.stdout
+        try:
+            rc = wk.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            rc = 0                       # ffmpeg du khung (-t) roi, worker van treo -> giet
+    finally:
+        try: wk.stdout.close()
+        except OSError: pass
+        if wk.poll() is None:
+            wk.kill(); wk.wait()
+    if rc != 0:
+        werr.seek(0)
+        msg = werr.read().decode("utf-8", "ignore").strip().splitlines()[-6:]
+        raise RuntimeError("Sinh khung Ken Burns lỗi (canh %d):" % i + chr(10) + chr(10).join(msg))
+    werr.close()
 
 
 # ---------- CARD (bìa đầu / cuối) — đồ hoạ như title phim ----------
@@ -1853,7 +2051,7 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
         d.text((cx, H * 0.63), sub or "Cảm ơn đã xem · Đăng ký kênh nhé!", font=sf,
                fill=(198, 186, 240), anchor="ma")
     png = os.path.join(FILM, f"_card_{kind}.png"); im.save(png)
-    out_path = out_path or os.path.join(FILM, f"_cardvid_{kind}.mp4")
+    out_path = out_path or os.path.join(FILM, f"_cardvid_{kind}{SEG_EXT}")
     frames = int(dur * FPS)
     fade = (f"fade=t=in:st=0:d=0.6,fade=t=out:st={max(0,dur-0.6):.2f}:d=0.6,format=yuv420p")
     opts = opts or {}
@@ -1866,7 +2064,7 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
         _run(["ffmpeg", "-y", "-i", kbv,
                         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
                         "-vf", fade, "-map", "0:v", "-map", "1:a",
-                        *_seg_x264(opts), "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                        *_seg_x264(opts), "-pix_fmt", "yuv420p", *PCM_A,
                         "-shortest", out_path], check=True, capture_output=True)
         try: os.remove(kbv)
         except OSError: pass
@@ -1879,7 +2077,7 @@ def make_card(kind, title, sub="", out_path=None, dur=3.5, opts=None):
         _run(["ffmpeg", "-y", "-loop", "1", "-i", png,
                         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur}",
                         "-vf", vf, "-map", "0:v", "-map", "1:a",
-                        *_seg_x264(opts), "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                        *_seg_x264(opts), "-pix_fmt", "yuv420p", *PCM_A,
                         "-shortest", out_path], check=True, capture_output=True)
     try: os.remove(png)
     except OSError: pass
@@ -1947,9 +2145,10 @@ def make_film(scenes, opts, out_path):
     return _concat_and_music(seg_videos, opts, out_path, sum(durs))
 
 
-def _grade_simple(letterbox=False):
-    """Grade TỰ NHIÊN, sạch (không ám màu giả): chỉ nhẹ tương phản + độ nét + vignette rất mờ."""
-    ch = "eq=contrast=1.04:saturation=1.05:gamma=0.99,vignette=PI/8"
+def _grade_simple(letterbox=False, vig=True):
+    """Grade TỰ NHIÊN, sạch (không ám màu giả): chỉ nhẹ tương phản + độ nét + vignette rất mờ.
+    vig=False: khung da qua _vig_apply (duong Ken Burns) -> bo filter vignette (ton ~13ms/khung)."""
+    ch = "eq=contrast=1.04:saturation=1.05:gamma=0.99" + (",vignette=PI/8" if vig else "")
     if letterbox:
         ch += "," + _letterbox_filter()
     return ch
@@ -1966,12 +2165,12 @@ def _pregrade(opts):
     return (opts.get("transition") or "fade").lower() == "none"
 
 
-def _seg_vchain(opts):
+def _seg_vchain(opts, vig=True):
     if not _pregrade(opts):
         return ""
     lb = bool(opts.get("letterbox"))
     if opts.get("grade", True):
-        return _grade_simple(lb)
+        return _grade_simple(lb, vig=vig)
     return _letterbox_filter() if lb else ""
 
 
@@ -1981,7 +2180,7 @@ def _seg_x264(opts):
 
 def _join_video(seg_videos, opts):
     """Nối clip cảnh -> 1 video (không tiếng nền). Có chuyển cảnh mờ + grade. Tra path narr."""
-    narr = os.path.join(FILM, "_film_narr.mp4")
+    narr = os.path.join(FILM, "_film_narr" + SEG_EXT)
     trans = (opts.get("transition") or "fade").lower()
     grade = bool(opts.get("grade", True))
     lb = bool(opts.get("letterbox"))
@@ -2011,8 +2210,7 @@ def _join_video(seg_videos, opts):
                 fc.append(f"[vj]{_letterbox_filter()}[vg]"); vmap = "[vg]"
             _run(["ffmpeg", "-y", *inp, "-filter_complex", ";".join(fc),
                             "-map", vmap, "-map", "[aj]",
-                            *X264, *FASTSTART, "-pix_fmt", "yuv420p", "-r", str(FPS),
-                            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
+                            *X264, "-pix_fmt", "yuv420p", "-r", str(FPS), *PCM_A, narr],
                            check=True, capture_output=True,
                            # ghep CA PHIM: dai gap nhieu lan 1 canh -> han theo do dai phim
                            timeout=max(FF_TIMEOUT, sum(durs) * 30))
@@ -2028,16 +2226,14 @@ def _join_video(seg_videos, opts):
             f.write(f"file '{v.replace(os.sep,'/')}'\n")
     if _pregrade(opts):
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
-              "-c:v", "copy", *FASTSTART,
-              "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
+              "-c:v", "copy", *PCM_A, narr],
              check=True, capture_output=True)
     else:
         _vfchain = _grade_simple(lb) if grade else (_letterbox_filter() if lb else "")
         vf = ["-vf", _vfchain] if _vfchain else []
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst,
-                        "-fps_mode", "cfr", "-r", str(FPS), *vf, *X264, *FASTSTART,
-                        "-pix_fmt", "yuv420p",
-                        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", narr],
+                        "-fps_mode", "cfr", "-r", str(FPS), *vf, *X264,
+                        "-pix_fmt", "yuv420p", *PCM_A, narr],
                        check=True, capture_output=True)
     try: os.remove(lst)
     except OSError: pass
@@ -2046,13 +2242,13 @@ def _join_video(seg_videos, opts):
 
 def _add_roomtone(narr):
     """Tron 'room tone' (nhieu nau rat nho) duoi toan phim -> im lang khong bi 'chet' so."""
-    out = os.path.join(FILM, "_film_rt.mp4")
+    out = os.path.join(FILM, "_film_rt" + SEG_EXT)
     fc = ("[1:a]volume=0.012,lowpass=f=500[rt];"
           "[0:a][rt]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
     _run(["ffmpeg", "-y", "-i", narr,
                     "-f", "lavfi", "-i", "anoisesrc=r=44100:color=brown:seed=7",
                     "-filter_complex", fc, "-map", "0:v", "-map", "[a]",
-                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out],
+                    "-c:v", "copy", *PCM_A, out],
                    check=True, capture_output=True)
     os.replace(out, narr)
     return narr
@@ -2061,10 +2257,10 @@ def _add_roomtone(narr):
 def _voice_gain(narr, gain):
     """Chinh to/nho tieng phim (giong doc + sfx) truoc khi tron nhac. gain 1.0 = giu nguyen;
     >1 co alimiter chan meo tieng."""
-    out = os.path.join(FILM, "_film_vg.mp4")
+    out = os.path.join(FILM, "_film_vg" + SEG_EXT)
     af = f"volume={gain:.2f}" + (",alimiter=limit=0.95:level=disabled" if gain > 1 else "")
     _ff_run(["ffmpeg", "-y", "-i", narr, "-map", "0:v", "-map", "0:a", "-af", af,
-             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", *FASTSTART, out],
+             "-c:v", "copy", *PCM_A, out],
             check=True, capture_output=True)
     os.replace(out, narr)
     return narr
@@ -2115,7 +2311,10 @@ def _concat_and_music(seg_videos, opts, out_path, total):
                 err = (e.stderr or b"").decode("utf-8", "ignore").strip().splitlines()
                 raise RuntimeError("Trộn nhạc nền lỗi:\n" + "\n".join(err[-6:] or ["(ffmpeg không nói gì)"]))
     else:
-        shutil.move(narr, out_path)           # os.replace loi khi out_path khac o dia (WinError 17)
+        # narr la .mkv PCM -> dong goi mp4 + nen AAC 1 lan (truoc: move thang file mp4)
+        _run(["ffmpeg", "-y", "-i", narr, "-map", "0:v", "-map", "0:a", "-c:v", "copy",
+              "-c:a", "aac", "-b:a", "192k", *FASTSTART, out_path],
+             check=True, capture_output=True)
     for v in seg_videos:
         try: os.remove(v)
         except OSError: pass
