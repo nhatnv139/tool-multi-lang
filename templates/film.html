@@ -147,6 +147,10 @@
           <option value="lien">Đọc liền, mượt</option>
           <option value="vai_tro">Theo vai trò câu (kiểu cũ)</option>
         </select></label>
+      <label class="switch" title="Chỉ áp cho chế độ đọc liền: kéo khoảng nghỉ của Vbee cho đủ số giây này.">⏸️ Nghỉ dấu phẩy
+        <input type="number" id="nghiPhay" value="0.5" min="0" max="2" step="0.05" style="width:64px;margin:0 4px">s
+        · dấu chấm
+        <input type="number" id="nghiCau" value="0.8" min="0" max="3" step="0.05" style="width:64px;margin:0 4px">s</label>
     </div>
     <div class="switches mt">
       <label class="switch"><input type="checkbox" id="kenburns" checked> Ảnh tĩnh chuyển động (Ken Burns)</label>
@@ -639,6 +643,8 @@ async function makeFilm(){
     voice_vol: parseFloat(document.getElementById('voiceVol').value)||1.0,
     film_mode: document.getElementById('filmMode').checked,
     nhip_doc: document.getElementById('nhipDoc').value,
+    nghi_phay: numOr('nghiPhay',0.5),
+    nghi_cau: numOr('nghiCau',0.8),
     particles: document.getElementById('particles').value,
     scene_sfx: false,
     sfx: SCENES.map((s,i)=>{ const el=document.getElementById('sfx'+i);
@@ -674,6 +680,7 @@ async function saveKey(engine, inputId){
                    :'<span class="err">'+(j.error||'lỗi')+'</span>';
 }
 
+function numOr(id,d){ const v=parseFloat(document.getElementById(id).value); return isNaN(v)?d:v; }
 function rateValue(){ const v=parseInt(document.getElementById('rate').value,10);
   return (v>=0?'+':'')+v+'%'; }
 function rateLabel(v){ v=parseInt(v,10);
