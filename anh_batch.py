@@ -14,7 +14,11 @@ import base64
 
 from flask import abort, jsonify, render_template, request, send_from_directory
 
-CONTENT = os.path.expanduser("~/content")
+# May cu de bai o ~/content; may nay (Windows) de o D:\content. Uu tien bien moi
+# truong CONTENT_DIR, roi ~/content neu co, khong thi D:\content.
+CONTENT = os.environ.get("CONTENT_DIR") or next(
+    (p for p in (os.path.expanduser("~/content"), r"D:\content") if os.path.isdir(p)),
+    os.path.expanduser("~/content"))
 DEFAULT_TOPIC = "12-truyen-xua-nhan-qua__chuyen-que-xua"
 STATE = ".batch.json"
 EP = re.compile(r"^\d{2}-")
@@ -99,12 +103,27 @@ _SENDING = set()
 _SEND_LOCK = threading.Lock()
 
 
+class _GiaMacDinh:
+    """Thay gen_anh khi may nay khong co CONTENT/scripts/gen_anh.py — chi can bang gia.
+    $/100 anh 1536x1024, cung bang voi app.OPENAI_IMG_MODELS."""
+    GIA_OUT = {"gpt-image-1-mini": {"low": 0.36, "medium": 1.29, "high": 5.01},
+               "gpt-image-2": {"low": 0.57, "medium": 1.96, "high": 7.46},
+               "gpt-image-1.5": {"low": 1.38, "medium": 5.12, "high": 19.97}}
+
+    @classmethod
+    def uoc_tinh(cls, n, model, quality, size="1536x1024"):
+        return n * cls.GIA_OUT[model][quality] / 100
+
+
 def _gen():
     sc = os.path.join(CONTENT, "scripts")
     if sc not in sys.path:
         sys.path.insert(0, sc)
-    import gen_anh
-    return gen_anh
+    try:
+        import gen_anh
+        return gen_anh
+    except ImportError:
+        return _GiaMacDinh
 
 
 def _prompts(d):
