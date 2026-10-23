@@ -1557,32 +1557,40 @@ def _seg_audio(tts_mp3, dur, out_wav):
                         "-t", f"{dur:.2f}", out_wav], check=True, capture_output=True)
     return out_wav
 
-def _noi_nghi_cau(src, out_wav, them=0.25, nguong=0.38):
-    """Doc lien (Vbee noi cau bang dau cach): chen them 'them' giay im lang vao GIUA
-    moi khoang lang >= 'nguong' giay — tuc cho het cau (~0.45-0.6s), con dau phay
-    (~0.25s) giu nguyen. Ket qua: nghi giua cau ~0.75s, khong ve lai muc ~1s cua xuong
-    dong. Bo qua lang dau/cuoi file. Tra ve out_wav, loi thi tra ve src (doc nhu cu)."""
+def _noi_nghi_cau(src, out_wav, them=0.25, nguong=0.38, phay=0.0, phay_min=0.15):
+    """Doc lien (Vbee noi cau bang dau cach): nong khoang lang theo 2 muc.
+      - lang >= 'nguong' (het cau, ~0.45-0.6s): chen THEM 'them' giay -> ~0.7s
+      - lang 'phay_min'..'nguong' (dau phay, Vbee ~0.25s): keo cho DU 'phay' giay
+        (phay=0 -> giu nguyen)
+    Chen im lang vao GIUA khoang lang san co; bo qua lang dau/cuoi file.
+    Tra ve out_wav, loi thi tra ve src (doc nhu cu)."""
     try:
         import numpy as np, wave
         r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af",
-                            f"silencedetect=n=-40dB:d={nguong}", "-f", "null", "-"],
+                            f"silencedetect=n=-40dB:d={phay_min}", "-f", "null", "-"],
                            capture_output=True, text=True, errors="replace").stderr
         st = [float(x) for x in re.findall(r"silence_start: ([\d.]+)", r)]
         en = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", r)]
         tot = _dur(src)
-        moc = [(a + b) / 2 for a, b in zip(st, en) if a > 0.05 and b < tot - 0.05]
-        if not moc or them <= 0:
+        moc = []                                  # (giay giua khoang lang, giay chen them)
+        for a, b in zip(st, en):
+            if a <= 0.05 or b >= tot - 0.05:
+                continue
+            d = b - a
+            add = them if d >= nguong else max(0.0, phay - d)
+            if add > 0.01:
+                moc.append(((a + b) / 2, add))
+        if not moc:
             return src
         raw = out_wav + ".raw.wav"
         _run(["ffmpeg", "-y", "-i", src, "-ac", "1", "-ar", "44100", raw],
              check=True, capture_output=True)
         with wave.open(raw, "rb") as w:
             sr, a = w.getframerate(), np.frombuffer(w.readframes(w.getnframes()), np.int16)
-        lang = np.zeros(int(them * sr), np.int16)
         parts, prev = [], 0
-        for m in moc:
+        for m, add in moc:
             k = int(m * sr)
-            parts += [a[prev:k], lang]
+            parts += [a[prev:k], np.zeros(int(add * sr), np.int16)]
             prev = k
         parts.append(a[prev:])
         with wave.open(out_wav, "wb") as w:
@@ -1705,11 +1713,12 @@ def make_scene(scene, opts, i):
                            azure=az, gemini=gm, eleven=el, fpt=fp, emo=s0.get("emo"),
                            role=s0.get("role"))
             tmp.append(mp)
-            if opts.get("doc_lien") and len(texts) > 1:
+            if opts.get("doc_lien"):
                 # dau cach lam nghi giua cau con ~0.5s -> user nghe "lien mach qua",
                 # noi them cho het cau (dau phay giu nguyen)
                 _nw = os.path.join(FILM, f"_tts_{i}_{k0}_nghi.wav")
-                mp2 = _noi_nghi_cau(mp, _nw, them=float(opts.get("nghi_cau", 0.25)))
+                mp2 = _noi_nghi_cau(mp, _nw, them=float(opts.get("nghi_cau", 0.25)),
+                                    phay=float(opts.get("nghi_phay", 0.5)))
                 if mp2 != mp:
                     tmp.append(mp2); mp = mp2
             adur = max(0.9, _dur(mp))
