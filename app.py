@@ -2925,6 +2925,7 @@ def run_film_job(job_id, data):
                 "letterbox": bool(data.get("letterbox", False)),
                 "duck": bool(data.get("duck", True)),
                 "doc_lien": doc_lien,                 # film.py noi cau bang dau cach (xem ben do)
+                "nghi_cau": float(data.get("nghi_cau") or 0.25),   # giay chen them o het cau (doc lien)
                 # YC1: camera day vao nhan vat + dip-to-black chuan mau
                 "focus_subject": bool(data.get("focus_subject", True)),
                 "zoom_amt": (float(data["zoom_amt"]) if data.get("zoom_amt") else None),

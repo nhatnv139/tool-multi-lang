@@ -285,11 +285,11 @@ def main():
     ap.add_argument("--goc", default=GOC_MAC_DINH, help="thu muc goc chua cac bai")
     ap.add_argument("--bai", default="", help="danh sach so bai, vd 7,8,9")
     ap.add_argument("--tat-ca", dest="tat_ca", action="store_true", help="chay het moi bai co content-film.md")
-    # mac dinh = mac dinh trang /film: Vbee nhattruyenxua (user chot 2026-10-11), toc do -12% (do 2026-10-23: 221 a/p),
+    # mac dinh = mac dinh trang /film: Vbee nhattruyenxua (user chot 2026-10-11), toc do -16% + nghi het cau 0.25s (do 2026-10-23: 207 a/p),
     # giong 160%, nhac Erev Shel Shoshanim 0.4
     ap.add_argument("--voice", default="vbee:n_ninhbinh_male_nhattruyenxua_zero_shot_story_vc",
                     help="giong doc (mac dinh nhu tren trang film)")
-    ap.add_argument("--rate", default="-12%", help="toc do doc, vd -8%%")
+    ap.add_argument("--rate", default="-16%", help="toc do doc, vd -8%%")
     ap.add_argument("--voice-vol", dest="voice_vol", type=float, default=1.6)
     ap.add_argument("--nhip-doc", dest="nhip_doc", default="",
                     help="lien (ca canh 1 hoi doc, mac dinh voi Vbee) | vai_tro (cat tung cau)")
