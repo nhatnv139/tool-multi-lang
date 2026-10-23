@@ -1557,9 +1557,9 @@ def _seg_audio(tts_mp3, dur, out_wav):
                         "-t", f"{dur:.2f}", out_wav], check=True, capture_output=True)
     return out_wav
 
-def _noi_nghi_cau(src, out_wav, them=0.25, nguong=0.38, phay=0.0, phay_min=0.15):
+def _noi_nghi_cau(src, out_wav, cau=0.8, nguong=0.38, phay=0.0, phay_min=0.15):
     """Doc lien (Vbee noi cau bang dau cach): nong khoang lang theo 2 muc.
-      - lang >= 'nguong' (het cau, ~0.45-0.6s): chen THEM 'them' giay -> ~0.7s
+      - lang >= 'nguong' (het cau, Vbee ~0.45-0.6s): keo cho DU 'cau' giay
       - lang 'phay_min'..'nguong' (dau phay, Vbee ~0.25s): keo cho DU 'phay' giay
         (phay=0 -> giu nguyen)
     Chen im lang vao GIUA khoang lang san co; bo qua lang dau/cuoi file.
@@ -1577,7 +1577,7 @@ def _noi_nghi_cau(src, out_wav, them=0.25, nguong=0.38, phay=0.0, phay_min=0.15)
             if a <= 0.05 or b >= tot - 0.05:
                 continue
             d = b - a
-            add = them if d >= nguong else max(0.0, phay - d)
+            add = max(0.0, (cau if d >= nguong else phay) - d)
             if add > 0.01:
                 moc.append(((a + b) / 2, add))
         if not moc:
@@ -1715,9 +1715,9 @@ def make_scene(scene, opts, i):
             tmp.append(mp)
             if opts.get("doc_lien"):
                 # dau cach lam nghi giua cau con ~0.5s -> user nghe "lien mach qua",
-                # noi them cho het cau (dau phay giu nguyen)
+                # nen keo: het cau du 0.8s, dau phay du 0.5s (user chot 2026-10-23)
                 _nw = os.path.join(FILM, f"_tts_{i}_{k0}_nghi.wav")
-                mp2 = _noi_nghi_cau(mp, _nw, them=float(opts.get("nghi_cau", 0.25)),
+                mp2 = _noi_nghi_cau(mp, _nw, cau=float(opts.get("nghi_cau", 0.8)),
                                     phay=float(opts.get("nghi_phay", 0.5)))
                 if mp2 != mp:
                     tmp.append(mp2); mp = mp2
