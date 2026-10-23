@@ -1643,7 +1643,12 @@ def make_scene(scene, opts, i):
             # Do thuc te tren Vbee (cung 1 cau): dau cach 2.83s -> xuong dong 3.41s,
             # tuc moi ranh gioi cau duoc +0.58s im lang. Dau "…" thi NGUOC LAI (2.64s,
             # doc nhanh hon) nen dung khong an thua. Day la thu duy nhat Vbee chiu nghi.
-            joined = "\n".join(t for t in texts if t)
+            # DOC LIEN (opts doc_lien, 2026-10-23): noi bang DAU CACH. Do tren giong
+            # nhattruyenxua, 3 cau mot canh: xuong dong -> nghi giua cau 0.98s, dau cach
+            # -> 0.44-0.59s (dau phay van 0.25s). Cong 1s moi cau la thu lam phim 5 phut
+            # nghe "cu bi ngat"; nghi co chu dich da co dong '//' lo.
+            _sep = " " if opts.get("doc_lien") else "\n"
+            joined = _sep.join(t for t in texts if t)
             k0 = run[0]
             _ps = _pause_sec(ss[0]) if len(ss) == 1 else 0.0
             if _ps or not joined:                # dau nghi '//' hoac cau trong -> im lang

@@ -116,7 +116,7 @@
       </div>
       <div style="flex:0 0 220px">
         <label>🐢 Tốc độ đọc: <span id="rate_lbl" class="hint"></span></label>
-        <input type="range" id="rate" min="-50" max="30" step="1" value="-8" style="width:100%"
+        <input type="range" id="rate" min="-50" max="30" step="1" value="-12" style="width:100%"
                oninput="rateLabel(this.value)">
         <div style="display:flex;justify-content:space-between" class="hint"><span>🐢 Chậm</span><span>Nhanh 🐇</span></div>
         <label style="margin-top:14px" title="Có bộ giới hạn chống vỡ tiếng khi tăng trên 100%">🔊 Âm lượng giọng đọc: <span id="vvol_lbl" class="hint">160%</span></label>
@@ -141,6 +141,12 @@
     <label>🎞️ Chất điện ảnh <span class="hint">— biến “slideshow” thành “phim”</span></label>
     <div class="switches">
       <label class="switch"><input type="checkbox" id="filmMode" checked><b>🎭 Chế độ PHIM</b> — mỗi câu 1 shot máy quay (toàn/trung/cận) + nhân vật CHỈ nói lời thoại (có cảm xúc), nhịp phim</label>
+      <label class="switch" title="Đọc liền: cả cảnh một hơi, một tốc độ — hết giật cục (mặc định với giọng Vbee). Theo vai trò: mỗi câu một tốc độ/cao độ riêng (kiểu cũ).">🗣️ Nhịp đọc
+        <select id="nhipDoc" style="margin-left:6px">
+          <option value="">Tự động (Vbee → đọc liền)</option>
+          <option value="lien">Đọc liền, mượt</option>
+          <option value="vai_tro">Theo vai trò câu (kiểu cũ)</option>
+        </select></label>
     </div>
     <div class="switches mt">
       <label class="switch"><input type="checkbox" id="kenburns" checked> Ảnh tĩnh chuyển động (Ken Burns)</label>
@@ -632,6 +638,7 @@ async function makeFilm(){
     music_vol: parseFloat(document.getElementById('musicVol').value)||0.4,
     voice_vol: parseFloat(document.getElementById('voiceVol').value)||1.0,
     film_mode: document.getElementById('filmMode').checked,
+    nhip_doc: document.getElementById('nhipDoc').value,
     particles: document.getElementById('particles').value,
     scene_sfx: false,
     sfx: SCENES.map((s,i)=>{ const el=document.getElementById('sfx'+i);

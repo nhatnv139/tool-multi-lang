@@ -241,9 +241,11 @@ def dung_bai(folder, opt):
         "narrate": True,
         "keep_audio": False,
         "char_voices": {},
-        "music_file": "",
-        "music_bed": opt.music,
+        "music_file": opt.music_file,
+        "music_bed": "" if opt.music_file else opt.music,
         "music_vol": opt.music_vol,
+        "voice_vol": opt.voice_vol,
+        "nhip_doc": opt.nhip_doc,
         "film_mode": True,
         "particles": opt.particles,
         "scene_sfx": not opt.no_sfx,
@@ -283,10 +285,18 @@ def main():
     ap.add_argument("--goc", default=GOC_MAC_DINH, help="thu muc goc chua cac bai")
     ap.add_argument("--bai", default="", help="danh sach so bai, vd 7,8,9")
     ap.add_argument("--tat-ca", dest="tat_ca", action="store_true", help="chay het moi bai co content-film.md")
-    ap.add_argument("--voice", default="gemini:Gacrux", help="giong doc (mac dinh nhu tren trang film)")
-    ap.add_argument("--rate", default="+0%", help="toc do doc, vd -8%%")
-    ap.add_argument("--music", default="warm", help="warm | hope | sad | none")
-    ap.add_argument("--music-vol", dest="music_vol", type=float, default=0.3)
+    # mac dinh = mac dinh trang /film: Vbee nhattruyenxua (user chot 2026-10-11), toc do -12% (do 2026-10-23: 221 a/p),
+    # giong 160%, nhac Erev Shel Shoshanim 0.4
+    ap.add_argument("--voice", default="vbee:n_ninhbinh_male_nhattruyenxua_zero_shot_story_vc",
+                    help="giong doc (mac dinh nhu tren trang film)")
+    ap.add_argument("--rate", default="-12%", help="toc do doc, vd -8%%")
+    ap.add_argument("--voice-vol", dest="voice_vol", type=float, default=1.6)
+    ap.add_argument("--nhip-doc", dest="nhip_doc", default="",
+                    help="lien (ca canh 1 hoi doc, mac dinh voi Vbee) | vai_tro (cat tung cau)")
+    ap.add_argument("--music", default="warm", help="warm | hope | sad | none (khi khong co --music-file)")
+    ap.add_argument("--music-file", dest="music_file",
+                    default=os.path.join(_HERE, "assets", "film_music", "erev-shel-shoshanim.mp3"))
+    ap.add_argument("--music-vol", dest="music_vol", type=float, default=0.4)
     ap.add_argument("--particles", default="auto")
     ap.add_argument("--backend", default="pollinations", help="engine sinh anh khi thieu: pollinations|openai|together|gemini")
     ap.add_argument("--bg-style", dest="bg_style", default="story", help="style anh AI (story = theo @bg co nhan vat)")

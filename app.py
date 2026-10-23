@@ -2777,7 +2777,19 @@ def run_film_job(job_id, data):
         # request -> doc mot hoi, mot ngu dieu, nghe tang tang. Chia theo vai tro thi
         # moi cum mot toc do rieng, cao do nan them o generate._shape_role().
         # Chi chay cho vn_mode -> bai tieng Trung khong doi gi.
-        if vn_mode:
+        #
+        # NHIP DOC LIEN (mac dinh voi giong Vbee, 2026-10-23): che do vai tro o tren
+        # chia gan nhu MOI CAU thanh mot request rieng (mo/ke/dam/ha... doi lien tuc),
+        # moi request mot speed_rate khac (0.82 -> 1.09) + nan pitch + chen lang
+        # 0.2-0.75s -> nghe giat cuc, "cu bi ngat". Do tren canh 3-4 cau: 3-4 request,
+        # tong lang chen ~1.5s. Che do 'lien' gom CA CANH (cung giong) vao MOT request,
+        # MOT toc do, cau noi bang dau cach (film.py: nghi giua cau ~0.5s), ngu dieu
+        # noi cau tu nhien nhu doc ca doan. Dau nghi '//' cua kich ban van giu.
+        # Ep lai che do cu: gui "nhip_doc": "vai_tro".
+        nhip_doc = (data.get("nhip_doc") or
+                    ("lien" if vn_mode and base_voice.startswith("vbee:") else "vai_tro"))
+        doc_lien = vn_mode and nhip_doc == "lien"
+        if vn_mode and not doc_lien:
             _PAUSE_RE = re.compile(r"^/{2,4}$")
             for sc in scenes:
                 subs = sc["subs"]
@@ -2824,6 +2836,11 @@ def run_film_job(job_id, data):
                         else generate.detect_emotion(s.get("tts") or hz)
                 except Exception:
                     pass
+                if doc_lien:
+                    # cam xuc tu nhan theo tu khoa doi speed_rate tung cau -> lai cat run,
+                    # lai lech toc do. Doc lien: mot toc do cho ca canh, khong cat.
+                    s["emo"] = None
+                    s["pad"] = 0.35 if not dlg else 0.4
                 if s.get("emo", {}) and s["emo"].get("name") in SLOW_EMO:
                     s["pad"] = float(s["pad"]) + 0.6         # câu xúc động: nghỉ lâu hơn cho ngấm
                 _rc = generate.ROLE_CONF.get(s.get("role") or "")
@@ -2844,7 +2861,16 @@ def run_film_job(job_id, data):
                     s["tts"] = (s.get("tts") or hz)
                     s["vi"] = s.get("vi") or hz
                     s["hz"] = ""
-            if sc["subs"]:                                  # BEAT cuối cảnh
+            if sc["subs"] and doc_lien:
+                # Doc lien: giua 2 SHOT cung canh (1.1 -> 1.2) chi nghi bang mot nhip xuong
+                # dong — loi ke chay tiep, chi doi hinh. Het CANH (1.x -> 2.1) moi lang them.
+                _si = scenes.index(sc)
+                _nx = scenes[_si + 1] if _si + 1 < len(scenes) else None
+                _cung = (_nx is not None and sc.get("shot_scene") is not None
+                         and _nx.get("shot_scene") == sc.get("shot_scene"))
+                sc["subs"][-1]["pad"] = float(sc["subs"][-1].get("pad", 0.35)) + \
+                    (0.15 if _cung else 0.45)
+            elif sc["subs"]:                                # BEAT cuối cảnh
                 sc["subs"][-1]["pad"] = float(sc["subs"][-1].get("pad", 0.6)) + 0.8
 
         # dung scene model cho film.make_film (+ SFX khong khi tung canh)
@@ -2898,6 +2924,7 @@ def run_film_job(job_id, data):
                 "grade": bool(data.get("grade", True)),
                 "letterbox": bool(data.get("letterbox", False)),
                 "duck": bool(data.get("duck", True)),
+                "doc_lien": doc_lien,                 # film.py noi cau bang dau cach (xem ben do)
                 # YC1: camera day vao nhan vat + dip-to-black chuan mau
                 "focus_subject": bool(data.get("focus_subject", True)),
                 "zoom_amt": (float(data["zoom_amt"]) if data.get("zoom_amt") else None),
