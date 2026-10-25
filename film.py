@@ -2162,17 +2162,24 @@ def make_title_thumb(video_path, title, header, out_jpg, bg_image=None):
         od.line([(0, yy), (1280, yy)], fill=(0, 0, 0, a))
     im = Image.alpha_composite(im.convert("RGBA"), ov)
     d = ImageDraw.Draw(im); cx = 640
-    ef = sp.font("viet", 34)
-    d.text((cx, 470), (header or "PHIM TIẾNG TRUNG").upper(), font=ef, anchor="ma",
-           fill=(240, 224, 180), stroke_width=2, stroke_fill=(0, 0, 0, 200))
-    # tiêu đề lớn, tự xuống dòng, viền đậm
-    tf = sp.font("viet", 74)
-    lines = sp.wrap_text(d, title, tf, 1160)[:2]
+    # tiêu đề lớn, tự xuống dòng, viền đậm; tiêu đề dài thì thu chữ (tối đa 3 dòng)
+    # thay vì cắt mất đuôi
+    for sz in (74, 68, 62, 56, 50, 46):
+        tf = sp.font("viet", sz)
+        lines = sp.wrap_text(d, title, tf, 1160)
+        if len(lines) <= 2 or (len(lines) <= 3 and sz <= 62):
+            break
+    lines = lines[:3]
     y = 700 - len(lines) * (tf.size + 8)
+    top = y
     for ln in lines:
         d.text((cx, y), ln, font=tf, anchor="ma", fill=(255, 255, 255),
                stroke_width=5, stroke_fill=(0, 0, 0, 230)); y += tf.size + 8
-    d.rounded_rectangle([cx - 70, 456, cx + 70, 460], radius=2, fill=(220, 180, 90))
+    ef = sp.font("viet", 34)
+    hy = min(470, top - 52)
+    d.text((cx, hy), (header or "PHIM TIẾNG TRUNG").upper(), font=ef, anchor="ma",
+           fill=(240, 224, 180), stroke_width=2, stroke_fill=(0, 0, 0, 200))
+    d.rounded_rectangle([cx - 70, hy - 14, cx + 70, hy - 10], radius=2, fill=(220, 180, 90))
     im.convert("RGB").save(out_jpg, quality=90)
     if frame and os.path.exists(frame):
         try: os.remove(frame)
