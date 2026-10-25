@@ -30,6 +30,12 @@ OUT = os.path.join(_HERE, "output")
 GOC_MAC_DINH = r"D:\content\12-truyen-xua-nhan-qua__chuyen-que-xua\12-truyen-xua-nhan-qua__chuyen-que-xua"
 
 
+def ten_nhan_vat(content):
+    """Ten nhan vat khai o dong '@voices Ten=giong, Ten2=giong' ([] neu khong khai)."""
+    m = re.search(r"^@voices\s+(.+)$", content, re.M)
+    return [p.split("=", 1)[0].strip() for p in m.group(1).split(",") if "=" in p] if m else []
+
+
 # ---------------------------------------------------------------- HTTP nho gon
 def _post(path, payload, timeout=1800):
     req = urllib.request.Request(SERVER + path,
@@ -240,7 +246,9 @@ def dung_bai(folder, opt):
         "sub_pinyin": False,                 # phim tieng Viet
         "narrate": True,
         "keep_audio": False,
-        "char_voices": {},
+        # 1 GIONG (25/10, user chot): nhan vat khai @voices van duoc nhan dien (bo nhan
+        # 'Ten:' truoc cau thoai) nhung doc bang chinh giong ke. --nhieu-giong de giu giong rieng.
+        "char_voices": {} if opt.nhieu_giong else {n: opt.voice for n in ten_nhan_vat(content)},
         "music_file": opt.music_file,
         "music_bed": "" if opt.music_file else opt.music,
         "music_vol": opt.music_vol,
@@ -290,6 +298,8 @@ def main():
     ap.add_argument("--voice", default="vbee:n_ninhbinh_male_nhattruyenxua_zero_shot_story_vc",
                     help="giong doc (mac dinh nhu tren trang film)")
     ap.add_argument("--rate", default="-16%", help="toc do doc, vd -8%%")
+    ap.add_argument("--nhieu-giong", dest="nhieu_giong", action="store_true",
+                    help="giu giong rieng cho nhan vat theo @voices (mac dinh: 1 giong ke doc het)")
     ap.add_argument("--voice-vol", dest="voice_vol", type=float, default=1.6)
     ap.add_argument("--nhip-doc", dest="nhip_doc", default="",
                     help="lien (ca canh 1 hoi doc, mac dinh voi Vbee) | vai_tro (cat tung cau)")
