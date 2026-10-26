@@ -438,6 +438,8 @@ def register(app, up_dir, load_key, batches_path):
             if s["status"] in ("validating", "in_progress", "finalizing", "cancelling"):
                 return jsonify(**s, saved=0, pending=True)
             if not b.get("output_file_id"):
+                # batch da ket thuc ma hong het (vd het tien) -> go trang thai de gui lai duoc
+                os.replace(os.path.join(d, STATE), os.path.join(d, ".batch.cu.json"))
                 return jsonify(error=f"Batch {s['status']}, không có file kết quả.", **s), 409
             out = _api("/files/" + b["output_file_id"] + "/content", key).decode("utf-8")
         except RuntimeError as e:
@@ -472,6 +474,10 @@ def register(app, up_dir, load_key, batches_path):
         du = all(os.path.exists(os.path.join(d, f)) for f in (st.get("files") or []))
         if du:
             os.remove(os.path.join(d, STATE))
+        else:
+            # batch da xong nhung con anh hong -> go trang thai (giu lai .batch.cu.json)
+            # de lan gui sau chi gui phan con thieu, khong ket o "da gui batch, cho lay ve"
+            os.replace(os.path.join(d, STATE), os.path.join(d, ".batch.cu.json"))
         return jsonify(**s, saved=len(saved), skipped=len(skipped), failed=failed,
                        du=du, row=_row(j.get("topic"), d))
 

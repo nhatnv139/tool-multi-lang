@@ -235,3 +235,21 @@ def set_thumbnail(channel_id, video_id, image_path):
     yt.thumbnails().set(videoId=video_id,
                         media_body=MediaFileUpload(image_path, mimetype="image/jpeg")).execute()
     return True
+
+
+def set_title(channel_id, video_id, title):
+    """Doi tieu de video da dang (giu nguyen mo ta/the/danh muc). Tra ve tieu de cu."""
+    from googleapiclient.discovery import build
+    creds = _creds_for(channel_id)
+    yt = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    items = yt.videos().list(part="snippet", id=video_id).execute().get("items") or []
+    if not items:
+        raise RuntimeError(f"Khong thay video {video_id} tren kenh")
+    sn = items[0]["snippet"]
+    cu = sn["title"]
+    body = {"id": video_id, "snippet": {"title": title[:100], "description": sn.get("description", ""),
+                                        "tags": sn.get("tags", []), "categoryId": sn["categoryId"]}}
+    if sn.get("defaultLanguage"):
+        body["snippet"]["defaultLanguage"] = sn["defaultLanguage"]
+    yt.videos().update(part="snippet", body=body).execute()
+    return cu
