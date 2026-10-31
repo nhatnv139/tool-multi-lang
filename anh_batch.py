@@ -422,6 +422,22 @@ def register(app, up_dir, load_key, batches_path):
             return jsonify(error=str(e)), 502
         return jsonify(s)
 
+    @app.route("/anh-batch/api/cancel", methods=["POST"])
+    def anh_batch_cancel():
+        j = request.get_json(force=True) or {}
+        d = _dir(j.get("topic"), j.get("tap"))
+        st = _state(d)
+        if not st:
+            return jsonify(error="Tập này chưa gửi batch (không có .batch.json)."), 404
+        key = load_key()
+        if not key:
+            return jsonify(error="Chưa có key OpenAI (openai_config.json)."), 400
+        try:
+            b = json.loads(_post_api(f"/batches/{st['batch_id']}/cancel", key, data={}))
+        except RuntimeError as e:
+            return jsonify(error=str(e)), 502
+        return jsonify(batch_id=b.get("id"), status=b.get("status"))
+
     @app.route("/anh-batch/api/fetch", methods=["POST"])
     def anh_batch_fetch():
         j = request.get_json(force=True) or {}

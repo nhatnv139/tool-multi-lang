@@ -254,6 +254,8 @@ def dung_bai(folder, opt):
         "music_vol": opt.music_vol,
         "voice_vol": opt.voice_vol,
         "nhip_doc": opt.nhip_doc,
+        "nghi_cau": opt.nghi_cau,
+        "nghi_phay": opt.nghi_phay,
         "film_mode": True,
         "particles": opt.particles,
         "scene_sfx": not opt.no_sfx,
@@ -303,6 +305,10 @@ def main():
     ap.add_argument("--voice-vol", dest="voice_vol", type=float, default=1.6)
     ap.add_argument("--nhip-doc", dest="nhip_doc", default="",
                     help="lien (ca canh 1 hoi doc, mac dinh voi Vbee) | vai_tro (cat tung cau)")
+    ap.add_argument("--nghi-cau", dest="nghi_cau", type=float, default=None,
+                    help="giay nghi het cau khi doc lien (mac dinh server 0.8)")
+    ap.add_argument("--nghi-phay", dest="nghi_phay", type=float, default=None,
+                    help="giay nghi dau phay khi doc lien (mac dinh server 0.5)")
     ap.add_argument("--music", default="warm", help="warm | hope | sad | none (khi khong co --music-file)")
     ap.add_argument("--music-file", dest="music_file",
                     default=os.path.join(_HERE, "assets", "film_music", "erev-shel-shoshanim.mp3"))
